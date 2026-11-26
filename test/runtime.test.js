@@ -83,6 +83,7 @@ test('isolated Nomad server persists a staged job and rejects stale writes', {
     }
     assert.ok(leader, 'Nomad did not elect a leader');
     const nomad = new Nomad(address, null);
+    assert.deepEqual(await nomad.connection(), { state: 'connected', namespace: 'default' });
     const job = createJob({
       spec: { nodeId: randomUUID(), driverId: 'probe', version: '1.0.0', settings: {} },
       release: { record: { image: { platforms: ['linux/amd64'] } }, configuration: { inputs: [], controlHealth: { port: 8080, path: '/control' } } },
@@ -92,6 +93,11 @@ test('isolated Nomad server persists a staged job and rejects stale writes', {
     const created = await nomad.submit(job, 0);
     const saved = await nomad.get(job.ID);
     assert.equal(saved.JobModifyIndex, created.revision);
+    const dry = await nomad.plan(saved);
+    assert.equal(dry.currentRevision, saved.JobModifyIndex);
+    assert.equal(dry.schedulable, true);
+    assert.ok(Array.isArray(await nomad.evaluations(job.ID)));
+    assert.equal((await nomad.versions(job.ID)).Versions[0].ID, job.ID);
     assert.equal(saved.TaskGroups[0].Count, 0);
     assert.equal((await nomad.list()).find(j => j.ID === job.ID).Meta.managed_by, 'driver-hub');
     await assert.rejects(nomad.submit(job, 0), error => error.status === 409);

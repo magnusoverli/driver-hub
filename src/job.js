@@ -13,27 +13,30 @@ function bindings(configuration, settings, nodeId, jobId) {
     supplied[identity.name] = nodeId;
   }
   const validation = validateSettings(configuration, supplied);
-  expect(validation.valid, `Invalid settings: ${validation.errors.map(e => `${e.field}:${e.code}`).join(', ')}`, 422);
+  expect(validation.valid, 'Invalid deployment settings', 422, 'invalid_settings', { fields: validation.errors });
   const templates = [];
   const volumes = [];
   const envLines = [];
   for (const field of configuration.inputs) {
     const value = Object.hasOwn(supplied, field.name) ? supplied[field.name] : field.default;
     if (value === undefined || field.env === nodeEnv) continue;
-    let expression;
+    let valueTemplate;
+    const filter = field.env ? ' | toJSON' : '';
     if (field.secret) {
       expect(keyPattern.test(value.secretRef), 'Deployment secretRef must be a key in the job-scoped Nomad Variable', 422);
-      expression = `(nomadVar "nomad/jobs/${jobId}").${value.secretRef}`;
+      // On its discovery pass consul-template returns nil while it registers
+      // the Variable dependency. Only evaluate the required key once resolved.
+      valueTemplate = `{{ with nomadVar "nomad/jobs/${jobId}" }}{{ .${value.secretRef}${filter} }}{{ end }}`;
     } else {
-      expression = `printf "%s" ${JSON.stringify(String(value))}`;
+      valueTemplate = `{{ printf "%s" ${JSON.stringify(String(value))}${filter} }}`;
     }
     if (field.env) {
       expect(!field.env.startsWith('NOMAD_'), 'Cannot override Nomad environment', 422);
-      envLines.push(`${field.env}={{ ${expression} | toJSON }}`);
+      envLines.push(`${field.env}=${valueTemplate}`);
     } else {
       expect(/^\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+$/.test(field.file), 'Unsupported container file destination', 422);
       const file = `secrets/input-${templates.length}`;
-      templates.push({ DestPath: file, EmbeddedTmpl: `{{ ${expression} }}`, ChangeMode: 'restart', ErrMissingKey: true, Perms: '0444' });
+      templates.push({ DestPath: file, EmbeddedTmpl: valueTemplate, ChangeMode: 'restart', ErrMissingKey: true, Perms: '0444' });
       volumes.push(`${file}:${field.file}:ro`);
     }
   }

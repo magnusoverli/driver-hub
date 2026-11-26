@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -101,6 +101,40 @@ test('source build uses a pinned upstream context and retains separate customer 
   assert.equal((await store.list())[0].origin, 'customer');
 });
 
+test('new-device staging with a request key survives retries without triggering migration or reverting updates', async t => {
+  const { store, images } = await setup(t);
+  await retain(store, '1.0.0');
+  await retain(store, '2.0.0');
+  let job;
+  let submissions = 0;
+  const nomad = new Nomad('http://test.invalid', null, 'default', async (url, req) => {
+    if (url.pathname.endsWith('/plan')) return Response.json({ JobModifyIndex: submissions });
+    if (url.pathname === '/v1/jobs') {
+      const { JobModifyIndex, Job } = JSON.parse(req.body);
+      if (JobModifyIndex !== submissions) return new Response(null, { status: 409 });
+      job = { ...Job, JobModifyIndex: ++submissions };
+      return Response.json({ JobModifyIndex: submissions, EvalID: 'eval' });
+    }
+    return job ? Response.json(job) : new Response(null, { status: 404 });
+  });
+  const deployments = new Deployments({ store, images, nomad, registry: 'images.internal', datacenters: ['dc1'] });
+  const base = `${await listen(t, createApi(null, store, { deployments }))}/api/v1/deployments`;
+  const input = { driverId: 'meter', version: '1.0.0', settings: { credential: { secretRef: 'key' } } };
+  const stage = body => fetch(base, { method: 'POST', headers: {
+    'Content-Type': 'application/json', 'Idempotency-Key': nodeId
+  }, body: JSON.stringify(body) });
+  const attempts = await Promise.all([stage(input), stage(input)]);
+  assert.deepEqual(attempts.map(r => r.status), [200, 200]);
+  assert.equal(submissions, 1);
+  assert.equal(job.Meta.migrated, 'false');
+  await deployments.change(nodeId, 'update', { revision: 1, version: '2.0.0' });
+  const replay = await (await stage(input)).json();
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.revision, 2);
+  assert.equal((await stage({ ...input, version: '2.0.0' })).status, 409);
+  assert.equal(submissions, 2);
+});
+
 test('migration, guarded start, update, rollback and stop use one stable Nomad job', async t => {
   const { store, images } = await setup(t);
   await retain(store, '1.0.0');
@@ -108,7 +142,7 @@ test('migration, guarded start, update, rollback and stop use one stable Nomad j
   let job;
   let observedAt = Math.floor(Date.now() / 1000);
   const nomad = new Nomad('http://nomad.invalid', null, 'default', async (url, request) => {
-    if (url.pathname.endsWith('/plan')) return Response.json({ FailedTGAllocs: {} });
+    if (url.pathname.endsWith('/plan')) return Response.json({ FailedTGAllocs: {}, JobModifyIndex: job?.JobModifyIndex ?? 0 });
     if (url.pathname === '/v1/jobs' && request.method === 'POST') {
       const { Job, EnforceIndex, JobModifyIndex } = JSON.parse(request.body);
       assert.ok(EnforceIndex);
@@ -130,10 +164,19 @@ test('migration, guarded start, update, rollback and stop use one stable Nomad j
   const post = (suffix, body) => fetch(`${base}${suffix}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   });
-  const stage = await post('', { nodeId, driverId: 'meter', version: '1.0.0', settings: { credential: { secretRef: 'key' } } });
+  const migration = { nodeId, driverId: 'meter', version: '1.0.0', settings: { credential: { secretRef: 'key' } } };
+  const planned = await (await post('?dryRun=true', migration)).json();
+  assert.equal(planned.preview, true);
+  assert.equal(planned.schedulable, true);
+  assert.equal(planned.requested, 'stopped');
+  assert.equal(job, undefined);
+  await assert.rejects(access(images.root), { code: 'ENOENT' });
+  const stage = await post('', migration);
   assert.equal(stage.status, 200);
   assert.equal(job.TaskGroups[0].Count, 0);
   const start = `/${nodeId}/start`;
+  assert.equal((await (await post(`${start}?dryRun=true`, { revision: 1 })).json()).requested, 'running');
+  assert.equal(job.TaskGroups[0].Count, 0);
   assert.equal((await post(start, { revision: 1 })).status, 409);
   assert.equal((await post(start, { revision: 1, originalStopped: true })).status, 200);
   const original = job.TaskGroups[0].Tasks[0].Config.image;
@@ -143,7 +186,9 @@ test('migration, guarded start, update, rollback and stop use one stable Nomad j
   assert.equal((await (await fetch(`${base}/${nodeId}`)).json()).communication, 'unknown');
   const update = `/${nodeId}/update`;
   assert.equal((await post(update, { revision: 1, version: '2.0.0' })).status, 409);
-  assert.equal((await post(update, { revision: 2, version: '2.0.0', settings: {} })).status, 422);
+  const invalid = await post(update, { revision: 2, version: '2.0.0', settings: {} });
+  assert.equal(invalid.status, 422);
+  assert.deepEqual((await invalid.json()).details.fields, [{ field: 'credential', code: 'required' }]);
   assert.equal((await post(update, { revision: 2, version: '2.0.0' })).status, 200);
   assert.notEqual(job.TaskGroups[0].Tasks[0].Config.image, original);
   assert.equal((await (await post(update, { revision: 3, version: '2.0.0' })).json()).unchanged, true);

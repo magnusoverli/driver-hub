@@ -4,6 +4,8 @@ Driver Hub is a self-hosted application for customer operators and administrator
 
 **Project state:** The backend implements release discovery, retention, customer source builds, verified OCI image distribution, and per-device deployment, migration, monitoring, updates and rollback via Nomad. See [installation and operation](OPERATIONS.md) for the lifecycle API and HA acceptance procedure. Site commissioning against VideoIPath and a physical device is still required. The upstream release convention remains a proposal.
 
+**Frontend handoff:** start with the [client API contract](OPERATIONS.md#client-api-contract). The running manager serves OpenAPI at `/api/v1/openapi.json`, exposes access and integration capabilities, supports scheduler dry runs, and tracks asynchronous build/download requests across browser disconnects.
+
 ## Running the backend
 
 Install Node.js 22 or newer and run `npm ci`, then `npm start`. The management HTTP API listens on `127.0.0.1:8080`; set `PORT` to change the port. Run `npm test` for the automated tests. Opt-in real Docker and Nomad tests are described in [OPERATIONS.md](OPERATIONS.md#verification).
