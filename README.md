@@ -46,6 +46,8 @@ For the proposed sample declaration, a settings body would be `{"deviceHost":"me
 
 UI implementation belongs to a separate developer. The lifecycle and status meanings above are shared product behavior; screen design and frontend technology are outside this discussion.
 
+**HA acceptance criterion:** With the Driver Hub management host offline, fail the host running a driver. Given a functioning Nomad cluster and an eligible replacement client with no cached image, Nomad must be able to start the pinned image with the existing configuration, credentials and `node_id`, and restore device communication. Recovery must not depend on the management host returning or on internet access. Internet connectivity changes how a site acquires releases (download or file import); once acquired, both use the same deployment and recovery workflow.
+
 ## Upstream proposal (items 11 and 14)
 
 The maintainer-facing draft is deliberately kept outside this repository: `VideoIPath-Driver-Release-Proposal.md` on the project owner's Desktop. It proposes a per-driver Git tag and GitHub Release with three offline-transferable assets: `driver-release.json`, `driver-config.json`, and an OCI image archive. Consumers would verify the referenced digests before deployment. Source-only contributions would remain valid. These filenames and formats are proposals, not a prerequisite the public repository already satisfies.
