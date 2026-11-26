@@ -16,6 +16,7 @@ import { createApi } from '../src/http.js';
 import { Nomad } from '../src/nomad.js';
 import { Builds } from '../src/builds.js';
 import { Site } from '../src/site.js';
+import { DeploymentLabels } from '../src/labels.js';
 
 const hash = b => createHash('sha256').update(b).digest('hex');
 const encode = obj => Buffer.from(JSON.stringify(obj));
@@ -233,20 +234,28 @@ test('new-device staging with a request key survives retries without triggering 
     }
     return job ? Response.json(job) : new Response(null, { status: 404 });
   });
-  const deployments = new Deployments({ store, images, nomad, registry: 'images.internal', datacenters: ['dc1'] });
+  const labels = await DeploymentLabels.open(join(store.root, '..', 'labels'));
+  const deployments = new Deployments({ store, images, nomad, registry: 'images.internal', datacenters: ['dc1'], labels });
   const base = `${await listen(t, createApi(null, store, { deployments }))}/api/v1/deployments`;
-  const input = { driverId: 'meter', version: '1.0.0', settings: { credential: { secretRef: 'key' } } };
+  const input = { driverId: 'meter', version: '1.0.0', settings: { credential: { secretRef: 'key' } }, label: 'Meter A' };
   const stage = body => fetch(base, { method: 'POST', headers: {
     'Content-Type': 'application/json', 'Idempotency-Key': nodeId
   }, body: JSON.stringify(body) });
+  const invalid = await stage({ ...input, label: '' });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, 'invalid_label');
+  assert.equal(submissions, 0);
   const attempts = await Promise.all([stage(input), stage(input)]);
   assert.deepEqual(attempts.map(r => r.status), [200, 200]);
   assert.equal(submissions, 1);
   assert.equal(job.Meta.migrated, 'false');
+  assert.equal(labels.get(nodeId), 'Meter A');
+  assert.ok(!JSON.stringify(job).includes('Meter A'));
   await deployments.change(nodeId, 'update', { revision: 1, version: '2.0.0' });
-  const replay = await (await stage(input)).json();
+  const replay = await (await stage({ ...input, label: 'Meter B' })).json();
   assert.equal(replay.replayed, true);
   assert.equal(replay.revision, 2);
+  assert.equal(labels.get(nodeId), 'Meter B');
   assert.equal((await stage({ ...input, version: '2.0.0' })).status, 409);
   assert.equal(submissions, 2);
 });
