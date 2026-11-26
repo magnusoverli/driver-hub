@@ -3,3 +3,12 @@
 !package-lock.json
 !src/
 !src/**
+!web/
+!web/**
+web/node_modules
+web/build
+web/.svelte-kit
+web/src/lib/paraglide
+web/test-results
+web/playwright-report
+web/project.inlang/cache

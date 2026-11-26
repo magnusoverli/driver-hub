@@ -4,7 +4,16 @@ Driver Hub is a self-hosted application for customer operators and administrator
 
 **Project state:** The backend implements release discovery, retention, customer source builds, verified OCI image distribution, and per-device deployment, migration, monitoring, updates and rollback via Nomad. See [installation and operation](OPERATIONS.md) for the lifecycle API and HA acceptance procedure. Site commissioning against VideoIPath and a physical device is still required. The upstream release convention remains a proposal.
 
-**Frontend handoff:** start with the [client API contract](OPERATIONS.md#client-api-contract). The running manager serves OpenAPI at `/api/v1/openapi.json`, exposes access and integration capabilities, supports scheduler dry runs, and tracks asynchronous build/download requests across browser disconnects.
+**Frontend:** the web app in [`web/`](web/README.md) is served by the manager from the same origin as the API. It currently provides sign-in, the application shell and site readiness; deployment, catalog and site management screens follow. Its API types are generated from the [client API contract](OPERATIONS.md#client-api-contract), which the running manager also serves at `/api/v1/openapi.json`.
+
+## Try it locally
+
+With Docker, start the manager and web app on `http://localhost:8080`:
+
+1. Next to `compose.yaml`, create a file named `.env` containing `DRIVER_HUB_INITIAL_PASSWORD=` followed by a password of at least 12 characters. It is only used to create the first account, `admin`, while the data volume is empty. The file is ignored by Git.
+2. Run `docker compose up --build -d`, then open `http://localhost:8080` and sign in as `admin`.
+
+Use `localhost`, not an IP address: the session cookie is `Secure`, which browsers accept over plain HTTP only on `localhost`. Without a Nomad cluster, the overview reports what the site still needs. `docker compose down` stops it; add `-v` to also delete the accounts and settings.
 
 ## Running the backend
 
@@ -53,7 +62,7 @@ Set `DRIVER_HUB_DATA_DIR` to select the retention directory (default: `.driver-h
 | 13. Migration | Support moving an already-running external driver to Driver Hub in the first release. Preserve the existing `node_id`. Stage the replacement, stop the original, start the replacement, then verify control. To revert, stop the replacement before restarting the original. |
 | 14. Configuration | Each deployable release declares its inputs: names, types, requirements, defaults where applicable, secret fields and how the image receives them. Customer values stay local. Validate against the target release before deployment or cutover. |
 
-UI implementation belongs to a separate developer. The lifecycle and status meanings above are shared product behavior; screen design and frontend technology are outside this discussion.
+The lifecycle and status meanings above are shared product behavior. The web frontend follows them: it shows process status and driver communication separately and never reports approval as verified.
 
 **HA acceptance criterion:** With the Driver Hub management host unavailable, fail the host running a driver. Given a functioning Nomad cluster and an eligible replacement client with no cached image, Nomad must be able to start the pinned image with the existing configuration, credentials and `node_id`, and restore device communication. Recovery must not depend on the management host returning. The connectivity assumption applies to the running Hub; it does not require every Nomad client to have internet access.
 

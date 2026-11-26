@@ -1,0 +1,33 @@
+# Local trial of Driver Hub: the manager with its web frontend, on http://localhost:8080.
+# Before the first start, set the first administrator's password (at least 12 characters) in a
+# .env file next to this file:  DRIVER_HUB_INITIAL_PASSWORD=choose-a-long-password
+# See "Try it locally" in README.md.
+name: driver-hub-trial
+
+services:
+  manager:
+    build: .
+    image: driver-hub:local
+    ports:
+      # Plain HTTP is only accepted on localhost; the session cookie is Secure.
+      - '127.0.0.1:8080:8080'
+    environment:
+      DRIVER_HUB_DATA_DIR: /data
+      DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: /run/secrets/initial-password
+    secrets:
+      - source: initial-password
+        # Readable by the manager's service user (UID 1000).
+        uid: '1000'
+        mode: 0400
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+secrets:
+  initial-password:
+    # Copied into the container as a file; the manager never sees it as an environment variable.
+    # Only used to create the first account while the data volume is empty.
+    environment: DRIVER_HUB_INITIAL_PASSWORD
+
+volumes:
+  data:

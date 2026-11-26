@@ -1,0 +1,104 @@
+/*
+ * Driver Hub design tokens: the "Slate" direction.
+ * Each colour is declared once with its light and dark value. The theme follows the operating
+ * system unless <html data-theme="light|dark"> overrides it (see src/lib/theme).
+ */
+:root {
+	color-scheme: light dark;
+
+	/* Type */
+	--font-sans: 'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif;
+	--font-mono: 'DM Mono', ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+	--text-xs: 0.75rem;
+	--text-sm: 0.8125rem;
+	--text-md: 0.875rem;
+	--text-lg: 1rem;
+	--text-xl: 1.25rem;
+	--text-2xl: 1.5rem;
+	--leading-tight: 1.25;
+	--leading: 1.45;
+	--weight-regular: 400;
+	--weight-medium: 500;
+	--weight-semibold: 600;
+	--weight-bold: 700;
+	--tracking-tight: -0.015em;
+
+	/* Space and shape */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.25rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+	--space-10: 2.5rem;
+	--radius-sm: 6px;
+	--radius: 8px;
+	--radius-md: 10px;
+	--radius-lg: 12px;
+	--radius-pill: 999px;
+	--control-sm: 1.875rem;
+	--control: 2.25rem;
+	--nav-width: 13.25rem;
+
+	/* Surfaces */
+	--bg: light-dark(#f2f4f7, #0b1015);
+	--surface: light-dark(#ffffff, #131a21);
+	--surface-raised: light-dark(#ffffff, #19222b);
+	--sunken: light-dark(#edf0f3, #1a222b);
+	--hover: light-dark(#e7ebef, #1f2933);
+	--border: light-dark(#e2e6eb, #232d37);
+	--border-strong: light-dark(#c5cdd6, #3a4654);
+	--overlay: light-dark(rgb(15 23 32 / 0.32), rgb(0 0 0 / 0.6));
+
+	/* Text */
+	--text: light-dark(#0f1720, #e5eaf0);
+	--text-2: light-dark(#475260, #a0acb8);
+	--text-3: light-dark(#5f6a77, #8793a0);
+
+	/* Accent: teal, used for primary actions, selection and focus */
+	--accent: light-dark(#0b7a75, #33c1b9);
+	--accent-hover: light-dark(#09655f, #52d2cb);
+	--accent-ink: light-dark(#ffffff, #04201e);
+	--accent-text: light-dark(#096a66, #5ed3cb);
+	--accent-soft: light-dark(#dff1ef, #0f2d2c);
+
+	/*
+	 * Status. Verified is blue and failed is orange so they differ in lightness as well as hue;
+	 * shape and text always accompany colour.
+	 */
+	--ok: light-dark(#2457c5, #7daaff);
+	--ok-soft: light-dark(#e5ecfb, #16243d);
+	--fail: light-dark(#c2410c, #ff8b50);
+	--fail-soft: light-dark(#fdede5, #2e1b12);
+	--warn: light-dark(#8a5a00, #e8b552);
+	--warn-soft: light-dark(#fbf1dc, #2d2412);
+
+	/* Elevation: light mode uses a soft shadow plus hairline, dark mode a hairline only */
+	--shadow-soft: light-dark(rgb(15 23 32 / 0.05), transparent);
+	--shadow-line: light-dark(rgb(15 23 32 / 0.07), rgb(255 255 255 / 0.07));
+	--shadow-float: light-dark(rgb(15 23 32 / 0.14), rgb(0 0 0 / 0.5));
+	--ring: 0 1px 2px var(--shadow-soft), 0 0 0 1px var(--shadow-line);
+	--elevated: 0 12px 32px -8px var(--shadow-float), 0 0 0 1px var(--shadow-line);
+	--focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+	/* Motion */
+	--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+	--duration-fast: 120ms;
+	--duration: 180ms;
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:root {
+		--duration-fast: 0ms;
+		--duration: 0ms;
+	}
+}
