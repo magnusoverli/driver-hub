@@ -16,7 +16,7 @@ Run `node src/main.js` with Node.js 22 or newer. No package installation is requ
 
 For the proposed sample declaration, a settings body would be `{"deviceHost":"meter.local","deviceCredential":{"secretRef":"meter/control"}}`. Omitted settings with a declared default pass validation. Secret references are opaque customer-local identifiers; supply no actual credentials. A 404 means the release was not found, 422 indicates unusable release metadata, and 502 means the upstream request failed (including GitHub rate limits).
 
-`src/catalog.js` coordinates listing and loading through an injected release source. `src/github.js` handles GitHub transport and pagination; `src/release.js` and `src/settings.js` implement the draft contracts; `src/http.js` exposes the API. The tests exercise the HTTP routes against a simulated upstream without network access. The server is currently a local development API. Offline import and storage, source builds, image distribution, and Nomad operations remain to be implemented.
+`src/catalog.js` coordinates listing and loading through an injected release source. `src/github.js` handles GitHub transport and pagination; `src/release.js` and `src/settings.js` implement the draft contracts; `src/http.js` exposes the API. The tests exercise the HTTP routes against a simulated upstream without network access. The server is currently a local development API. Release download and storage, source builds, image distribution, and Nomad operations remain to be implemented.
 
 ## Application definitions
 
@@ -38,7 +38,7 @@ For the proposed sample declaration, a settings body would be `{"deviceHost":"me
 | 3. Nomad boundary | Customer operates the cluster and provides a stable API address. Driver Hub submits and updates jobs and observes their status. Nomad schedules and recovers workloads without requiring Driver Hub to be online for each restart. |
 | 4. Ownership | The project repository is private: [magnusoverli/driver-hub](https://github.com/magnusoverli/driver-hub). It is not a fork or an official component of the upstream project. |
 | 5–7. Distribution | Prefer versioned, maintainer-published OCI images. Also support downloading source and building in a connected Driver Hub environment. Customer admins may test or run their own builds, including in production; these actions never publish upstream. |
-| 8–10. Disconnected sites | A site can import releases, deploy, update, recover and roll back with no internet access. Driver Hub owns local image distribution to eligible Nomad clients. No integration with customer-private registries. Building from source inside a disconnected facility is not required, now or later. |
+| 8–10. Connectivity and distribution (revised) | Assume the running Driver Hub has internet access for release discovery and download. The earlier requirement to support a disconnected installation is superseded. Driver Hub owns image distribution to eligible Nomad clients; no integration with customer-private registries. |
 | 11. Release discovery | Discover updates per driver, independently of unrelated changes in the public repository. Propose a machine-readable per-driver release convention to upstream maintainers. Its adoption is pending. |
 | 12. Approval | Device approval stays in VideoIPath. Distinguish Nomad process status from driver communication; report only states that can be verified. |
 | 13. Migration | Support moving an already-running external driver to Driver Hub in the first release. Preserve the existing `node_id`. Stage the replacement, stop the original, start the replacement, then verify control. To revert, stop the replacement before restarting the original. |
@@ -46,7 +46,7 @@ For the proposed sample declaration, a settings body would be `{"deviceHost":"me
 
 UI implementation belongs to a separate developer. The lifecycle and status meanings above are shared product behavior; screen design and frontend technology are outside this discussion.
 
-**HA acceptance criterion:** With the Driver Hub management host offline, fail the host running a driver. Given a functioning Nomad cluster and an eligible replacement client with no cached image, Nomad must be able to start the pinned image with the existing configuration, credentials and `node_id`, and restore device communication. Recovery must not depend on the management host returning or on internet access. Internet connectivity changes how a site acquires releases (download or file import); once acquired, both use the same deployment and recovery workflow.
+**HA acceptance criterion:** With the Driver Hub management host unavailable, fail the host running a driver. Given a functioning Nomad cluster and an eligible replacement client with no cached image, Nomad must be able to start the pinned image with the existing configuration, credentials and `node_id`, and restore device communication. Recovery must not depend on the management host returning. The connectivity assumption applies to the running Hub; it does not require every Nomad client to have internet access.
 
 ## Upstream proposal (items 11 and 14)
 
@@ -59,7 +59,7 @@ The first unresolved design question is **safe failover during a network partiti
 | Open design item | What to establish |
 | --- | --- |
 | Failover and health | How to prevent competing instances, what evidence confirms device communication, and how quickly control needs to return. Verify takeover and recovery with the intended VideoIPath release. |
-| Offline image distribution | How Driver Hub stores and serves retained images to eligible Nomad clients, including a replacement host with no cached image. |
-| Release pilot | Whether upstream maintainers accept the convention. Exercise two releases of one driver, a changed required setting, disconnected import, update and rollback. |
+| Image distribution | How eligible Nomad clients can retrieve a retained image when the Hub management host is unavailable, including on a replacement host with no cached image. |
+| Release pilot | Whether upstream maintainers accept the convention. Exercise discovery and download of two releases of one driver, a changed required setting, update and rollback. |
 
 When resuming work, read this file first. Preserve the interview numbers when revising a decision, distinguish proposals from agreements, and add subsequent decisions with the next available number.
