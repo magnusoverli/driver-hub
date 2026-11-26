@@ -4,7 +4,7 @@ Driver Hub is a self-hosted application for customer operators and administrator
 
 **Project state:** The backend implements release discovery, retention, customer source builds, verified OCI image distribution, and per-device deployment, migration, monitoring, updates and rollback via Nomad. See [installation and operation](OPERATIONS.md) for the lifecycle API and HA acceptance procedure. Site commissioning against VideoIPath and a physical device is still required. The upstream release convention remains a proposal.
 
-**Frontend:** the web app in [`web/`](web/README.md) is served by the manager from the same origin as the API. It currently provides sign-in, the application shell and site readiness; deployment, catalog and site management screens follow. Its API types are generated from the [client API contract](OPERATIONS.md#client-api-contract), which the running manager also serves at `/api/v1/openapi.json`.
+**Frontend:** the web app in [`web/`](web/README.md) is served by the manager from the same origin as the API. It currently provides sign-in, the application shell, site readiness, and the deployment list and detail views. From the detail view, devices can be started, stopped, updated, rolled back and named, each after a Nomad dry run. Catalog screens (including staging new devices) and site management screens follow. Its API types are generated from the [client API contract](OPERATIONS.md#client-api-contract), which the running manager also serves at `/api/v1/openapi.json`.
 
 ## Try it locally
 

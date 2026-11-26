@@ -1,6 +1,6 @@
-import type { components } from '#lib/api/schema.js';
+import type { Allocation, Deployment, DeploymentSummary } from './queries';
 
-export type DeploymentSummary = components['schemas']['DeploymentSummary'];
+export type { DeploymentSummary };
 
 /** The four facts between "Hub asked for it" and "the device is in service", in order. */
 export const HOPS = ['requested', 'allocation', 'control', 'approval'] as const;
@@ -19,14 +19,16 @@ export type HopState =
 
 export type StatusPath = Record<Hop, HopState>;
 
+/** What the status path is derived from, as both the list and the detail report it. */
+export type StatusInput = Pick<DeploymentSummary, 'requested' | 'allocation' | 'communication'>;
+
 const failedClientStates = new Set(['failed', 'lost']);
 
 /**
  * Derives the status path from what the manager reports. A running allocation is not shown as
  * control, and approval lives in VideoIPath, so Hub never reports it as verified.
  */
-export function statusPath(deployment: DeploymentSummary): StatusPath {
-	const { requested, allocation, communication } = deployment;
+export function statusPath({ requested, allocation, communication }: StatusInput): StatusPath {
 	const approval: HopState = 'unknown';
 	if (requested === null) {
 		return { requested: 'unknown', allocation: 'unknown', control: 'unknown', approval };
@@ -47,4 +49,26 @@ export function statusPath(deployment: DeploymentSummary): StatusPath {
 				? 'failed'
 				: 'unknown';
 	return { requested: 'verified', allocation: allocationState, control, approval };
+}
+
+/**
+ * The allocation an operator means by "where it runs", chosen as the manager does for the list:
+ * the one Nomad wants running for the newest job version.
+ */
+export function currentAllocation(allocations: readonly Allocation[]): Allocation | null {
+	let current: Allocation | null = null;
+	for (const allocation of allocations) {
+		if (allocation.desired !== 'run') continue;
+		if (!current || (allocation.jobVersion ?? 0) > (current.jobVersion ?? 0)) current = allocation;
+	}
+	return current;
+}
+
+/** The detail view reports every allocation; the status path needs the current one. */
+export function detailStatusInput(deployment: Deployment): StatusInput {
+	return {
+		requested: deployment.requested,
+		communication: deployment.communication,
+		allocation: currentAllocation(deployment.allocations)
+	};
 }
