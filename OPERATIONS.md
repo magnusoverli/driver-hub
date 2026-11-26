@@ -93,6 +93,26 @@ Every change after staging requires the `revision` returned by the prior submiss
 
 ## Client API contract
 
+### Render and validate the deployment form
+
+`POST /api/v1/retained/{driverId}/{version}/deploy-form` returns the form for a locally retained release. Use the identical `/api/v1/releases/{driverId}/{version}/deploy-form` route to inspect a published release before retaining it. Both accept viewers. Send JSON `{}` for the initial form; resend with the current `settings` object to validate edits. For example:
+
+```json
+{"inheritSite":true,"settings":{"deviceHost":"meter.local","deviceCredential":{"secretRef":"device_key"}}}
+```
+
+`inheritsSite` reports the effective choice. Omitting `inheritSite` follows staging's default (inherit if configured); `true` requires a configured site (otherwise 409); `false` uses manual release settings. Optional `nodeId` is the existing or planned deployment UUID for checking identity-bound fields; normally omit identity fields from `settings`.
+
+| `fields[].source` | Frontend behavior |
+| --- | --- |
+| `operator` | Render the declared type, required flag, optional default and limits (`minimum`, `maximum`, `minLength`). For `secret:true`, collect a **reference name** matching `secretRefPattern` and submit `{"secretRef":"name"}`. A required field with a default may be omitted. |
+| `site` | Show as supplied by the site. Omit from `settings`, including URL and token bindings with custom names. |
+| `identity` | Show as supplied by Hub, including for migrations that use a top-level `nodeId`. Omit from `settings`. |
+
+HTTP 200 returns `validation: {"valid":boolean,"errors":[{"field":"…","code":"…"}]}` even for an incomplete form. Join error `field` to field `name`. The response contains declaration metadata, not entered values or resolved secrets. The calculation checks deployment inputs only; it neither checks token availability nor plans placement. Follow it with the deployment dry run when ready. The older `/validate` endpoints still check the raw release declaration without site or identity inheritance.
+
+### Client discovery and lifecycle requests
+
 `GET /api/v1/openapi.json` serves the OpenAPI 3.1 contract, including request and response schemas for all management routes. For offline client generation, export the same contract from the repository with `node --input-type=module -e "import {apiContract} from './src/openapi.js'; console.log(JSON.stringify(apiContract))"`. The manager's `GET /api/v1/capabilities` identifies the caller's access level and which integrations are configured; it does not claim the cluster can schedule a driver.
 
 | Client task | Backend behavior |

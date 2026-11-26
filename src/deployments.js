@@ -5,13 +5,12 @@ import { createJob } from './job.js';
 import { imageKey } from './images.js';
 import { parseTag } from './release.js';
 import { placementIssues } from './nomad.js';
-import { fingerprint, uuidPattern } from './request-key.js';
+import { fingerprint } from './request-key.js';
+import { selectProfile, validateNodeId } from './deployment-inputs.js';
 import { requireSecureNomad } from './site.js';
 
-const nil = '00000000-0000-0000-0000-000000000000';
-
 function jobId(nodeId) {
-  expect(typeof nodeId === 'string' && uuidPattern.test(nodeId) && nodeId !== nil, 'Expected a lowercase, non-nil node UUID');
+  validateNodeId(nodeId);
   return `driverhub-${nodeId}`;
 }
 
@@ -148,7 +147,6 @@ export class Deployments {
     const nodeId = migrated ? input.nodeId : key ?? randomUUID();
     const id = jobId(nodeId);
     const spec = { nodeId, driverId: input.driverId, version: input.version, settings: input.settings ?? {} };
-    expect(input.inheritSite === undefined || typeof input.inheritSite === 'boolean', 'inheritSite must be boolean');
     const signature = key && fingerprint('stage', input.inheritSite === undefined ? spec : { ...spec, inheritSite: input.inheritSite });
     const replay = job => {
       expect(!preview && signature && job.Meta?.managed_by === 'driver-hub' && job.Meta.stage_request === signature,
@@ -157,12 +155,12 @@ export class Deployments {
     };
     const existing = await this.nomad.get(id);
     if (existing) return replay(existing);
-    if (input.inheritSite === true) expect(this.profile, 'No VideoIPath site is configured', 409);
-    if (this.profile && input.inheritSite !== false) {
+    const profile = selectProfile(input.inheritSite, this.profile);
+    if (profile) {
       expect(preview || key || migrated, 'Supply Idempotency-Key when staging a new site-managed device');
       requireSecureNomad(this.nomad.address);
-      this.site.checkAvailable(this.profile.id, nodeId);
-      spec.videoIPath = this.profile;
+      this.site.checkAvailable(profile.id, nodeId);
+      spec.videoIPath = profile;
     }
     try {
       return await this.submit(spec, null, false, migrated, 0, preview, signature);

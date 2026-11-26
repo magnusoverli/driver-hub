@@ -16,6 +16,11 @@ const settings = { type: 'object', additionalProperties: {
   oneOf: [str, integer, bool, object({ secretRef: str })]
 } };
 const fieldErrors = array(object({ field: str, code: str }));
+const fieldProperties = {
+  name: str, type: values('string', 'integer', 'boolean'), required: bool,
+  default: { type: ['string', 'integer', 'boolean'] }, env: str, file: str, secret: bool,
+  minLength: integer, minimum: integer, maximum: integer
+};
 const preview = { name: 'dryRun', in: 'query', schema: bool, description: 'Plan without publishing or registering a job.' };
 const acquisition = [
   { name: 'Prefer', in: 'header', schema: values('respond-async') },
@@ -44,11 +49,11 @@ const schemas = {
   Validation: object({ valid: bool, errors: fieldErrors }),
   Declaration: object({
     schemaVersion: { const: 1 }, nodeIdInput: str, videoIPathInputs: object({ url: str, token: str }, []), controlHealth: object({ port: integer, path: str }),
-    inputs: array(object({
-      name: str, type: values('string', 'integer', 'boolean'), required: bool, default: {}, env: str,
-      file: str, secret: bool, minLength: integer, minimum: integer, maximum: integer
-    }, ['name', 'type', 'required']))
+    inputs: array(object(fieldProperties, ['name', 'type', 'required']))
   }, ['schemaVersion', 'inputs']),
+  DeployForm: object({ inheritsSite: bool, fields: array(object({
+    ...fieldProperties, source: values('operator', 'site', 'identity'), secretRefPattern: str
+  }, ['name', 'type', 'required', 'source'])), validation: ref('Validation') }),
   Release: object({
     record: object({
       ...identity, schemaVersion: { const: 1 }, displayName: str, origin: values('customer', 'maintainer'),
@@ -124,6 +129,9 @@ for (const [collection, label] of [['releases', 'Published'], ['retained', 'Reta
   const resource = `/${collection}/{driverId}/{version}`;
   paths[resource] = { get: endpoint(`get${label}Release`, ref('Release'), { parameters: releasePath }) };
   paths[`${resource}/validate`] = { post: endpoint(`validate${label}Settings`, ref('Validation'), { parameters: releasePath, body: settings }) };
+  paths[`${resource}/deploy-form`] = { post: endpoint(`get${label}DeployForm`, ref('DeployForm'), {
+    parameters: releasePath, body: object({ inheritSite: bool, nodeId: uuid, settings }, [])
+  }) };
 }
 paths['/retained/{driverId}/{version}'].put = endpoint('retainRelease', ref('Release'), { async: true, parameters: [...releasePath, ...acquisition] });
 for (const action of ['start', 'stop', 'update', 'rollback']) {

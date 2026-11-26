@@ -97,6 +97,24 @@ test('mismatched identity, checksum, and missing archive fail closed', async t =
   assert.equal((await fetch(url)).status, 422);
 });
 
+test('published deployment form describes defaults and validates driver input without a configured site', async t => {
+  const base = await serve(t, fixture().catalog);
+  const post = body => fetch(`${base}/meter/1.0.0/deploy-form`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const form = await (await post({})).json();
+  assert.equal(form.inheritsSite, false);
+  assert.deepEqual(form.fields.find(f => f.name === 'port'), { ...config.inputs[1], source: 'operator' });
+  assert.equal(form.fields.find(f => f.source === 'identity').env, 'VIDEOIPATH_NODE_ID');
+  assert.deepEqual(form.validation.errors.map(e => e.field), ['host', 'credential']);
+  assert.equal((await post({ inheritSite: true })).status, 409);
+  assert.equal((await post({ inheritSite: 'true' })).status, 400);
+  assert.equal((await post({ nodeId: 'invalid' })).status, 400);
+  assert.equal((await post({ settings: [] })).status, 400);
+  const invalid = await (await post({ settings: { credential: { secretRef: 'not/a/key' }, host: 'device' } })).json();
+  assert.deepEqual(invalid.validation, { valid: false, errors: [{ field: 'credential', code: 'invalid_secret_key' }] });
+  assert.ok(!JSON.stringify(invalid).includes('not/a/key'));
+});
+
 test('GitHub outages are distinguishable from an empty catalog', async t => {
   const source = new GitHubReleases(async () => new Response(null, { status: 503 }));
   const base = await serve(t, new Catalog(source));

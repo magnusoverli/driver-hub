@@ -122,9 +122,27 @@ test('post-start site setup assigns separate durable registration tokens without
   assert.equal(view.videoipath.availableTokens, 2);
   assert.equal((await put('videoipath', vip)).status, 409);
   const nodes = [randomUUID(), randomUUID()];
+  const formRequest = await fetch(`${base}/retained/meter/1.0.0/deploy-form`, {
+    method: 'POST', headers, body: JSON.stringify({ settings: { credential: { secretRef: 'device_key' } } })
+  });
+  assert.equal(formRequest.status, 200);
+  const form = await formRequest.json();
+  assert.deepEqual(form.validation, { valid: true, errors: [] });
+  assert.deepEqual(form.fields.filter(f => f.source === 'site').map(f => f.env), ['VIDEOIPATH_URL', 'VIDEOIPATH_TOKEN']);
+  assert.equal(site.describe().revision, view.revision);
+  assert.equal(jobs.size, 0);
+  assert.equal(variables.size, 0);
   const stage = (node, dry = false) => fetch(`${base}/deployments?dryRun=${dry}`, { method: 'POST',
     headers: { ...headers, 'Idempotency-Key': node }, body: JSON.stringify({ driverId: 'meter', version: '1.0.0',
       settings: { credential: { secretRef: 'device_key' } } }) });
+  const invalidInput = { settings: { credential: { secretRef: 'not/a/key' } } };
+  const invalidForm = await fetch(`${base}/retained/meter/1.0.0/deploy-form`, {
+    method: 'POST', headers, body: JSON.stringify(invalidInput)
+  });
+  const invalidPlan = await fetch(`${base}/deployments?dryRun=true`, { method: 'POST', headers,
+    body: JSON.stringify({ driverId: 'meter', version: '1.0.0', ...invalidInput }) });
+  assert.equal(invalidPlan.status, 422);
+  assert.deepEqual((await invalidPlan.json()).details.fields, (await invalidForm.json()).validation.errors);
   assert.equal((await stage(nodes[0], true)).status, 200);
   assert.equal(variables.size, 0);
   assert.equal(site.describe().videoipath.availableTokens, 2);

@@ -4,6 +4,7 @@ import { isObject, validateSettings } from './settings.js';
 import { RequestError, expect } from './errors.js';
 import { publicError } from './public-error.js';
 import { apiContract } from './openapi.js';
+import { deployForm } from './deployment-inputs.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -113,29 +114,30 @@ async function route(request, catalog, store, { deployments, builds, operations,
     if (request.method !== 'GET') throw new RequestError(405, 'Expected GET');
     return { releases: await catalog.list(searchParams.get('prerelease') === 'true') };
   }
-  const match = /^\/api\/v1\/(releases|retained)\/([^/]+)\/([^/]+)(\/validate)?$/.exec(pathname);
+  const match = /^\/api\/v1\/(releases|retained)\/([^/]+)\/([^/]+)(?:\/(validate|deploy-form))?$/.exec(pathname);
   if (!match) throw new RequestError(404, 'Unknown route');
-  const [, collection, driverId, rawVersion, validate] = match;
+  const [, collection, driverId, rawVersion, action] = match;
   let version;
   try {
     version = decodeURIComponent(rawVersion);
   } catch {
     throw new RequestError(400, 'Malformed release version');
   }
-  if (collection === 'retained' && !validate && request.method === 'PUT') {
+  if (collection === 'retained' && !action && request.method === 'PUT') {
     return acquire(request, operations, 'retain', { driverId, version }, async () => {
       const retained = await catalog.retain(driverId, version, store);
       if (!retained) throw new RequestError(404, 'Unknown upstream release');
       return retained;
     });
   }
-  const method = validate ? 'POST' : 'GET';
+  const method = action ? 'POST' : 'GET';
   if (request.method !== method) throw new RequestError(405, `Expected ${method}`);
-  const settings = validate ? await readSettings(request) : null;
+  const input = action ? await readSettings(request) : null;
   const source = collection === 'retained' ? store : catalog;
   const release = await source.load(driverId, version);
   if (!release) throw new RequestError(404, 'Unknown driver release');
-  return validate ? validateSettings(release.configuration, settings) : release;
+  if (action === 'deploy-form') return deployForm(release.configuration, input, deployments?.profile);
+  return action === 'validate' ? validateSettings(release.configuration, input) : release;
 }
 
 function authorize(request, token, viewerToken) {
@@ -145,7 +147,7 @@ function authorize(request, token, viewerToken) {
     if (timingSafeEqual(provided, digest(`Bearer ${token}`))) return 'admin';
     expect(viewerToken && timingSafeEqual(provided, digest(`Bearer ${viewerToken}`)), 'Authorization required', 401);
     const { pathname, searchParams } = new URL(request.url, 'http://localhost');
-    const validation = /^\/api\/v1\/(retained|releases)\/[^/]+\/[^/]+\/validate$/.test(pathname);
+    const validation = /^\/api\/v1\/(retained|releases)\/[^/]+\/[^/]+\/(?:validate|deploy-form)$/.test(pathname);
     const plan = /^\/api\/v1\/deployments(?:\/[^/]+\/(?:start|stop|update|rollback))?$/.test(pathname) &&
       searchParams.get('dryRun') === 'true';
     expect(request.method === 'GET' || (request.method === 'POST' && (validation || plan)),

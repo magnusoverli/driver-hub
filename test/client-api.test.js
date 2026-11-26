@@ -91,3 +91,31 @@ test('viewers discover capabilities and preview changes but cannot apply them', 
   assert.ok(contract.paths['/builds'].post.responses['202']);
   assert.ok(contract.paths['/deployments/{nodeId}/evaluations'].get);
 });
+
+test('viewer deploy form handles mapped site and identity inputs without contacting Nomad', async t => {
+  const configuration = { schemaVersion: 1, nodeIdInput: 'identity', videoIPathInputs: { token: 'access' }, inputs: [
+    { name: 'identity', type: 'string', file: '/node-id', required: true },
+    { name: 'access', type: 'string', secret: true, file: '/token', required: true },
+    { name: 'backend', type: 'string', required: true, env: 'VIDEOIPATH_URL' },
+    { name: 'enabled', type: 'boolean', required: true, default: false, env: 'ENABLED' }
+  ] };
+  const viewerToken = randomUUID();
+  const profile = { id: 'testprofile', url: 'wss://vip.example/x-driver/v1' };
+  const { base } = await fixture(t, { deployments: { profile }, token: randomUUID(), viewerToken }, { load: () => ({ configuration }) });
+  const post = body => fetch(`${base}/releases/meter/1.0.0/deploy-form`, { method: 'POST',
+    headers: { Authorization: `Bearer ${viewerToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await post({});
+  assert.equal(res.status, 200);
+  const form = await res.json();
+  assert.equal(form.inheritsSite, true);
+  assert.deepEqual(form.validation, { valid: true, errors: [] });
+  assert.deepEqual(form.fields.map(f => f.source), ['identity', 'site', 'site', 'operator']);
+  for (const value of [profile.id, profile.url]) assert.ok(!JSON.stringify(form).includes(value));
+  const manual = await (await post({ inheritSite: false })).json();
+  assert.deepEqual(manual.validation.errors.map(e => e.field), ['access', 'backend']);
+  assert.equal(manual.fields[1].source, 'operator');
+  assert.match('device_key', new RegExp(manual.fields[1].secretRefPattern));
+  const mismatch = await (await post({ nodeId: randomUUID(), settings: { identity: randomUUID(), access: 'do-not-echo' } })).json();
+  assert.deepEqual(mismatch.validation.errors.map(e => e.code), ['site_input_override', 'identity_override']);
+  assert.ok(!JSON.stringify(mismatch).includes('do-not-echo'));
+});
