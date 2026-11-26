@@ -2,7 +2,21 @@
 
 Driver Hub is a self-hosted application for customer operators and administrators to browse, download, deploy, monitor and update VideoIPath external drivers. It integrates with the [public driver repository](https://github.com/VideoIPath/VideoIPath_External_Drivers) for releases and with a customer-operated Nomad cluster for execution. This project is independent of the upstream repository.
 
-**Project state:** Product definition; no implementation yet. This file is the starting point for future sessions. The numbered decisions refer to the product interview. Proposed upstream conventions are not implemented upstream contracts.
+**Project state:** The first backend slice implements connected release discovery and deployment settings preflight. The numbered decisions below describe the product, not a list of completed features. Proposed upstream conventions are not implemented upstream contracts.
+
+## Running the backend
+
+Run `node src/main.js` with Node.js 22 or newer. No package installation is required. The HTTP API listens on `127.0.0.1:8080`; set `PORT` to change the port. Run `node --test` for the offline integration tests.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/v1/releases` | Lists published release candidates from the public repository in GitHub's order. Requires a per-driver SemVer tag and an uploaded `driver-release.json`. Prereleases are hidden unless `?prerelease=true`. An empty list is expected until maintainers publish matching releases. |
+| `GET /api/v1/releases/{driverId}/{version}` | Returns `record` and `configuration` after checking tag identity, required asset presence, configuration SHA-256 and supported input declarations. Does not download or verify image bytes. |
+| `POST /api/v1/releases/{driverId}/{version}/validate` | Accepts an `application/json` settings object. Returns `{ "valid": true, "errors": [] }` or field names and error codes. Checks required inputs, non-secret defaults, string length, integer bounds, booleans and secret-reference shape. Does not resolve credentials, persist values, or submit a job. |
+
+For the proposed sample declaration, a settings body would be `{"deviceHost":"meter.local","deviceCredential":{"secretRef":"meter/control"}}`. Omitted settings with a declared default pass validation. Secret references are opaque customer-local identifiers; supply no actual credentials. A 404 means the release was not found, 422 indicates unusable release metadata, and 502 means the upstream request failed (including GitHub rate limits).
+
+`src/catalog.js` coordinates listing and loading through an injected release source. `src/github.js` handles GitHub transport and pagination; `src/release.js` and `src/settings.js` implement the draft contracts; `src/http.js` exposes the API. The tests exercise the HTTP routes against a simulated upstream without network access. The server is currently a local development API. Offline import and storage, source builds, image distribution, and Nomad operations remain to be implemented.
 
 ## Application definitions
 
