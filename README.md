@@ -2,7 +2,7 @@
 
 Driver Hub is a self-hosted application for customer operators and administrators to browse, download, deploy, monitor and update VideoIPath external drivers. It integrates with the [public driver repository](https://github.com/VideoIPath/VideoIPath_External_Drivers) for releases and with a customer-operated Nomad cluster for execution. This project is independent of the upstream repository.
 
-**Project state:** The first backend slice implements connected release discovery and deployment settings preflight. The numbered decisions below describe the product, not a list of completed features. Proposed upstream conventions are not implemented upstream contracts.
+**Project state:** The backend supports connected release discovery, archive download and retention, and deployment settings preflight against upstream or retained releases. The numbered decisions below describe the product, not a list of completed features. Proposed upstream conventions are not implemented upstream contracts.
 
 ## Running the backend
 
@@ -13,10 +13,15 @@ Run `node src/main.js` with Node.js 22 or newer. No package installation is requ
 | `GET /api/v1/releases` | Lists published release candidates from the public repository in GitHub's order. Requires a per-driver SemVer tag and an uploaded `driver-release.json`. Prereleases are hidden unless `?prerelease=true`. An empty list is expected until maintainers publish matching releases. |
 | `GET /api/v1/releases/{driverId}/{version}` | Returns `record` and `configuration` after checking tag identity, required asset presence, configuration SHA-256 and supported input declarations. Does not download or verify image bytes. |
 | `POST /api/v1/releases/{driverId}/{version}/validate` | Accepts an `application/json` settings object. Returns `{ "valid": true, "errors": [] }` or field names and error codes. Checks required inputs, non-secret defaults, string length, integer bounds, booleans and secret-reference shape. Does not resolve credentials, persist values, or submit a job. |
+| `PUT /api/v1/retained/{driverId}/{version}` | Downloads a selected release from GitHub. Streams up to 2 GiB of compressed archive data, checks the archive SHA-256, and publishes the archive, record and declaration together. Repeating this request checks upstream metadata and reuses an identical retained version; a changed record returns 409 without overwriting it. |
+| `GET /api/v1/retained/{driverId}/{version}` | Returns saved metadata and configuration without contacting GitHub. Returns 404 when that version has not been retained. |
+| `POST /api/v1/retained/{driverId}/{version}/validate` | Validates settings against the saved declaration instead of fetching from GitHub. Uses the same request and response as upstream validation. |
 
 For the proposed sample declaration, a settings body would be `{"deviceHost":"meter.local","deviceCredential":{"secretRef":"meter/control"}}`. Omitted settings with a declared default pass validation. Secret references are opaque customer-local identifiers; supply no actual credentials. A 404 means the release was not found, 422 indicates unusable release metadata, and 502 means the upstream request failed (including GitHub rate limits).
 
-`src/catalog.js` coordinates listing and loading through an injected release source. `src/github.js` handles GitHub transport and pagination; `src/release.js` and `src/settings.js` implement the draft contracts; `src/http.js` exposes the API. The tests exercise the HTTP routes against a simulated upstream without network access. The server is currently a local development API. Release download and storage, source builds, image distribution, and Nomad operations remain to be implemented.
+Set `DRIVER_HUB_DATA_DIR` to select the storage directory (default: `.driver-hub` in the user's home). `src/release-store.js` stages downloads on that filesystem and publishes complete versions by directory rename. Retention verifies the archive checksum; verification of the inner OCI manifests and layers is still needed before deployment. This development store is local to the Hub host, not the HA image distribution service.
+
+`src/catalog.js` coordinates discovery and retention through an injected release source. `src/github.js` handles GitHub transport and pagination; `src/release.js` and `src/settings.js` implement the draft contracts; `src/http.js` exposes the API. The tests exercise the HTTP routes against a simulated upstream without network access. Source builds, image distribution, and Nomad operations remain to be implemented.
 
 ## Application definitions
 

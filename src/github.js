@@ -2,6 +2,7 @@ import { InvalidRelease } from './release.js';
 
 const base = 'https://api.github.com/repos/VideoIPath/VideoIPath_External_Drivers';
 const metadataLimit = 4 * 1024 * 1024;
+const archiveLimit = 2 * 1024 ** 3;
 
 export class UpstreamError extends Error {}
 
@@ -10,29 +11,45 @@ export class GitHubReleases {
     this.request = request;
   }
 
-  async read(path, accept, limit, allowMissing = false) {
+  async open(path, accept, timeout, allowMissing) {
     try {
       const response = await this.request(`${base}${path}`, {
         headers: { Accept: accept, 'User-Agent': 'driver-hub' },
-        signal: AbortSignal.timeout(15000)
+        signal: AbortSignal.timeout(timeout)
       });
       if (!response.ok) {
         await response.body?.cancel();
         if (allowMissing && response.status === 404) return null;
         throw new UpstreamError(`GitHub returned HTTP ${response.status}`);
       }
-      const chunks = [];
-      let size = 0;
-      for await (const chunk of response.body) {
-        size += chunk.length;
-        if (size > limit) throw new UpstreamError('GitHub response exceeds size limit');
-        chunks.push(chunk);
-      }
-      return Buffer.concat(chunks);
+      if (!response.body) throw new UpstreamError('GitHub returned no response body');
+      return response.body;
     } catch (error) {
       if (error instanceof UpstreamError) throw error;
       throw new UpstreamError('GitHub request failed', { cause: error });
     }
+  }
+
+  async *chunks(body, limit) {
+    let size = 0;
+    try {
+      for await (const chunk of body) {
+        size += chunk.length;
+        if (size > limit) throw new UpstreamError('GitHub response exceeds size limit');
+        yield chunk;
+      }
+    } catch (error) {
+      if (error instanceof UpstreamError) throw error;
+      throw new UpstreamError('GitHub transfer interrupted', { cause: error });
+    }
+  }
+
+  async read(path, accept, limit, allowMissing = false) {
+    const body = await this.open(path, accept, 15000, allowMissing);
+    if (!body) return null;
+    const chunks = [];
+    for await (const chunk of this.chunks(body, limit)) chunks.push(chunk);
+    return Buffer.concat(chunks);
   }
 
   async metadata(path, allowMissing) {
@@ -58,8 +75,17 @@ export class GitHubReleases {
     return this.metadata(`/releases/tags/${encodeURIComponent(tag)}`, true);
   }
 
-  asset(asset) {
+  assetPath(asset) {
     if (!Number.isSafeInteger(asset.id) || asset.id <= 0) throw new InvalidRelease('Invalid release asset ID');
-    return this.read(`/releases/assets/${asset.id}`, 'application/octet-stream', 256 * 1024);
+    return `/releases/assets/${asset.id}`;
+  }
+
+  asset(asset) {
+    return this.read(this.assetPath(asset), 'application/octet-stream', 256 * 1024);
+  }
+
+  async *archive(asset) {
+    const body = await this.open(this.assetPath(asset), 'application/octet-stream', 30 * 60 * 1000);
+    yield* this.chunks(body, archiveLimit);
   }
 }

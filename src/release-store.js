@@ -1,0 +1,80 @@
+import { createHash } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { isDeepStrictEqual } from 'node:util';
+import { readRecord, requireRelease, verifyConfiguration } from './release.js';
+import { checkDeclaration } from './settings.js';
+
+export class ReleaseConflict extends Error {}
+
+// Hash the logical key: SemVer identifiers are case-sensitive even on Windows filesystems.
+function directory(root, driverId, version) {
+  return join(root, createHash('sha256').update(JSON.stringify([driverId, version])).digest('hex'));
+}
+
+async function saveArchive(path, chunks, expectedHash) {
+  const hash = createHash('sha256');
+  async function* hashChunks() {
+    for await (const chunk of chunks) {
+      hash.update(chunk);
+      yield chunk;
+    }
+  }
+  await pipeline(hashChunks(), createWriteStream(path, { flags: 'wx' }));
+  requireRelease(hash.digest('hex') === expectedHash, 'Archive checksum does not match the release record');
+}
+
+export class ReleaseStore {
+  constructor(root) {
+    this.root = root;
+  }
+
+  async load(driverId, version) {
+    const path = directory(this.root, driverId, version);
+    let bytes;
+    try {
+      bytes = await readFile(join(path, 'driver-release.json'));
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+    const record = readRecord(bytes, { driverId, version });
+    const config = await readFile(join(path, 'driver-config.json'));
+    return { record, configuration: checkDeclaration(verifyConfiguration(config, record)) };
+  }
+
+  async existing(record) {
+    const saved = await this.load(record.driverId, record.version);
+    if (saved && !isDeepStrictEqual(saved.record, record)) {
+      throw new ReleaseConflict('Different content already retained for this driver version');
+    }
+    return saved;
+  }
+
+  async save(release, archiveChunks) {
+    const { record } = release.detail;
+    const saved = await this.existing(record);
+    if (saved) return saved;
+
+    await mkdir(this.root, { recursive: true });
+    const staging = await mkdtemp(join(this.root, '.incoming-'));
+    try {
+      await saveArchive(join(staging, 'image.oci.tar.gz'), archiveChunks, record.image.archiveSha256);
+      await writeFile(join(staging, 'driver-config.json'), release.configBytes);
+      await writeFile(join(staging, 'driver-release.json'), release.manifestBytes);
+      try {
+        await rename(staging, directory(this.root, record.driverId, record.version));
+      } catch (error) {
+        // Another writer may have published a complete, non-empty directory first.
+        const winner = await this.existing(record);
+        if (!winner) throw error;
+        return winner;
+      }
+      return release.detail;
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+  }
+}

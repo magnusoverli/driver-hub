@@ -21,7 +21,7 @@ export class Catalog {
     return entries;
   }
 
-  async load(driverId, version) {
+  async resolve(driverId, version) {
     const tag = `drivers/${driverId}/v${version}`;
     const identity = parseTag(tag);
     if (!identity) return null;
@@ -29,10 +29,24 @@ export class Catalog {
     if (!release || release.draft || release.tag_name !== tag) return null;
     const manifest = findAsset(release, 'driver-release.json');
     if (!manifest) return null;
-    const record = readRecord(await this.source.asset(manifest), identity);
+    const manifestBytes = await this.source.asset(manifest);
+    const record = readRecord(manifestBytes, identity);
     const config = findAsset(release, record.configuration.file);
-    requireRelease(config && findAsset(release, record.image.archive), 'Release is missing a required asset');
-    const declaration = verifyConfiguration(await this.source.asset(config), record);
-    return { record, configuration: checkDeclaration(declaration) };
+    const archive = findAsset(release, record.image.archive);
+    requireRelease(config && archive, 'Release is missing a required asset');
+    const configBytes = await this.source.asset(config);
+    const configuration = checkDeclaration(verifyConfiguration(configBytes, record));
+    return { detail: { record, configuration }, manifestBytes, configBytes, archive };
+  }
+
+  async load(driverId, version) {
+    const release = await this.resolve(driverId, version);
+    return release?.detail ?? null;
+  }
+
+  async retain(driverId, version, store) {
+    const release = await this.resolve(driverId, version);
+    if (!release) return null;
+    return store.save(release, this.source.archive(release.archive));
   }
 }

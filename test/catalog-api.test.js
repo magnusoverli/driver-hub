@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { Catalog } from '../src/catalog.js';
 import { GitHubReleases } from '../src/github.js';
 import { createApi } from '../src/http.js';
+import { ReleaseStore } from '../src/release-store.js';
 
 const config = {
   schemaVersion: 1,
@@ -40,13 +44,14 @@ function fixture() {
   ]);
   const github = new GitHubReleases(async url => {
     const key = url.slice(url.indexOf('/releases'));
+    if (Buffer.isBuffer(routes.get(key))) return new Response(routes.get(key));
     return routes.has(key) ? Response.json(routes.get(key)) : new Response(null, { status: 404 });
   });
   return { catalog: new Catalog(github), routes, release, record };
 }
 
-async function serve(t, catalog) {
-  const server = createApi(catalog).listen(0, '127.0.0.1');
+async function serve(t, catalog, store) {
+  const server = createApi(catalog, store).listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise(resolve => server.close(resolve)));
   return `http://127.0.0.1:${server.address().port}/api/v1/releases`;
@@ -117,4 +122,50 @@ test('checksummed but unsupported settings rules are rejected before preflight',
   routes.set('/releases/assets/2', unsupported);
   record.configuration.sha256 = createHash('sha256').update(JSON.stringify(unsupported)).digest('hex');
   await assert.rejects(catalog.load('meter', '1.0.0'), /Unsupported input property/);
+});
+
+async function retentionFixture(t) {
+  const root = await mkdtemp(join(tmpdir(), 'driver-hub-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const context = fixture();
+  // Opaque binary fixture: retention checks transport integrity, not OCI contents.
+  const bytes = Buffer.from([0, 0xff, 0x80, 0x10]);
+  context.record.image.archiveSha256 = createHash('sha256').update(bytes).digest('hex');
+  context.routes.set('/releases/assets/3', bytes);
+  const base = await serve(t, context.catalog, new ReleaseStore(root));
+  const url = base.replace('/releases', '/retained/meter/1.0.0');
+  return { ...context, root, bytes, url };
+}
+
+test('concurrent retention publishes one copy; saved preflight survives restart without upstream', async t => {
+  const { root, bytes, url, record } = await retentionFixture(t);
+  const downloads = await Promise.all([fetch(url, { method: 'PUT' }), fetch(url, { method: 'PUT' })]);
+  assert.deepEqual(downloads.map(response => response.status), [200, 200]);
+  const entries = await readdir(root);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(await readFile(join(root, entries[0], 'image.oci.tar.gz')), bytes);
+
+  const offline = new Catalog(new GitHubReleases(async () => { throw new Error('unexpected upstream call'); }));
+  const restarted = (await serve(t, offline, new ReleaseStore(root))).replace('/releases', '/retained/meter/1.0.0');
+  assert.deepEqual(await (await fetch(restarted)).json(), { record, configuration: config });
+  const check = await fetch(`${restarted}/validate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+  });
+  assert.equal((await check.json()).valid, false);
+});
+
+test('failed retention leaves no partial version; retry succeeds and replacement is rejected', async t => {
+  const { root, bytes, url, routes, record } = await retentionFixture(t);
+  const put = () => fetch(url, { method: 'PUT' });
+  routes.set('/releases/assets/3', Buffer.from('broken'));
+  assert.equal((await put()).status, 422);
+  assert.deepEqual(await readdir(root), []);
+  assert.equal((await fetch(url)).status, 404);
+  routes.set('/releases/assets/3', bytes);
+  assert.equal((await put()).status, 200);
+  routes.delete('/releases/assets/3');
+  assert.equal((await put()).status, 200);
+  record.image.digest = `sha256:${'e'.repeat(64)}`;
+  assert.equal((await put()).status, 409);
+  assert.notEqual((await (await fetch(url)).json()).record.image.digest, record.image.digest);
 });
