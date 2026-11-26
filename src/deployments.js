@@ -6,6 +6,7 @@ import { imageKey } from './images.js';
 import { parseTag } from './release.js';
 import { placementIssues } from './nomad.js';
 import { fingerprint, uuidPattern } from './request-key.js';
+import { requireSecureNomad } from './site.js';
 
 const nil = '00000000-0000-0000-0000-000000000000';
 
@@ -38,8 +39,15 @@ async function controlEvidence(nomad, job, allocations) {
 }
 
 export class Deployments {
-  constructor({ nomad, store, images, registry, datacenters }) {
-    Object.assign(this, { nomad, store, images, registry, datacenters });
+  static forSite(site, services) {
+    const { nomad, videoipath } = site.state;
+    // Only this non-secret snapshot is safe to carry in Nomad job metadata.
+    const profile = videoipath && { id: videoipath.id, url: videoipath.url, mode: videoipath.mode };
+    return new Deployments({ ...services, site, profile, nomad: site.client(nomad), datacenters: nomad.datacenters });
+  }
+
+  constructor({ nomad, store, images, registry, datacenters, site, profile }) {
+    Object.assign(this, { nomad, store, images, registry, datacenters, site, profile });
   }
 
   async list() {
@@ -124,7 +132,11 @@ export class Deployments {
     if (stageFingerprint) job.Meta.stage_request = stageFingerprint;
     if (preview) return this.plan(job, revision);
     await this.images.publish(release.record, this.store.archivePath(spec.driverId, spec.version));
-    const result = await this.nomad.submit(job, revision);
+    const provision = revision === 0 && spec.videoIPath ? async () => {
+      const token = await this.site.claim(spec.videoIPath.id, spec.nodeId);
+      await this.nomad.ensureRegistrationToken(job.ID, `vip_${spec.videoIPath.id}`, token);
+    } : undefined;
+    const result = await this.nomad.submit(job, revision, provision);
     return { nodeId: spec.nodeId, image, ...result };
   }
 
@@ -136,7 +148,8 @@ export class Deployments {
     const nodeId = migrated ? input.nodeId : key ?? randomUUID();
     const id = jobId(nodeId);
     const spec = { nodeId, driverId: input.driverId, version: input.version, settings: input.settings ?? {} };
-    const signature = key && fingerprint('stage', spec);
+    expect(input.inheritSite === undefined || typeof input.inheritSite === 'boolean', 'inheritSite must be boolean');
+    const signature = key && fingerprint('stage', input.inheritSite === undefined ? spec : { ...spec, inheritSite: input.inheritSite });
     const replay = job => {
       expect(!preview && signature && job.Meta?.managed_by === 'driver-hub' && job.Meta.stage_request === signature,
         'Deployment already exists', 409, 'deployment_exists');
@@ -144,6 +157,13 @@ export class Deployments {
     };
     const existing = await this.nomad.get(id);
     if (existing) return replay(existing);
+    if (input.inheritSite === true) expect(this.profile, 'No VideoIPath site is configured', 409);
+    if (this.profile && input.inheritSite !== false) {
+      expect(preview || key || migrated, 'Supply Idempotency-Key when staging a new site-managed device');
+      requireSecureNomad(this.nomad.address);
+      this.site.checkAvailable(this.profile.id, nodeId);
+      spec.videoIPath = this.profile;
+    }
     try {
       return await this.submit(spec, null, false, migrated, 0, preview, signature);
     } catch (error) {

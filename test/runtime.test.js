@@ -82,6 +82,14 @@ test('isolated Nomad server persists a staged job and rejects stale writes', {
       if (!leader) await delay(250);
     }
     assert.ok(leader, 'Nomad did not elect a leader');
+    // A newly elected server may not have its Variables encryption key yet.
+    let active = false;
+    for (let i = 0; i < 40 && !active; i++) {
+      const { stdout } = await run(process.env.DRIVER_HUB_TEST_NOMAD, ['operator', 'root', 'keyring', 'list', `-address=${address}`]);
+      active = /\bactive\b/i.test(stdout);
+      if (!active) await delay(250);
+    }
+    assert.ok(active, 'Nomad keyring did not become ready');
     const nomad = new Nomad(address, null);
     assert.deepEqual(await nomad.connection(), { state: 'connected', namespace: 'default' });
     const job = createJob({
@@ -90,7 +98,10 @@ test('isolated Nomad server persists a staged job and rejects stale writes', {
       namespace: 'default', datacenters: ['dc1'], running: false, previous: null, migrated: false,
       image: `images.internal/driverhub/probe@sha256:${createHash('sha256').update('probe').digest('hex')}`
     });
-    const created = await nomad.submit(job, 0);
+    const writeToken = () => nomad.ensureRegistrationToken(job.ID, 'vip_example', 'public-test-marker');
+    const created = await nomad.submit(job, 0, writeToken);
+    await writeToken();
+    await assert.rejects(nomad.ensureRegistrationToken(job.ID, 'vip_example', 'different-test-marker'), /different content/);
     const saved = await nomad.get(job.ID);
     assert.equal(saved.JobModifyIndex, created.revision);
     const dry = await nomad.plan(saved);

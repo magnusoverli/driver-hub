@@ -1,23 +1,24 @@
 import { expect } from './errors.js';
 import { isObject, validateSettings } from './settings.js';
+import { registrationBindings } from './registration.js';
 
 const second = 1e9; // Nomad JSON durations are nanoseconds.
 const nodeEnv = 'VIDEOIPATH_NODE_ID';
 const keyPattern = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
-function bindings(configuration, settings, nodeId, jobId) {
-  const supplied = { ...settings };
+function bindings(configuration, settings, nodeId, jobId, profile) {
+  const { inputs, supplied, tokenField } = registrationBindings(configuration, settings, profile);
   for (const identity of configuration.inputs.filter(f => f.env === nodeEnv || f.name === configuration.nodeIdInput)) {
     expect(!identity.secret && identity.type === 'string', 'Invalid node ID declaration', 422);
     expect(!Object.hasOwn(supplied, identity.name) || supplied[identity.name] === nodeId, 'Node ID must remain stable');
     supplied[identity.name] = nodeId;
   }
-  const validation = validateSettings(configuration, supplied);
+  const validation = validateSettings({ inputs }, supplied);
   expect(validation.valid, 'Invalid deployment settings', 422, 'invalid_settings', { fields: validation.errors });
   const templates = [];
   const volumes = [];
   const envLines = [];
-  for (const field of configuration.inputs) {
+  for (const field of inputs) {
     const value = Object.hasOwn(supplied, field.name) ? supplied[field.name] : field.default;
     if (value === undefined || field.env === nodeEnv) continue;
     let valueTemplate;
@@ -26,7 +27,8 @@ function bindings(configuration, settings, nodeId, jobId) {
       expect(keyPattern.test(value.secretRef), 'Deployment secretRef must be a key in the job-scoped Nomad Variable', 422);
       // On its discovery pass consul-template returns nil while it registers
       // the Variable dependency. Only evaluate the required key once resolved.
-      valueTemplate = `{{ with nomadVar "nomad/jobs/${jobId}" }}{{ .${value.secretRef}${filter} }}{{ end }}`;
+      const scope = field.name === tokenField ? '/device/driver' : '';
+      valueTemplate = `{{ with nomadVar "nomad/jobs/${jobId}${scope}" }}{{ .${value.secretRef}${filter} }}{{ end }}`;
     } else {
       valueTemplate = `{{ printf "%s" ${JSON.stringify(String(value))}${filter} }}`;
     }
@@ -52,7 +54,7 @@ function bindings(configuration, settings, nodeId, jobId) {
 export function createJob({ spec, previous, running, migrated, image, release, namespace, datacenters }) {
   const id = `driverhub-${spec.nodeId}`;
   expect(isObject(spec.settings), 'Expected a settings object');
-  const { templates, volumes } = bindings(release.configuration, spec.settings, spec.nodeId, id);
+  const { templates, volumes } = bindings(release.configuration, spec.settings, spec.nodeId, id, spec.videoIPath);
   const arch = release.record.image.platforms.filter(p => p.startsWith('linux/')).map(p => p.split('/')[1]);
   expect(arch.length && arch.every(value => /^[a-z0-9]+$/.test(value)), 'No supported Linux image platform', 422);
   const health = release.configuration.controlHealth;

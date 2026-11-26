@@ -44,8 +44,15 @@ function preview(searchParams) {
   return value === 'true';
 }
 
-async function route(request, catalog, store, { deployments, builds, operations }, access) {
+async function route(request, catalog, store, { deployments, builds, operations, site }, access) {
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
+  const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath))?$/.exec(pathname);
+  if (sitePath) {
+    expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
+    expect(site, 'Site configuration is unavailable', 503);
+    expect(request.method === (sitePath[1] ? 'PUT' : 'GET'), 'Invalid site request method', 405);
+    return sitePath[1] ? site.configure(sitePath[1], await readSettings(request)) : site.describe();
+  }
   if (pathname === '/api/v1/openapi.json') {
     expect(request.method === 'GET', 'Expected GET', 405);
     return apiContract;
@@ -53,6 +60,7 @@ async function route(request, catalog, store, { deployments, builds, operations 
   if (pathname === '/api/v1/capabilities') {
     expect(request.method === 'GET', 'Expected GET', 405);
     return { apiVersion: 'v1', access, buildsEnabled: Boolean(builds), asyncAcquisition: Boolean(operations),
+      siteSetupEnabled: Boolean(site), videoIPathConfigured: Boolean(site?.state.videoipath),
       nomadConfigured: Boolean(deployments?.nomad.address), imageHostConfigured: Boolean(deployments?.registry) };
   }
   if (pathname === '/api/v1/integrations/nomad') {

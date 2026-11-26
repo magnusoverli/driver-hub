@@ -29,6 +29,34 @@ docker run -d --name driverhub-images --restart unless-stopped \
 
 Both processes must have access to the published files; use the same service UID (the container uses UID 1000). Back up retained releases and the published image directory; use the customer's normal Nomad backup process for jobs and Variables. Do not delete a published digest needed by a running deployment or its rollback version.
 
+## Site setup after container startup
+
+Start the manager with a durable directory writable by UID 1000, the address of the separate image service, and an admin token supplied by your service manager. Example (expose the loopback port through your HTTPS gateway):
+
+```sh
+docker run -d --name driverhub --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 -e DRIVER_HUB_ADMIN_TOKEN \
+  -v /srv/driverhub/data:/data -e DRIVER_HUB_DATA_DIR=/data \
+  -v /srv/driverhub/images:/images -e DRIVER_HUB_IMAGES_DIR=/images \
+  -e DRIVER_HUB_IMAGE_HOST=driver-images.site.example driver-hub:local
+```
+
+Use these admin-only JSON endpoints under `/api/v1`. Supply the latest `revision` on each PUT. Tokens are write-only.
+
+| Request | Input and result |
+| --- | --- |
+| `GET /site` | Returns revision, addresses, namespace, datacenters, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
+| `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. |
+| `PUT /site/videoipath` | `{"revision":1,"address":"vip.site.example","tokens":["<driver token A>","<driver token B>"]}`. Hub normalizes the address to `wss://vip.site.example/x-driver/v1`. The default `tokenMode` is `per-device`. Repeat with the current revision to add more pre-issued tokens. Saving does not open a driver session. |
+
+**Token ownership:** Create external-driver bearer tokens in the VideoIPath CLI. Hub reserves one distinct token per device UUID when actually staging. A preview consumes none. An empty pool returns `409 driver_token_pool_empty`; it never falls back to sharing. Retrying a failed stage with the same UUID reuses its reservation. Rescheduling, restarting, updating and rolling back an existing device do not claim another token. To deliberately share one token among future deployments, set `"tokenMode":"shared"` and supply `"token"` instead of `"tokens"`. Revocation remains in VideoIPath. Match the admin-visible fingerprint to your issuance record; the logged fingerprint should be computed on the exact token bytes without a newline.
+
+**Stage:** Send a client-generated lowercase UUID in `Idempotency-Key` for new site-managed devices (the existing `nodeId` for migration). Omit VideoIPath connection settings. The driver receives `VIDEOIPATH_URL`, `VIDEOIPATH_TOKEN` and `VIDEOIPATH_NODE_ID`; the driver must support those bindings and establish the WebSocket itself. For different env/file bindings, a release can declare `"videoIPathInputs":{"url":"backendUrl","token":"backendToken"}` referencing a public string and a secret string input. Set `"inheritSite":false` at staging to use manual release settings. Existing jobs keep their saved target; changing sites does not migrate or stop them. Selecting a different configured Nomad address/namespace clears the VideoIPath defaults for future jobs.
+
+**Storage and access:** Give the manager read/write access to the task Variables at `nomad/jobs/driverhub-<uuid>/device/driver` in its namespace, in addition to its existing job rights. The job contains a reference; the allocation reads its token from Nomad independently of the manager. Use HTTPS to remote Nomad when delivering credentials. For a private CA, configure the manager's Node trust store (e.g. `NODE_EXTRA_CA_CERTS`); separately configure trust in driver images for VideoIPath.
+
+One manager process owns a data directory. Settings, including reservations, are persisted under `DRIVER_HUB_DATA_DIR/site` with AES-256-GCM. By default the key is created alongside the ciphertext: anyone with access to both can decrypt it. To separate the key, mount a file containing exactly 32 random bytes and set `DRIVER_HUB_SITE_KEY_FILE` **before first setup**. Protect and back up the state and corresponding key; losing assignments can lead to token reuse. Persisted settings take precedence over `NOMAD_*` startup defaults.
+
 ## Deploy and migrate
 
 The following paths are relative to `/api/v1`. JSON requests use `Content-Type: application/json`. A `2xx` submission means Nomad accepted desired state; it does not mean that the allocation is healthy. After a timeout, **read deployment state before retrying**.

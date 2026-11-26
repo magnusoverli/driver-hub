@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -15,6 +15,7 @@ import { Deployments } from '../src/deployments.js';
 import { createApi } from '../src/http.js';
 import { Nomad } from '../src/nomad.js';
 import { Builds } from '../src/builds.js';
+import { Site } from '../src/site.js';
 
 const hash = b => createHash('sha256').update(b).digest('hex');
 const encode = obj => Buffer.from(JSON.stringify(obj));
@@ -68,6 +69,103 @@ async function listen(t, server) {
   t.after(() => new Promise(resolve => server.close(resolve)));
   return `http://127.0.0.1:${server.address().port}`;
 }
+
+test('post-start site setup assigns separate durable registration tokens without embedding them in jobs', async t => {
+  const { root, store, images } = await setup(t);
+  await retain(store, '1.0.0');
+  const defaults = { namespace: 'default', datacenters: ['dc1'] };
+  const dir = join(root, 'site');
+  const jobs = new Map();
+  const variables = new Map();
+  let failNextVariableWrite = false;
+  const client = n => new Nomad(n.address, n.token, n.namespace, async (url, req) => {
+    assert.equal(url.hostname, 'nomad.example');
+    assert.equal(req.headers['X-Nomad-Token'], 'sample-acl');
+    const path = url.pathname;
+    if (path.endsWith('status/leader')) return Response.json('test-leader');
+    if (path.endsWith('/jobs') && req.method === 'GET') return Response.json([]);
+    if (path.endsWith('/plan')) return Response.json({ JobModifyIndex: jobs.get(JSON.parse(req.body).Job.ID)?.JobModifyIndex ?? 0 });
+    if (path.includes('/var/')) {
+      if (req.method === 'PUT') {
+        if (failNextVariableWrite) {
+          failNextVariableWrite = false;
+          return new Response(null, { status: 503 });
+        }
+        variables.set(path, { ...JSON.parse(req.body), ModifyIndex: 1 });
+      }
+      return variables.has(path) ? Response.json(variables.get(path)) : new Response(null, { status: 404 });
+    }
+    if (path === '/v1/jobs') {
+      const { Job, JobModifyIndex } = JSON.parse(req.body);
+      jobs.set(Job.ID, { ...Job, JobModifyIndex: JobModifyIndex + 1 });
+      return Response.json({ JobModifyIndex: JobModifyIndex + 1 });
+    }
+    const job = jobs.get(path.split('/').at(-1));
+    return job ? Response.json(job) : new Response(null, { status: 404 });
+  });
+  let site = await Site.open(dir, defaults, { client });
+  const base = `${await listen(t, createApi(null, store, { token: 'admin', viewerToken: 'reader',
+    get site() { return site; }, get deployments() {
+      return Deployments.forSite(site, { store, images, registry: 'images.internal' });
+    }
+  }))}/api/v1`;
+  const headers = { Authorization: 'Bearer admin', 'Content-Type': 'application/json' };
+  const put = (part, body) => fetch(`${base}/site/${part}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+  assert.equal((await fetch(`${base}/site`, { headers: { Authorization: 'Bearer reader' } })).status, 403);
+  assert.equal((await put('nomad', { revision: 0, address: 'nomad.example', token: 'sample-acl' })).status, 200);
+  const values = [randomUUID(), randomUUID()];
+  const vip = { revision: 1, address: 'vip.example', tokens: values };
+  const result = await put('videoipath', vip);
+  assert.equal(result.status, 200);
+  const view = await result.json();
+  assert.equal(view.videoipath.url, 'wss://vip.example/x-driver/v1');
+  assert.equal(view.videoipath.availableTokens, 2);
+  assert.equal((await put('videoipath', vip)).status, 409);
+  const nodes = [randomUUID(), randomUUID()];
+  const stage = (node, dry = false) => fetch(`${base}/deployments?dryRun=${dry}`, { method: 'POST',
+    headers: { ...headers, 'Idempotency-Key': node }, body: JSON.stringify({ driverId: 'meter', version: '1.0.0',
+      settings: { credential: { secretRef: 'device_key' } } }) });
+  assert.equal((await stage(nodes[0], true)).status, 200);
+  assert.equal(variables.size, 0);
+  assert.equal(site.describe().videoipath.availableTokens, 2);
+  for (const response of await Promise.all(nodes.map(node => stage(node)))) assert.equal(response.status, 200);
+  assert.equal(site.describe().videoipath.availableTokens, 0);
+  const delivered = [...variables.values()].map(variable => Object.values(variable.Items)[0]);
+  assert.deepEqual(delivered.sort(), [...values].sort());
+  for (const [path] of variables) assert.match(path, /\/driverhub-[0-9a-f-]+\/device\/driver$/);
+  for (const job of jobs.values()) {
+    const template = job.TaskGroups[0].Tasks[0].Templates.map(t => t.EmbeddedTmpl).join('\n');
+    assert.ok(template.includes(`nomad/jobs/${job.ID}/device/driver`));
+    assert.match(template, /VIDEOIPATH_URL=.*wss:\/\/vip.example\/x-driver\/v1/);
+    assert.match(template, /VIDEOIPATH_TOKEN=.*nomadVar/);
+  }
+  site = await Site.open(dir, defaults, { client });
+  assert.equal((await (await stage(nodes[0])).json()).replayed, true);
+  const exhausted = await stage(randomUUID());
+  assert.equal((await exhausted.json()).code, 'driver_token_pool_empty');
+  const encrypted = await readFile(join(dir, 'site.enc'));
+  for (const secret of ['sample-acl', ...values]) {
+    assert.ok(!encrypted.includes(secret));
+    assert.ok(!JSON.stringify([view, site.describe(), ...jobs.values()]).includes(secret));
+  }
+  const rev = site.describe().revision;
+  assert.equal((await put('videoipath', { revision: rev, address: vip.address, tokenMode: 'shared', token: values[0] })).status, 409);
+  const extra = randomUUID();
+  assert.equal((await put('videoipath', { revision: rev, address: vip.address, token: extra })).status, 200);
+  const retryNode = randomUUID();
+  failNextVariableWrite = true;
+  assert.equal((await stage(retryNode)).status, 502);
+  assert.equal(site.describe().videoipath.availableTokens, 0);
+  assert.equal((await stage(retryNode)).status, 200);
+  assert.deepEqual(Object.values(variables.get(`/v1/var/nomad/jobs/driverhub-${retryNode}/device/driver`).Items), [extra]);
+  assert.equal((await put('videoipath', { revision: site.describe().revision, address: 'next.site', tokenMode: 'shared', token: 'shared-example' })).status, 200);
+  const start = await fetch(`${base}/deployments/${retryNode}/start`, { method: 'POST', headers, body: '{"revision":1}' });
+  assert.equal(start.status, 200);
+  assert.equal(JSON.parse(jobs.get(`driverhub-${retryNode}`).Meta.spec).videoIPath.url, view.videoipath.url);
+  assert.equal(variables.size, 3);
+  assert.equal((await stage(randomUUID())).status, 200);
+  assert.equal((await stage(randomUUID())).status, 200);
+});
 
 test('a separately restarted distribution service serves verified bytes by digest, without a manager', async t => {
   const { root, store, images } = await setup(t);

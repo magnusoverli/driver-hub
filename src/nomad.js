@@ -8,7 +8,7 @@ export class Nomad {
     this.request = request;
   }
 
-  async call(path, { body, allowMissing = false } = {}) {
+  async call(path, { body, allowMissing = false, method = body ? 'POST' : 'GET' } = {}) {
     expect(this.address, 'Nomad integration is not configured', 503);
     const url = new URL(`/v1/${path}`, this.address);
     url.searchParams.set('namespace', this.namespace);
@@ -16,7 +16,7 @@ export class Nomad {
     if (this.token) headers['X-Nomad-Token'] = this.token;
     try {
       const response = await this.request(url, {
-        headers, method: body ? 'POST' : 'GET', body: body && JSON.stringify(body),
+        headers, method, body: body && JSON.stringify(body),
         signal: AbortSignal.timeout(20000), redirect: 'error'
       });
       if (allowMissing && response.status === 404) return null;
@@ -57,9 +57,32 @@ export class Nomad {
     return { currentRevision: plan.JobModifyIndex, placementFailures, schedulable: placementFailures.length === 0 };
   }
 
-  async submit(job, revision) {
+  async ensureRegistrationToken(jobId, key, token) {
+    const path = `nomad/jobs/${jobId}/device/driver`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const variable = await this.call(`var/${path}`, { allowMissing: true });
+      expect(!variable || (variable.Path === path && Number.isSafeInteger(variable.ModifyIndex) &&
+        variable.Items && typeof variable.Items === 'object'), 'Invalid Nomad Variable response', 502);
+      if (Object.hasOwn(variable?.Items ?? {}, key)) {
+        expect(variable.Items[key] === token, 'Registration variable key already has different content', 409);
+        return;
+      }
+      try {
+        await this.call(`var/${path}?cas=${variable?.ModifyIndex ?? 0}`, {
+          method: 'PUT', body: { Path: path, Items: { ...variable?.Items, [key]: token } }
+        });
+        return;
+      } catch (error) {
+        if (error.status !== 409 || attempt === 2) throw error;
+      }
+    }
+  }
+
+  async submit(job, revision, beforeRegister) {
     const plan = await this.plan(job);
+    expect(plan.currentRevision === revision, 'Deployment changed; reload its revision', 409, 'revision_conflict');
     expect(plan.schedulable, 'Nomad could not place the driver', 409, 'placement_failed', plan);
+    if (beforeRegister) await beforeRegister();
     const result = await this.call('jobs', { body: { Job: job, EnforceIndex: true, JobModifyIndex: revision } });
     return { revision: result.JobModifyIndex, evaluationId: result.EvalID };
   }

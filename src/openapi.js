@@ -3,6 +3,8 @@ const str = { type: 'string' };
 const bool = { type: 'boolean' };
 const integer = { type: 'integer' };
 const uuid = { type: 'string', format: 'uuid' };
+const tokenMode = { enum: ['per-device', 'shared'], type: 'string' };
+const secret = { type: 'string', writeOnly: true };
 const date = { type: 'string', format: 'date-time' };
 const anyObject = { type: 'object', additionalProperties: true };
 const ref = name => ({ $ref: `#/components/schemas/${name}` });
@@ -33,10 +35,15 @@ function endpoint(operationId, result, { parameters, body, async = false } = {})
 }
 
 const schemas = {
+  Site: object({ revision: integer,
+    nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool }),
+    videoipath: object({ url: { type: ['string', 'null'] }, tokenMode, tokenConfigured: bool,
+      assignments: array(object({ nodeId: uuid, tokenFingerprint: str })), availableTokens: { type: ['integer', 'null'] } })
+  }),
   Error: object({ error: str, code: str, details: anyObject }, ['error', 'code']),
   Validation: object({ valid: bool, errors: fieldErrors }),
   Declaration: object({
-    schemaVersion: { const: 1 }, nodeIdInput: str, controlHealth: object({ port: integer, path: str }),
+    schemaVersion: { const: 1 }, nodeIdInput: str, videoIPathInputs: object({ url: str, token: str }, []), controlHealth: object({ port: integer, path: str }),
     inputs: array(object({
       name: str, type: values('string', 'integer', 'boolean'), required: bool, default: {}, env: str,
       file: str, secret: bool, minLength: integer, minimum: integer, maximum: integer
@@ -55,7 +62,7 @@ const schemas = {
     state: values('running', 'succeeded', 'failed', 'interrupted'),
     release: object({ ...identity, digest: str }), failure: { allOf: [ref('Error'), object({ status: integer })] }
   }, ['id', 'kind', 'startedAt', 'state']),
-  Stage: object({ ...identity, nodeId: uuid, settings }, ['driverId', 'version']),
+  Stage: object({ ...identity, nodeId: uuid, settings, inheritSite: bool }, ['driverId', 'version']),
   Preview: object({
     preview: { const: true }, requested: values('stopped', 'running'), image: str, currentRevision: integer,
     schedulable: bool, placementFailures: array(object({
@@ -75,9 +82,17 @@ const schemas = {
 };
 const submitted = { oneOf: [ref('Submission'), ref('Preview')] };
 const paths = {
+  '/site': { get: endpoint('getSiteSettings', ref('Site')) },
+  '/site/nomad': { put: endpoint('configureNomad', ref('Site'), { body: object({ revision: integer,
+    address: str, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str)
+  }, ['revision', 'address']) }) },
+  '/site/videoipath': { put: endpoint('configureVideoIPath', ref('Site'), { body: object({
+    revision: integer, address: str, tokenMode, token: secret, tokens: array(secret)
+  }, ['revision', 'address']) }) },
   '/openapi.json': { get: endpoint('getContract', anyObject) },
   '/capabilities': { get: endpoint('getCapabilities', object({
-    apiVersion: str, access: values('admin', 'viewer'), buildsEnabled: bool, asyncAcquisition: bool, nomadConfigured: bool, imageHostConfigured: bool
+    apiVersion: str, access: values('admin', 'viewer'), buildsEnabled: bool, asyncAcquisition: bool,
+    siteSetupEnabled: bool, videoIPathConfigured: bool, nomadConfigured: bool, imageHostConfigured: bool
   })) },
   '/integrations/nomad': { get: endpoint('getNomadConnection', object({
     state: values('not_configured', 'no_leader', 'connected'), namespace: str

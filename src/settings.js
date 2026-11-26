@@ -61,6 +61,19 @@ export function checkDeclaration(declaration) {
     requireRelease(field?.type === 'string' && !field.secret && !Object.hasOwn(field, 'default'),
       'nodeIdInput must name a non-secret string input without a default');
   }
+  if (declaration.videoIPathInputs !== undefined) {
+    const mapping = declaration.videoIPathInputs;
+    requireRelease(isObject(mapping) && Object.keys(mapping).every(k => ['url', 'token'].includes(k)),
+      'Invalid VideoIPath registration input mapping');
+    for (const [role, name] of Object.entries(mapping)) {
+      const field = declaration.inputs.find(f => f.name === name);
+      const canonical = role === 'url' ? 'VIDEOIPATH_URL' : 'VIDEOIPATH_TOKEN';
+      requireRelease(field?.type === 'string' && Boolean(field.secret) === (role === 'token') &&
+        field.name !== declaration.nodeIdInput && field.env !== 'VIDEOIPATH_NODE_ID' &&
+        field.env !== (role === 'url' ? 'VIDEOIPATH_TOKEN' : 'VIDEOIPATH_URL') &&
+        !declaration.inputs.some(f => f !== field && f.env === canonical), 'Invalid VideoIPath registration binding');
+    }
+  }
   return declaration;
 }
 
