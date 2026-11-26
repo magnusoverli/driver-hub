@@ -5,6 +5,7 @@ import { RequestError, expect } from './errors.js';
 import { publicError } from './public-error.js';
 import { apiContract } from './openapi.js';
 import { deployForm } from './deployment-inputs.js';
+import { browserWrite } from './operator-sessions.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -45,8 +46,17 @@ function preview(searchParams) {
   return value === 'true';
 }
 
-async function route(request, catalog, store, { deployments, builds, operations, site }, access) {
+async function route(request, catalog, store, { deployments, builds, operations, site, localUsers }, access) {
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
+  const usersPath = /^\/api\/v1\/users(?:\/([^/]+))?$/.exec(pathname);
+  if (usersPath) {
+    expect(access === 'admin', 'Account management requires administrator access', 403, 'admin_required');
+    expect(localUsers, 'Local accounts are not configured', 503);
+    if (!usersPath[1] && request.method === 'GET') return { users: localUsers.list() };
+    expect(request.method === (usersPath[1] ? 'PATCH' : 'POST'), 'Invalid account request method', 405);
+    const input = await readSettings(request);
+    return usersPath[1] ? localUsers.update(usersPath[1], input) : localUsers.create(input);
+  }
   const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath))?$/.exec(pathname);
   if (sitePath) {
     expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
@@ -140,27 +150,63 @@ async function route(request, catalog, store, { deployments, builds, operations,
   return action === 'validate' ? validateSettings(release.configuration, input) : release;
 }
 
-function authorize(request, token, viewerToken) {
-  if (token) {
+async function authorize(request, { token, viewerToken, sessions, localUsers }) {
+  let access;
+  if (request.headers.authorization !== undefined || (!sessions && token)) {
     const digest = value => createHash('sha256').update(value).digest();
     const provided = digest(request.headers.authorization ?? '');
-    if (timingSafeEqual(provided, digest(`Bearer ${token}`))) return 'admin';
+    if (token && timingSafeEqual(provided, digest(`Bearer ${token}`))) return 'admin';
     expect(viewerToken && timingSafeEqual(provided, digest(`Bearer ${viewerToken}`)), 'Authorization required', 401);
+    access = 'viewer';
+  } else if (sessions) {
+    access = (await sessions.current(request)).role;
+    if (request.method !== 'GET') browserWrite(request);
+  } else {
+    expect(!localUsers, 'Operator session authentication is required', 503);
+    expect(/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(request.headers.host ?? ''),
+      'Invalid management host', 403);
+    if (request.headers.origin) {
+      expect(request.headers.origin === `http://${request.headers.host}`, 'Cross-origin request denied', 403);
+    }
+    access = 'admin';
+  }
+  if (access === 'viewer') {
     const { pathname, searchParams } = new URL(request.url, 'http://localhost');
     const validation = /^\/api\/v1\/(retained|releases)\/[^/]+\/[^/]+\/(?:validate|deploy-form)$/.test(pathname);
     const plan = /^\/api\/v1\/deployments(?:\/[^/]+\/(?:start|stop|update|rollback))?$/.test(pathname) &&
       searchParams.get('dryRun') === 'true';
     expect(request.method === 'GET' || (request.method === 'POST' && (validation || plan)),
       'This operation requires administrator access', 403, 'admin_required');
-    return 'viewer';
-  } else {
-    expect(/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(request.headers.host ?? ''),
-      'Invalid management host', 403);
-    if (request.headers.origin) {
-      expect(request.headers.origin === `http://${request.headers.host}`, 'Cross-origin request denied', 403);
-    }
   }
-  return 'admin';
+  return access;
+}
+
+async function dispatch(request, headers, catalog, store, services) {
+  const { pathname } = new URL(request.url, 'http://localhost');
+  const { sessions, localUsers } = services;
+  if (pathname.startsWith('/api/v1/auth/')) {
+    expect(sessions, 'Operator sign-in is not configured', 503);
+    if (pathname === '/api/v1/auth/session') {
+      expect(request.method === 'GET', 'Expected GET', 405);
+      return sessions.current(request);
+    }
+    expect(request.method === 'POST', 'Expected POST', 405);
+    browserWrite(request);
+    if (pathname === '/api/v1/auth/login') return sessions.login(request, await readSettings(request), headers);
+    if (pathname === '/api/v1/auth/logout') return sessions.logout(request, headers);
+    if (pathname === '/api/v1/auth/password') {
+      const current = await sessions.current(request);
+      expect(current.provider === 'local' && localUsers, 'Password managed by identity provider', 403);
+      const { currentPassword, newPassword } = await readSettings(request);
+      const identity = await sessions.verify(request, current.username, currentPassword);
+      expect(typeof newPassword === 'string', 'Expected newPassword');
+      await localUsers.update(current.username, { password: newPassword }, identity.revision);
+      return sessions.logout(request, headers);
+    }
+    throw new RequestError(404, 'Unknown authentication route');
+  }
+  const access = await authorize(request, services);
+  return route(request, catalog, store, services, access);
 }
 
 export function createApi(catalog, store, services = {}) {
@@ -169,8 +215,7 @@ export function createApi(catalog, store, services = {}) {
     let body;
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
     try {
-      const access = authorize(request, services.token, services.viewerToken);
-      body = await route(request, catalog, store, services, access);
+      body = await dispatch(request, headers, catalog, store, services);
       if (body instanceof Accepted) {
         body = body.operation;
         status = 202;

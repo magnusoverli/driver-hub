@@ -4,7 +4,7 @@ The manager is an HTTP API. Operators and the future UI use the same endpoints. 
 
 ## Installation
 
-Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. The default listener for a native installation is loopback. For remote access, put the management listener behind HTTPS and provide `DRIVER_HUB_ADMIN_TOKEN` in the process environment. Send `Authorization: Bearer …` with each request. Optionally set a distinct `DRIVER_HUB_VIEWER_TOKEN` for reads, settings validation and change previews. These are service credentials, not user accounts. An authenticated frontend gateway can select the appropriate credential server-side; do not ship either token in browser assets.
+Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. A native installation listens on loopback by default. The manager requires authentication even on loopback. For browser access, serve the frontend and `/api/v1` under the same HTTPS origin, preserve the public `Host` header at the reverse proxy, and use a local operator account. Existing admin and viewer bearer tokens remain supported for automation.
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
@@ -29,13 +29,34 @@ docker run -d --name driverhub-images --restart unless-stopped \
 
 Both processes must have access to the published files; use the same service UID (the container uses UID 1000). Back up retained releases and the published image directory; use the customer's normal Nomad backup process for jobs and Variables. Do not delete a published digest needed by a running deployment or its rollback version.
 
+## Operator sign-in
+
+**First administrator:** on the first start, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected UTF-8 file containing the initial password (one trailing line ending is ignored). In Docker, mount it read-only, readable by UID 1000. The initial username is `admin`, or set `DRIVER_HUB_BOOTSTRAP_USERNAME`. Remove the bootstrap mount and setting after provisioning. Restarting with an existing account store never resets a password. Alternatively, an installation with `DRIVER_HUB_ADMIN_TOKEN` can create its first admin via `POST /api/v1/users` using the bearer token. There is no public sign-up or default password.
+
+**Frontend:** all paths below are relative to `/api/v1`. On page load, call `GET /auth/session`; a 401 means show the login form. Send `Content-Type: application/json` with JSON bodies and **`X-Driver-Hub-Request: 1` on login, logout, and every non-GET cookie-authenticated request**, including deploy-form previews. Use same-origin fetch so the browser handles the `HttpOnly; Secure; SameSite=Strict` cookie. Do not enable cross-origin credentialed access at a proxy. A bearer header selects service authentication on management routes; omit it when acting as a signed-in user.
+
+| API | Behavior |
+| --- | --- |
+| `POST /auth/login` | `{ "username": "...", "password": "..." }`. Sets an 8-hour session cookie and returns `{username, role, provider}`. Bad credentials and disabled accounts return the same 401. Repeated failures or too many concurrent verifications return 429. |
+| `GET /auth/session` | Returns the current operator; use `role` (`admin` or `viewer`) to choose which controls to display. The API also enforces permissions. |
+| `POST /auth/logout` | Revokes the current session and clears the cookie. Restarting the manager signs everyone out. |
+| `POST /auth/password` | A local user supplies `currentPassword` and `newPassword`. Success invalidates all their sessions; sign in again. |
+| `GET /users`, `POST /users` | Admin only. List local accounts or create one with `username`, `password`, and `role`. Usernames are case-insensitive; passwords require at least 12 characters (up to 1024 UTF-8 bytes). |
+| `PATCH /users/{username}` | Admin only. Supply `role`, `enabled`, and/or a replacement `password`. Changes invalidate the user's sessions. The last enabled local admin cannot be disabled or demoted. |
+
+**Persistence and recovery:** back up `DRIVER_HUB_DATA_DIR/auth` with the manager data and restrict access to it. The account store contains salted scrypt hashes and roles. Use one manager per directory. A second admin (or an operator with host access who configures the admin service token and restarts the manager) can reset a forgotten password. Operator sessions are held in memory; signing out does not affect any running driver.
+
+**Future LDAP:** sessions use an identity provider with `authenticate(username, password)` and `resolve(username)`. The provider returns a username, provider identifier, Hub role and authorization revision. Disabled users or changed roles/revisions lose access on the next request. An LDAP provider can map directory groups to Hub roles behind this interface; the browser contract stays the same. Only the local provider is implemented today.
+
 ## Site setup after container startup
 
-Start the manager with a durable directory writable by UID 1000, the address of the separate image service, and an admin token supplied by your service manager. Example (expose the loopback port through your HTTPS gateway):
+Start the manager with a durable directory writable by UID 1000 and the address of the separate image service. Example using a bootstrap password file (expose the loopback port through your HTTPS gateway):
 
 ```sh
 docker run -d --name driverhub --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 -e DRIVER_HUB_ADMIN_TOKEN \
+  -p 127.0.0.1:8080:8080 \
+  -v /srv/driverhub/bootstrap-password:/run/secrets/initial-password:ro \
+  -e DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/initial-password \
   -v /srv/driverhub/data:/data -e DRIVER_HUB_DATA_DIR=/data \
   -v /srv/driverhub/images:/images -e DRIVER_HUB_IMAGES_DIR=/images \
   -e DRIVER_HUB_IMAGE_HOST=driver-images.site.example driver-hub:local

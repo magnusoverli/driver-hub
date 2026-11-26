@@ -9,6 +9,9 @@ import { Deployments } from './deployments.js';
 import { Images } from './images.js';
 import { Site } from './site.js';
 import { Operations } from './operations.js';
+import { LocalUsers } from './local-users.js';
+import { OperatorSessions } from './operator-sessions.js';
+import { readFile } from 'node:fs/promises';
 
 const port = Number(process.env.PORT ?? 8080);
 const dataDir = process.env.DRIVER_HUB_DATA_DIR ?? join(homedir(), '.driver-hub');
@@ -23,11 +26,18 @@ const host = process.env.HOST ?? '127.0.0.1';
 const token = process.env.DRIVER_HUB_ADMIN_TOKEN;
 const viewerToken = process.env.DRIVER_HUB_VIEWER_TOKEN;
 if (viewerToken && (!token || viewerToken === token)) throw new Error('Viewer access requires a distinct admin token');
-if (host !== '127.0.0.1' && !token) throw new Error('Non-loopback management requires DRIVER_HUB_ADMIN_TOKEN');
+const localUsers = await LocalUsers.open(join(dataDir, 'auth'));
+if (!localUsers.list().length && process.env.DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE) {
+  const password = (await readFile(process.env.DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE, 'utf8')).replace(/\r?\n$/, '');
+  await localUsers.create({ username: process.env.DRIVER_HUB_BOOTSTRAP_USERNAME ?? 'admin', password, role: 'admin' });
+}
+if (!localUsers.list().length && !token) throw new Error('First setup requires DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE or DRIVER_HUB_ADMIN_TOKEN');
+const sessions = new OperatorSessions(localUsers);
 const builds = process.env.DRIVER_HUB_BUILDS === 'true' ? new Builds(store) : null;
 const operations = new Operations(join(dataDir, 'operations'));
 const server = createApi(new Catalog(new GitHubReleases()), store, {
-  get deployments() { return Deployments.forSite(site, deploymentServices); }, site, builds, operations, token, viewerToken
+  get deployments() { return Deployments.forSite(site, deploymentServices); }, site, builds, operations, token, viewerToken,
+  sessions, localUsers
 });
 server.listen(port, host, () => {
   console.log(`Driver Hub API: http://${host}:${server.address().port}/api/v1/releases`);

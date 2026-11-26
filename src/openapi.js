@@ -10,6 +10,8 @@ const anyObject = { type: 'object', additionalProperties: true };
 const ref = name => ({ $ref: `#/components/schemas/${name}` });
 const array = items => ({ type: 'array', items });
 const values = (...items) => ({ type: 'string', enum: items });
+const role = values('admin', 'viewer');
+const browserRequest = { name: 'X-Driver-Hub-Request', in: 'header', required: true, schema: { const: '1' } };
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required });
 const identity = { driverId: str, version: str };
 const settings = { type: 'object', additionalProperties: {
@@ -40,6 +42,8 @@ function endpoint(operationId, result, { parameters, body, async = false } = {})
 }
 
 const schemas = {
+  Operator: object({ username: str, role, provider: str }),
+  LocalAccount: object({ username: str, role, enabled: bool }),
   Site: object({ revision: integer,
     nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool }),
     videoipath: object({ url: { type: ['string', 'null'] }, tokenMode, tokenConfigured: bool,
@@ -87,6 +91,16 @@ const schemas = {
 };
 const submitted = { oneOf: [ref('Submission'), ref('Preview')] };
 const paths = {
+  '/auth/login': { post: { ...endpoint('login', ref('Operator'), { parameters: [browserRequest],
+    body: object({ username: str, password: secret }) }), security: [] } },
+  '/auth/session': { get: { ...endpoint('getSession', ref('Operator')), security: [{ operatorSession: [] }] } },
+  '/auth/logout': { post: { ...endpoint('logout', object({ signedOut: bool }), { parameters: [browserRequest] }), security: [] } },
+  '/auth/password': { post: { ...endpoint('changeOwnPassword', object({ signedOut: bool }), { parameters: [browserRequest],
+    body: object({ currentPassword: secret, newPassword: secret }) }), security: [{ operatorSession: [] }] } },
+  '/users': { get: endpoint('listLocalUsers', object({ users: array(ref('LocalAccount')) })),
+    post: endpoint('createLocalUser', ref('LocalAccount'), { body: object({ username: str, role, password: secret }) }) },
+  '/users/{username}': { patch: endpoint('updateLocalUser', ref('LocalAccount'), { parameters: [path('username')],
+    body: object({ password: secret, role, enabled: bool }, []) }) },
   '/site': { get: endpoint('getSiteSettings', ref('Site')) },
   '/site/nomad': { put: endpoint('configureNomad', ref('Site'), { body: object({ revision: integer,
     address: str, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str)
@@ -145,7 +159,18 @@ for (const action of ['start', 'stop', 'update', 'rollback']) {
 
 export const apiContract = {
   openapi: '3.1.0', info: { title: 'Driver Hub management API', version: '1.0.0' },
-  servers: [{ url: '/api/v1' }], security: [{ adminBearer: [] }, {}], paths,
+  servers: [{ url: '/api/v1' }], security: [{ adminBearer: [] }, { operatorSession: [] }], paths,
   components: { securitySchemes: { adminBearer: { type: 'http', scheme: 'bearer',
-    description: 'Required on a token-configured manager; optional only in loopback development mode.' } }, schemas }
+    description: 'Admin or viewer service token for automation.' },
+    operatorSession: { type: 'apiKey', in: 'cookie', name: '__Host-driverhub_session',
+      description: 'Sign in via /auth/login. Include X-Driver-Hub-Request: 1 on all non-GET session requests.' } }, schemas }
 };
+
+// Service tokens do not need this header; cookie-authenticated clients do.
+for (const methods of Object.values(paths)) {
+  for (const [method, operation] of Object.entries(methods)) {
+    if (method === 'get' || operation.parameters?.some(p => p.name === browserRequest.name)) continue;
+    operation.parameters = [...(operation.parameters ?? []), { ...browserRequest, required: false,
+      description: 'Required when using an operator session cookie.' }];
+  }
+}

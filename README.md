@@ -10,7 +10,7 @@ Driver Hub is a self-hosted application for customer operators and administrator
 
 For a container installation, follow [site setup after startup](OPERATIONS.md#site-setup-after-container-startup). The admin API accepts the Nomad endpoint and ACL token, and a VideoIPath target with pre-issued external-driver tokens. By default each logical device receives its own token and retains it across allocation replacements.
 
-Install Node.js 22 or newer and run `npm ci`, then `npm start`. The management HTTP API listens on `127.0.0.1:8080`; set `PORT` to change the port. Run `npm test` for the automated tests. Opt-in real Docker and Nomad tests are described in [OPERATIONS.md](OPERATIONS.md#verification).
+Install Node.js 22 or newer and run `npm ci`. For a new installation set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected file containing the first admin's password, then run `npm start`. See [operator sign-in](OPERATIONS.md#operator-sign-in) for the login API, account management and service-token alternative. The management HTTP API listens on `127.0.0.1:8080`; set `PORT` to change the port. Run `npm test` for the automated tests. Opt-in real Docker and Nomad tests are described in [OPERATIONS.md](OPERATIONS.md#verification).
 
 | Endpoint | Behavior |
 | --- | --- |
