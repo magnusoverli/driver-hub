@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { isDeepStrictEqual } from 'node:util';
@@ -29,6 +29,22 @@ async function saveArchive(path, chunks, expectedHash) {
 export class ReleaseStore {
   constructor(root) {
     this.root = root;
+  }
+
+  archivePath(driverId, version) {
+    return join(directory(this.root, driverId, version), 'image.oci.tar.gz');
+  }
+
+  async list() {
+    await mkdir(this.root, { recursive: true });
+    const records = [];
+    for (const key of await readdir(this.root)) {
+      if (!/^[a-f0-9]{64}$/.test(key)) continue;
+      const bytes = await readFile(join(this.root, key, 'driver-release.json'));
+      const { driverId, version, displayName, image, origin = 'maintainer' } = JSON.parse(bytes);
+      records.push({ driverId, version, displayName, digest: image.digest, origin });
+    }
+    return records;
   }
 
   async load(driverId, version) {

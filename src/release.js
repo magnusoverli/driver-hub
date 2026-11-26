@@ -18,6 +18,19 @@ export function parseTag(tag) {
   return match && { driverId: match[1], version: match[2] };
 }
 
+// Discovery only suggests stable candidates. Compare numeric components without
+// losing precision; a stable release also supersedes a prerelease of its own core.
+export function newerStable(candidate, installed) {
+  const current = installed.split('+', 1)[0];
+  const components = value => value.split(/[-+]/, 1)[0].split('.').map(BigInt);
+  const a = components(candidate);
+  const b = components(current);
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return current.includes('-');
+}
+
 export function parseJson(bytes, label) {
   try {
     return JSON.parse(bytes.toString('utf8'));

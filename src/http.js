@@ -1,15 +1,10 @@
 import { createServer } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { UpstreamError } from './github.js';
 import { InvalidRelease } from './release.js';
 import { ReleaseConflict } from './release-store.js';
 import { isObject, validateSettings } from './settings.js';
-
-class RequestError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
+import { RequestError, expect } from './errors.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -32,8 +27,35 @@ async function readSettings(request) {
   return settings;
 }
 
-async function route(request, catalog, store) {
+async function route(request, catalog, store, { deployments, builds }) {
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
+  if (pathname === '/api/v1/retained') {
+    expect(request.method === 'GET', 'Expected GET', 405);
+    return { releases: await store.list() };
+  }
+  if (pathname === '/api/v1/builds') {
+    expect(request.method === 'POST', 'Expected POST', 405);
+    expect(builds, 'Source builds are disabled', 503);
+    return builds.create(await readSettings(request));
+  }
+  if (pathname === '/api/v1/updates') {
+    expect(request.method === 'GET', 'Expected GET', 405);
+    expect(deployments, 'Deployments are not configured', 503);
+    return { updates: await catalog.updates(await deployments.list()) };
+  }
+  if (pathname === '/api/v1/deployments') {
+    expect(deployments, 'Deployments are not configured', 503);
+    if (request.method === 'GET') return { deployments: await deployments.list() };
+    expect(request.method === 'POST', 'Expected GET or POST', 405);
+    return deployments.stage(await readSettings(request));
+  }
+  const deployment = /^\/api\/v1\/deployments\/([^/]+)(?:\/(start|stop|update|rollback))?$/.exec(pathname);
+  if (deployment) {
+    expect(deployments, 'Deployments are not configured', 503);
+    const [, nodeId, action] = deployment;
+    expect(request.method === (action ? 'POST' : 'GET'), 'Invalid deployment request method', 405);
+    return action ? deployments.change(nodeId, action, await readSettings(request)) : deployments.status(nodeId);
+  }
   if (pathname === '/api/v1/releases') {
     if (request.method !== 'GET') throw new RequestError(405, 'Expected GET');
     return { releases: await catalog.list(searchParams.get('prerelease') === 'true') };
@@ -61,12 +83,27 @@ async function route(request, catalog, store) {
   return validate ? validateSettings(release.configuration, settings) : release;
 }
 
-export function createApi(catalog, store) {
+function authorize(request, token) {
+  if (token) {
+    const digest = value => createHash('sha256').update(value).digest();
+    expect(timingSafeEqual(digest(request.headers.authorization ?? ''), digest(`Bearer ${token}`)),
+      'Admin authorization required', 401);
+  } else {
+    expect(/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(request.headers.host ?? ''),
+      'Invalid management host', 403);
+    if (request.headers.origin) {
+      expect(request.headers.origin === `http://${request.headers.host}`, 'Cross-origin request denied', 403);
+    }
+  }
+}
+
+export function createApi(catalog, store, services = {}) {
   return createServer(async (request, response) => {
     let status = 200;
     let body;
     try {
-      body = await route(request, catalog, store);
+      authorize(request, services.token);
+      body = await route(request, catalog, store, services);
     } catch (error) {
       if (error instanceof RequestError) status = error.status;
       else if (error instanceof ReleaseConflict) status = 409;

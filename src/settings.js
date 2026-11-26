@@ -22,6 +22,12 @@ function valueError(field, value) {
 export function checkDeclaration(declaration) {
   requireRelease(declaration?.schemaVersion === 1 && Array.isArray(declaration.inputs),
     'Unsupported configuration declaration');
+  if (declaration.controlHealth !== undefined) {
+    const h = declaration.controlHealth;
+    requireRelease(isObject(h) && Number.isInteger(h.port) && h.port > 0 && h.port <= 65535 &&
+      typeof h.path === 'string' && /^\/[A-Za-z0-9_/-]*$/.test(h.path) && !h.path.includes('//'),
+    'Invalid control-health endpoint');
+  }
   const names = new Set();
   const bindings = new Set();
   for (const field of declaration.inputs) {
@@ -49,6 +55,11 @@ export function checkDeclaration(declaration) {
     }
     requireRelease(!(field.minimum > field.maximum), 'Inverted integer bounds');
     requireRelease(!Object.hasOwn(field, 'default') || !valueError(field, field.default), 'Invalid input default');
+  }
+  if (declaration.nodeIdInput !== undefined) {
+    const field = declaration.inputs.find(f => f.name === declaration.nodeIdInput);
+    requireRelease(field?.type === 'string' && !field.secret && !Object.hasOwn(field, 'default'),
+      'nodeIdInput must name a non-secret string input without a default');
   }
   return declaration;
 }

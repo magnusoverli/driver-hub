@@ -115,6 +115,20 @@ test('release discovery continues past a page of unrelated tags', async () => {
   assert.deepEqual(pages, ['1', '2']);
 });
 
+test('update discovery uses per-driver SemVer and leaves customer builds alone', async () => {
+  const { catalog, routes, release } = fixture();
+  routes.set('/releases?per_page=50&page=1', [
+    ...['1.2.2', '1.10.0', '2.0.0-rc.1'].map(v => ({ ...release, tag_name: `drivers/meter/v${v}` })),
+    { ...release, tag_name: 'drivers/camera/v4.0.0' }
+  ]);
+  const deployed = [
+    { nodeId: 'a', driverId: 'meter', version: '1.2.2' },
+    { nodeId: 'b', driverId: 'meter', version: '1.10.0+rebuilt' },
+    { nodeId: 'c', driverId: 'meter', version: '0.0.0-local.custom' }
+  ];
+  assert.deepEqual(await catalog.updates(deployed), [{ ...deployed[0], availableVersion: '1.10.0' }]);
+});
+
 test('checksummed but unsupported settings rules are rejected before preflight', async () => {
   const { catalog, record, routes } = fixture();
   const unsupported = structuredClone(config);

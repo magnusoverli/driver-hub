@@ -2,11 +2,11 @@
 
 Driver Hub is a self-hosted application for customer operators and administrators to browse, download, deploy, monitor and update VideoIPath external drivers. It integrates with the [public driver repository](https://github.com/VideoIPath/VideoIPath_External_Drivers) for releases and with a customer-operated Nomad cluster for execution. This project is independent of the upstream repository.
 
-**Project state:** The backend supports connected release discovery, archive download and retention, and deployment settings preflight against upstream or retained releases. The numbered decisions below describe the product, not a list of completed features. Proposed upstream conventions are not implemented upstream contracts.
+**Project state:** The backend implements release discovery, retention, customer source builds, verified OCI image distribution, and per-device deployment, migration, monitoring, updates and rollback via Nomad. See [installation and operation](OPERATIONS.md) for the lifecycle API and HA acceptance procedure. Site commissioning against VideoIPath and a physical device is still required. The upstream release convention remains a proposal.
 
 ## Running the backend
 
-Run `node src/main.js` with Node.js 22 or newer. No package installation is required. The HTTP API listens on `127.0.0.1:8080`; set `PORT` to change the port. Run `node --test` for the offline integration tests.
+Install Node.js 22 or newer and run `npm ci`, then `npm start`. The management HTTP API listens on `127.0.0.1:8080`; set `PORT` to change the port. Run `npm test` for the automated tests. Opt-in real Docker and Nomad tests are described in [OPERATIONS.md](OPERATIONS.md#verification).
 
 | Endpoint | Behavior |
 | --- | --- |
@@ -17,11 +17,11 @@ Run `node src/main.js` with Node.js 22 or newer. No package installation is requ
 | `GET /api/v1/retained/{driverId}/{version}` | Returns saved metadata and configuration without contacting GitHub. Returns 404 when that version has not been retained. |
 | `POST /api/v1/retained/{driverId}/{version}/validate` | Validates settings against the saved declaration instead of fetching from GitHub. Uses the same request and response as upstream validation. |
 
-For the proposed sample declaration, a settings body would be `{"deviceHost":"meter.local","deviceCredential":{"secretRef":"meter/control"}}`. Omitted settings with a declared default pass validation. Secret references are opaque customer-local identifiers; supply no actual credentials. A 404 means the release was not found, 422 indicates unusable release metadata, and 502 means the upstream request failed (including GitHub rate limits).
+For the proposed sample declaration, a settings body would be `{"deviceHost":"meter.local","deviceCredential":{"secretRef":"device_token"}}`. Omitted settings with a declared default pass validation. Deployment resolves secret references from job-scoped Nomad Variables. A 404 means the release was not found, 422 indicates unusable metadata or settings, and 502 means an upstream request failed (including GitHub rate limits).
 
-Set `DRIVER_HUB_DATA_DIR` to select the storage directory (default: `.driver-hub` in the user's home). `src/release-store.js` stages downloads on that filesystem and publishes complete versions by directory rename. Retention verifies the archive checksum; verification of the inner OCI manifests and layers is still needed before deployment. This development store is local to the Hub host, not the HA image distribution service.
+Set `DRIVER_HUB_DATA_DIR` to select the retention directory (default: `.driver-hub` in the user's home). Retention verifies the archive checksum and commits a version by directory rename. Before job submission, `src/images.js` validates the OCI layout, manifest/index digest, referenced descriptors, blob sizes, checksums and declared platforms. The separate pull-only distribution process serves verified content from `DRIVER_HUB_IMAGES_DIR` and needs neither the manager nor GitHub.
 
-`src/catalog.js` coordinates discovery and retention through an injected release source. `src/github.js` handles GitHub transport and pagination; `src/release.js` and `src/settings.js` implement the draft contracts; `src/http.js` exposes the API. The tests exercise the HTTP routes against a simulated upstream without network access. Source builds, image distribution, and Nomad operations remain to be implemented.
+`src/catalog.js` coordinates discovery and retention. `src/builds.js` produces site-local releases. `src/deployments.js` orchestrates lifecycle operations; `src/job.js` translates a validated deployment to a job, and `src/nomad.js` implements the cluster API. Job definitions and revision checks live in Nomad so recovery does not depend on a running management API.
 
 ## Application definitions
 
@@ -64,7 +64,7 @@ The first unresolved design question is **safe failover during a network partiti
 | Open design item | What to establish |
 | --- | --- |
 | Failover and health | How to prevent competing instances, what evidence confirms device communication, and how quickly control needs to return. Verify takeover and recovery with the intended VideoIPath release. |
-| Image distribution | How eligible Nomad clients can retrieve a retained image when the Hub management host is unavailable, including on a replacement host with no cached image. |
+| Image distribution | Commission the independent distribution replicas and storage; verify a pull by a cold replacement client with the management host powered off. |
 | Release pilot | Whether upstream maintainers accept the convention. Exercise discovery and download of two releases of one driver, a changed required setting, update and rollback. |
 
 When resuming work, read this file first. Preserve the interview numbers when revising a decision, distinguish proposals from agreements, and add subsequent decisions with the next available number.

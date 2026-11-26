@@ -75,6 +75,17 @@ export class GitHubReleases {
     return this.metadata(`/releases/tags/${encodeURIComponent(tag)}`, true);
   }
 
+  async sourceConfig(commit, directory) {
+    const bytes = await this.read(`/contents/${directory}/driver-config.json?ref=${commit}`,
+      'application/vnd.github.raw+json', 256 * 1024, true);
+    if (!bytes) return null;
+    try {
+      return JSON.parse(bytes);
+    } catch {
+      throw new InvalidRelease('Invalid configuration declaration in source revision');
+    }
+  }
+
   assetPath(asset) {
     if (!Number.isSafeInteger(asset.id) || asset.id <= 0) throw new InvalidRelease('Invalid release asset ID');
     return `/releases/assets/${asset.id}`;
