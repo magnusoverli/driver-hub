@@ -101,14 +101,18 @@ async function route(request, catalog, store, { deployments, builds, operations,
   }
   if (pathname === '/api/v1/deployments') {
     expect(deployments, 'Deployments are not configured', 503);
-    if (request.method === 'GET') return { deployments: await deployments.list() };
+    if (request.method === 'GET') return { deployments: await deployments.overview() };
     expect(request.method === 'POST', 'Expected GET or POST', 405);
     return deployments.stage(await readSettings(request), preview(searchParams), request.headers['idempotency-key']);
   }
-  const deployment = /^\/api\/v1\/deployments\/([^/]+)(?:\/(start|stop|update|rollback|evaluations|history))?$/.exec(pathname);
+  const deployment = /^\/api\/v1\/deployments\/([^/]+)(?:\/(start|stop|update|rollback|evaluations|history|label))?$/.exec(pathname);
   if (deployment) {
     expect(deployments, 'Deployments are not configured', 503);
     const [, nodeId, action] = deployment;
+    if (action === 'label') {
+      expect(request.method === 'PUT', 'Expected PUT', 405);
+      return deployments.relabel(nodeId, (await readSettings(request)).label);
+    }
     if (action === 'history') {
       expect(request.method === 'GET', 'Expected GET', 405);
       return { history: await deployments.history(nodeId) };
@@ -211,6 +215,13 @@ async function dispatch(request, headers, catalog, store, services) {
 
 export function createApi(catalog, store, services = {}) {
   return createServer(async (request, response) => {
+    if (services.web && !/^\/api(\/|$)/.test(new URL(request.url, 'http://localhost').pathname)) {
+      try { return await services.web.serve(request, response); } catch (error) {
+        console.error('Driver Hub web request failed:', error?.code ?? error?.name ?? 'unknown');
+        if (!response.headersSent) response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return response.end();
+      }
+    }
     let status = 200;
     let body;
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };

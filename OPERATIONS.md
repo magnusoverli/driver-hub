@@ -4,7 +4,7 @@ The manager is an HTTP API. Operators and the future UI use the same endpoints. 
 
 ## Installation
 
-Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. A native installation listens on loopback by default. The manager requires authentication even on loopback. For browser access, serve the frontend and `/api/v1` under the same HTTPS origin, preserve the public `Host` header at the reverse proxy, and use a local operator account. Existing admin and viewer bearer tokens remain supported for automation.
+Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. A native installation listens on loopback by default. The manager requires authentication even on loopback. The manager also serves the web frontend from `web/build` (the container image includes it), so the browser loads the app and `/api/v1` from one origin. For remote browser access, put that listener behind HTTPS, preserve the public `Host` header at the reverse proxy, and use a local operator account. Plain HTTP works only at `http://localhost`, because the session cookie is `Secure`. Existing admin and viewer bearer tokens remain supported for automation.
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
@@ -15,6 +15,7 @@ Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the cont
 | `DRIVER_HUB_IMAGE_HOST` | Manager | Stable hostname and optional port (e.g. `driver-images.site.example`) of the **Driver Hub** pull service as reached by Nomad clients. No scheme or path. |
 | `HOST`, `PORT` | Both processes | Bind address and port. Manager defaults to `127.0.0.1:8080` natively; image server defaults to `127.0.0.1:5000`. The container binds `0.0.0.0`. |
 | `DRIVER_HUB_BUILDS` | Manager | `true` enables building reviewed source from the public repository using Docker Buildx. Off by default. |
+| `DRIVER_HUB_WEB_DIR` | Manager | Built frontend to serve; default `web/build` beside `src/`. Without an `index.html` there, the manager serves only the API. |
 
 **Image availability:** run `node src/serve-images.js` on a host independent of the manager. For host-redundant distribution run it on two independent hosts behind a stable HTTPS address, backed by resilient shared storage. Route `/v2/` and all `/v2/driverhub/…` requests to those processes; `/v2/` returns 200 when the listener is available. Use an actual manifest HEAD for a storage-aware health check. The service only supports pulls by digest, with no push or delete API. Restrict it to authorized client networks (or use mTLS at the proxy); ensure each client's container runtime trusts the endpoint. A second process or volume on the manager machine alone does **not** meet the HA requirement.
 
@@ -27,7 +28,7 @@ docker run -d --name driverhub-images --restart unless-stopped \
   driver-hub:local node src/serve-images.js
 ```
 
-Both processes must have access to the published files; use the same service UID (the container uses UID 1000). Back up retained releases and the published image directory; use the customer's normal Nomad backup process for jobs and Variables. Do not delete a published digest needed by a running deployment or its rollback version.
+Both processes must have access to the published files; use the same service UID (the container uses UID 1000). Back up retained releases, the published image directory and `DRIVER_HUB_DATA_DIR/labels` (operator-entered device names); use the customer's normal Nomad backup process for jobs and Variables. Do not delete a published digest needed by a running deployment or its rollback version.
 
 ## Operator sign-in
 
@@ -86,7 +87,8 @@ The following paths are relative to `/api/v1`. JSON requests use `Content-Type: 
 | --- | --- | --- |
 | Acquire | `PUT /retained/{driverId}/{version}` | Downloads immutable release metadata, settings declaration and archive. `GET /retained` lists local releases, including customer builds. |
 | Stage | `POST /deployments` with `driverId`, `version`, `settings`, and optional `nodeId` | Validates configuration, verifies and publishes the image, then creates a persistent zero-instance job. Returns `nodeId`, digest-pinned `image`, `revision`, `evaluationId`. |
-| List / inspect | `GET /deployments` or `GET /deployments/{nodeId}` | Lists managed jobs or returns the requested state, current settings and revision, prior version, allocations and communication evidence. |
+| List / inspect | `GET /deployments` or `GET /deployments/{nodeId}` | The list returns one summary per managed device: label, driver and version, Nomad job status, revision, requested state, communication evidence and the newest allocation Nomad wants running. A device Nomad cannot report at that moment stays listed with `requested: null` and evidence reason `status_unavailable`. The detail adds current settings, pinned image, prior version and all allocations. |
+| Name a device | `PUT /deployments/{nodeId}/label` with `{"label":"Studio 3 meter"}` or `{"label":null}` | Admin only. 1–80 characters, trimmed, no control characters. Labels are stored by the manager, not in the Nomad job, so renaming never changes or restarts a driver. A stage request may include the same optional `label`. |
 | Find updates | `GET /updates` | Compares each deployment with discovered stable versions of the same driver. Shows newer versions by SemVer precedence; customer builds are never automatically treated as outdated. Suggestions do not download or deploy anything. |
 | Start / cut over | `POST /deployments/{nodeId}/start` with `revision` | Sets desired count to one. For migration, first stop the original process, then include `originalStopped: true`. |
 | Update | `POST /deployments/{nodeId}/update` with `revision`, `version`, optional replacement `settings` | Preflights the target before submission; preserves the device identity and saves the previous version **and settings**. Settings default to the existing set. |

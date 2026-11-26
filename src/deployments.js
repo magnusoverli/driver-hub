@@ -8,6 +8,29 @@ import { placementIssues } from './nomad.js';
 import { fingerprint } from './request-key.js';
 import { selectProfile, validateNodeId } from './deployment-inputs.js';
 import { requireSecureNomad } from './site.js';
+import { normalizeLabel } from './labels.js';
+
+const managed = job => job.Meta?.managed_by === 'driver-hub';
+
+async function mapLimited(items, limit, run) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => { while (next < items.length) { const index = next++; results[index] = await run(items[index]); } };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+function allocationView(a) {
+  return { id: a.ID, host: a.NodeName, desired: a.DesiredStatus, status: a.ClientStatus, jobVersion: a.JobVersion,
+    taskState: a.TaskStates?.driver?.State, restarts: a.TaskStates?.driver?.Restarts };
+}
+
+// The allocation an operator means by "where it runs": the newest one Nomad still wants running.
+function currentAllocation(allocations) {
+  const wanted = allocations.filter(a => a.DesiredStatus === 'run')
+    .sort((a, b) => (b.JobVersion ?? 0) - (a.JobVersion ?? 0) || (b.CreateIndex ?? 0) - (a.CreateIndex ?? 0));
+  return wanted.length ? allocationView(wanted[0]) : null;
+}
 
 function jobId(nodeId) {
   validateNodeId(nodeId);
@@ -45,13 +68,55 @@ export class Deployments {
     return new Deployments({ ...services, site, profile, nomad: site.client(nomad), datacenters: nomad.datacenters });
   }
 
-  constructor({ nomad, store, images, registry, datacenters, site, profile }) {
-    Object.assign(this, { nomad, store, images, registry, datacenters, site, profile });
+  constructor({ nomad, store, images, registry, datacenters, site, profile, labels }) {
+    Object.assign(this, { nomad, store, images, registry, datacenters, site, profile, labels });
+  }
+
+  label(nodeId) { return this.labels?.get(nodeId) ?? null; }
+
+  // Requested state and verifiable evidence, shared by the list overview and the detail view.
+  async observe(job, allocations) {
+    const evidence = await controlEvidence(this.nomad, job, allocations);
+    return {
+      requested: job.TaskGroups[0].Count === 1 ? 'running' : 'stopped',
+      requiresOriginalStopped: job.Meta.migrated === 'true',
+      communication: evidence.state, communicationEvidence: evidence, approval: 'unknown'
+    };
+  }
+
+  // One row per managed device with what a list needs for triage. A device whose state Nomad
+  // cannot report right now stays listed with unknown evidence instead of failing the whole list.
+  async overview() {
+    const jobs = (await this.nomad.list()).filter(managed);
+    return mapLimited(jobs, 8, async stub => {
+      const { nodeId, driverId, version } = JSON.parse(stub.Meta.spec);
+      const row = { nodeId, driverId, version, label: this.label(nodeId), status: stub.Status, revision: stub.JobModifyIndex };
+      const unavailable = reason => ({ ...row, requested: null, requiresOriginalStopped: stub.Meta.migrated === 'true',
+        communication: 'unknown', communicationEvidence: { state: 'unknown', reason }, approval: 'unknown', allocation: null });
+      try {
+        const job = await this.nomad.get(stub.ID);
+        if (!job || !managed(job)) return unavailable('job_unavailable');
+        const allocations = await this.nomad.allocations(job.ID);
+        return { ...row, status: job.Status, revision: job.JobModifyIndex, ...await this.observe(job, allocations),
+          allocation: currentAllocation(allocations) };
+      } catch (error) {
+        if (error instanceof RequestError && error.status === 502) return unavailable('status_unavailable');
+        throw error;
+      }
+    });
+  }
+
+  async relabel(nodeId, label) {
+    expect(this.labels, 'Deployment labels are not configured', 503);
+    expect(label !== undefined, 'Supply a label, or null to clear it', 400, 'invalid_label');
+    normalizeLabel(label);
+    await this.current(nodeId);
+    return { nodeId, label: await this.labels.set(nodeId, label) ?? null };
   }
 
   async list() {
     const jobs = await this.nomad.list();
-    return jobs.filter(job => job.Meta?.managed_by === 'driver-hub').map(job => {
+    return jobs.filter(managed).map(job => {
       const { nodeId, driverId, version } = JSON.parse(job.Meta.spec);
       return { nodeId, driverId, version, status: job.Status, revision: job.JobModifyIndex };
     });
@@ -60,26 +125,19 @@ export class Deployments {
   async current(nodeId) {
     const job = await this.nomad.get(jobId(nodeId));
     expect(job, 'Unknown deployment', 404);
-    expect(job.Meta?.managed_by === 'driver-hub', 'Job belongs to another manager', 409);
+    expect(managed(job), 'Job belongs to another manager', 409);
     return job;
   }
 
   async status(nodeId) {
     const job = await this.current(nodeId);
     const allocations = await this.nomad.allocations(job.ID);
-    const group = job.TaskGroups[0];
-    const evidence = await controlEvidence(this.nomad, job, allocations);
     return {
-      ...JSON.parse(job.Meta.spec), revision: job.JobModifyIndex,
-      requested: job.TaskGroups[0].Count === 1 ? 'running' : 'stopped',
-      requiresOriginalStopped: job.Meta.migrated === 'true',
-      image: group.Tasks[0].Config.image,
+      ...JSON.parse(job.Meta.spec), label: this.label(nodeId), revision: job.JobModifyIndex,
+      image: job.TaskGroups[0].Tasks[0].Config.image,
       previousVersion: JSON.parse(job.Meta.previous)?.version ?? null,
-      communication: evidence.state, communicationEvidence: evidence, approval: 'unknown',
-      allocations: allocations.map(a => ({
-        id: a.ID, host: a.NodeName, desired: a.DesiredStatus, status: a.ClientStatus, jobVersion: a.JobVersion,
-        taskState: a.TaskStates?.driver?.State, restarts: a.TaskStates?.driver?.Restarts
-      }))
+      ...await this.observe(job, allocations),
+      allocations: allocations.map(allocationView)
     };
   }
 
@@ -96,7 +154,7 @@ export class Deployments {
     const job = await this.current(nodeId);
     const result = await this.nomad.versions(job.ID);
     expect(Array.isArray(result?.Versions), 'Invalid Nomad job history', 502);
-    return result.Versions.filter(entry => entry.Meta?.managed_by === 'driver-hub' && entry.ID === job.ID)
+    return result.Versions.filter(entry => managed(entry) && entry.ID === job.ID)
       .sort((a, b) => b.Version - a.Version).slice(0, 50).map(entry => {
         const { driverId, version } = JSON.parse(entry.Meta.spec);
         const group = entry.TaskGroups[0];
@@ -140,6 +198,15 @@ export class Deployments {
   }
 
   async stage(input, preview = false, key) {
+    const label = normalizeLabel(input.label);
+    expect(label === undefined || this.labels, 'Deployment labels are not configured', 503);
+    const result = await this.register(input, preview, key);
+    // The label is not part of the job, so a replayed stage may still name the device.
+    if (!preview && label !== undefined) await this.labels.set(result.nodeId, label);
+    return result;
+  }
+
+  async register(input, preview, key) {
     const migrated = input.nodeId !== undefined;
     // For a new device a client-selected random UUID can also be its stable node ID.
     // Unlike an explicitly supplied migration nodeId this never implies an original driver.
@@ -149,7 +216,7 @@ export class Deployments {
     const spec = { nodeId, driverId: input.driverId, version: input.version, settings: input.settings ?? {} };
     const signature = key && fingerprint('stage', input.inheritSite === undefined ? spec : { ...spec, inheritSite: input.inheritSite });
     const replay = job => {
-      expect(!preview && signature && job.Meta?.managed_by === 'driver-hub' && job.Meta.stage_request === signature,
+      expect(!preview && signature && managed(job) && job.Meta.stage_request === signature,
         'Deployment already exists', 409, 'deployment_exists');
       return { nodeId, revision: job.JobModifyIndex, replayed: true, image: job.TaskGroups[0].Tasks[0].Config.image };
     };

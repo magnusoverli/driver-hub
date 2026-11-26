@@ -17,6 +17,14 @@ const identity = { driverId: str, version: str };
 const settings = { type: 'object', additionalProperties: {
   oneOf: [str, integer, bool, object({ secretRef: str })]
 } };
+const deviceLabel = { type: ['string', 'null'], maxLength: 80,
+  description: 'Operator-facing device name kept by Hub, not by Nomad. Null when unnamed.' };
+const allocation = object({ id: str, host: str, desired: str, status: str, jobVersion: integer, taskState: str, restarts: integer },
+  ['id', 'desired', 'status']);
+const observation = {
+  communication: values('unknown', 'driver-reports-connected', 'check-failed'), approval: { const: 'unknown' },
+  communicationEvidence: object({ state: str, reason: str, allocationId: str, observedAt: date }, ['state', 'reason'])
+};
 const fieldErrors = array(object({ field: str, code: str }));
 const fieldProperties = {
   name: str, type: values('string', 'integer', 'boolean'), required: bool,
@@ -71,7 +79,7 @@ const schemas = {
     state: values('running', 'succeeded', 'failed', 'interrupted'),
     release: object({ ...identity, digest: str }), failure: { allOf: [ref('Error'), object({ status: integer })] }
   }, ['id', 'kind', 'startedAt', 'state']),
-  Stage: object({ ...identity, nodeId: uuid, settings, inheritSite: bool }, ['driverId', 'version']),
+  Stage: object({ ...identity, nodeId: uuid, settings, inheritSite: bool, label: deviceLabel }, ['driverId', 'version']),
   Preview: object({
     preview: { const: true }, requested: values('stopped', 'running'), image: str, currentRevision: integer,
     schedulable: bool, placementFailures: array(object({
@@ -81,12 +89,15 @@ const schemas = {
   }),
   Submission: object({ nodeId: uuid, revision: integer, evaluationId: str, image: str, replayed: bool, unchanged: bool }, ['nodeId', 'revision']),
   Deployment: object({
-    ...identity, nodeId: uuid, settings, revision: integer, image: str, requiresOriginalStopped: bool,
-    previousVersion: { type: ['string', 'null'] }, requested: values('stopped', 'running'),
-    communication: values('unknown', 'driver-reports-connected', 'check-failed'), approval: { const: 'unknown' },
-    communicationEvidence: object({ state: str, reason: str, allocationId: str, observedAt: date }, ['state', 'reason']),
-    allocations: array(object({ id: str, host: str, desired: str, status: str, jobVersion: integer, taskState: str, restarts: integer },
-      ['id', 'desired', 'status']))
+    ...identity, nodeId: uuid, label: deviceLabel, settings, revision: integer, image: str, requiresOriginalStopped: bool,
+    previousVersion: { type: ['string', 'null'] }, ...observation, requested: values('stopped', 'running'),
+    allocations: array(allocation)
+  }),
+  DeploymentSummary: object({
+    ...identity, nodeId: uuid, label: deviceLabel, status: str, revision: integer, requiresOriginalStopped: bool, ...observation,
+    requested: { type: ['string', 'null'], enum: ['stopped', 'running', null],
+      description: 'Null when Nomad could not report this deployment; see communicationEvidence.reason.' },
+    allocation: { oneOf: [allocation, { type: 'null' }], description: 'Newest allocation Nomad wants running, if any.' }
   })
 };
 const submitted = { oneOf: [ref('Submission'), ref('Preview')] };
@@ -127,11 +138,14 @@ const paths = {
       platform: str, configuration: ref('Declaration') }, ['driverId', 'commit', 'directory'])
   }) },
   '/deployments': {
-    get: endpoint('listDeployments', object({ deployments: array(object({ ...identity, nodeId: uuid, status: str, revision: integer })) })),
+    get: endpoint('listDeployments', object({ deployments: array(ref('DeploymentSummary')) })),
     post: endpoint('stageDeployment', submitted, { parameters: [preview, { name: 'Idempotency-Key', in: 'header',
       schema: uuid, description: 'For a new device only: use this random UUID as its nodeId and safely retry staging.' }], body: ref('Stage') })
   },
   '/deployments/{nodeId}': { get: endpoint('getDeployment', ref('Deployment'), { parameters: [path('nodeId')] }) },
+  '/deployments/{nodeId}/label': { put: endpoint('labelDeployment', object({ nodeId: uuid, label: deviceLabel }), {
+    parameters: [path('nodeId')], body: object({ label: deviceLabel })
+  }) },
   '/deployments/{nodeId}/history': { get: endpoint('getDeploymentHistory', object({ history: array(object({
     ...identity, jobVersion: integer, revision: integer, image: str, requested: values('running', 'stopped')
   })) }), { parameters: [path('nodeId')] }) },
