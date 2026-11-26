@@ -1,0 +1,104 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+	import { m } from '#lib/paraglide/messages.js';
+	import { isActive, type NavItem, type NavSection } from './navigation';
+
+	let { items, routeId }: { items: NavItem[]; routeId: string | null } = $props();
+
+	const sections = $derived(
+		(['main', 'site'] as NavSection[])
+			.map((section) => ({ section, items: items.filter((item) => item.section === section) }))
+			.filter((group) => group.items.length > 0)
+	);
+	const headings: Record<NavSection, (() => string) | null> = {
+		main: null,
+		site: m.nav_section_site
+	};
+</script>
+
+<nav class="side-nav" aria-label={m.nav_label()}>
+	{#each sections as group (group.section)}
+		{@const heading = headings[group.section]}
+		<div class="group">
+			{#if heading}<span class="heading">{heading()}</span>{/if}
+			<ul>
+				{#each group.items as item (item.id)}
+					{@const Icon = item.icon}
+					{@const active = isActive(item, routeId)}
+					<li>
+						<a
+							href={resolve(item.route)}
+							class={{ active }}
+							aria-current={active ? 'page' : undefined}
+						>
+							<Icon size={16} aria-hidden="true" />
+							<span>{item.label()}</span>
+						</a>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/each}
+</nav>
+
+<style>
+	.side-nav {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+		padding-top: var(--space-1);
+	}
+
+	.group {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.heading {
+		padding: 0 var(--space-3) var(--space-1);
+		font-size: var(--text-sm);
+		font-weight: var(--weight-semibold);
+		color: var(--text-3);
+	}
+
+	ul {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	a {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		height: var(--control);
+		padding: 0 var(--space-3);
+		border-radius: var(--radius-md);
+		color: var(--text-2);
+		font-weight: var(--weight-medium);
+		text-decoration: none;
+		transition:
+			background-color var(--duration-fast) var(--ease),
+			color var(--duration-fast) var(--ease);
+	}
+
+	a:hover {
+		background: var(--hover);
+		color: var(--text);
+	}
+
+	a.active {
+		background: var(--accent-soft);
+		color: var(--accent-text);
+		font-weight: var(--weight-semibold);
+	}
+
+	a:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
+	}
+</style>

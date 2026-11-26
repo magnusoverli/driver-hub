@@ -1,1 +1,4 @@
 node_modules/
+
+# Local trial (compose.yaml)
+.env
