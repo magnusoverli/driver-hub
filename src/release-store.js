@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -47,6 +47,19 @@ export class ReleaseStore {
     return records;
   }
 
+  // Renaming first makes the release disappear at once; listing skips the leftover until removed.
+  async remove(driverId, version) {
+    const trash = join(this.root, `.removing-${randomUUID()}`);
+    try {
+      await rename(directory(this.root, driverId, version), trash);
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+    await rm(trash, { recursive: true, force: true });
+    return true;
+  }
+
   async load(driverId, version) {
     const path = directory(this.root, driverId, version);
     let bytes;
@@ -78,19 +91,25 @@ export class ReleaseStore {
     const staging = await mkdtemp(join(this.root, '.incoming-'));
     try {
       await saveArchive(join(staging, 'image.oci.tar.gz'), archiveChunks, record.image.archiveSha256);
-      await writeFile(join(staging, 'driver-config.json'), release.configBytes);
-      await writeFile(join(staging, 'driver-release.json'), release.manifestBytes);
-      try {
-        await rename(staging, directory(this.root, record.driverId, record.version));
-      } catch (error) {
-        // Another writer may have published a complete, non-empty directory first.
-        const winner = await this.existing(record);
-        if (!winner) throw error;
-        return winner;
-      }
-      return release.detail;
+      return (await this.commit(staging, release)).detail;
     } finally {
       await rm(staging, { recursive: true, force: true });
+    }
+  }
+
+  // staging is private to the caller, on the same filesystem, and contains the verified archive.
+  async commit(staging, release) {
+    const { record } = release.detail;
+    await writeFile(join(staging, 'driver-config.json'), release.configBytes);
+    await writeFile(join(staging, 'driver-release.json'), release.manifestBytes);
+    try {
+      await rename(staging, directory(this.root, record.driverId, record.version));
+      return { detail: release.detail, created: true };
+    } catch (error) {
+      if (!['ENOTEMPTY', 'EEXIST', 'EPERM'].includes(error.code)) throw error;
+      const winner = await this.existing(record);
+      if (!winner) throw error;
+      return { detail: winner, created: false };
     }
   }
 }

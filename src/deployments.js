@@ -132,13 +132,53 @@ export class Deployments {
   async status(nodeId) {
     const job = await this.current(nodeId);
     const allocations = await this.nomad.allocations(job.ID);
+    const spec = JSON.parse(job.Meta.spec);
     return {
-      ...JSON.parse(job.Meta.spec), label: this.label(nodeId), revision: job.JobModifyIndex,
+      ...spec, label: this.label(nodeId), revision: job.JobModifyIndex,
+      // Updates keep the target saved at staging; clients need this to render the settings form.
+      inheritsSite: Boolean(spec.videoIPath),
       image: job.TaskGroups[0].Tasks[0].Config.image,
       previousVersion: JSON.parse(job.Meta.previous)?.version ?? null,
       ...await this.observe(job, allocations),
       allocations: allocations.map(allocationView)
     };
+  }
+
+  // Deletes a stopped deployment: the Nomad job with its history, Hub's label and the registration
+  // Variable Hub wrote. The device's own secrets Variable and its reserved token are left alone:
+  // Hub did not create the first, and the second is removed from the site's pool explicitly.
+  async remove(nodeId, revision) {
+    const job = await this.current(nodeId);
+    expect(Number.isSafeInteger(revision) && revision === job.JobModifyIndex, 'Supply the current deployment revision',
+      409, 'revision_conflict', { currentRevision: job.JobModifyIndex });
+    expect(job.TaskGroups[0].Count === 0, 'Stop the deployment before deleting it', 409, 'deployment_running');
+    await this.nomad.deregister(job.ID);
+    let registrationVariable = 'none';
+    if (JSON.parse(job.Meta.spec).videoIPath) {
+      const path = `nomad/jobs/${job.ID}/device/driver`;
+      try {
+        registrationVariable = await this.nomad.variable(path) ? 'removed' : 'none';
+        if (registrationVariable === 'removed') await this.nomad.deleteVariable(path);
+      } catch (error) {
+        if (!(error instanceof RequestError)) throw error;
+        registrationVariable = 'failed';
+      }
+    }
+    if (this.labels) await this.labels.set(nodeId, null);
+    return { nodeId, deleted: true, registrationVariable };
+  }
+
+  // Deployments that run a release now or keep it to roll back to.
+  async usage(driverId, version) {
+    const jobs = (await this.nomad.list()).filter(managed);
+    return jobs.flatMap(job => {
+      const spec = JSON.parse(job.Meta.spec);
+      const previous = JSON.parse(job.Meta.previous ?? 'null');
+      const uses = [];
+      if (spec.driverId === driverId && spec.version === version) uses.push({ nodeId: spec.nodeId, use: 'current' });
+      if (previous?.driverId === driverId && previous.version === version) uses.push({ nodeId: spec.nodeId, use: 'previous' });
+      return uses;
+    });
   }
 
   async evaluations(nodeId) {

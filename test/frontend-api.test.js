@@ -96,6 +96,19 @@ test('deployment list reports labels, requested state, evidence and the current 
   const detail = await (await fetch(`${base}/api/v1/deployments/${ids[0]}`)).json();
   assert.equal(detail.label, 'Studio 3 meter');
   assert.equal(detail.allocations.length, 2);
+  assert.equal(detail.inheritsSite, false);
+});
+
+test('deployment detail says whether the device takes its VideoIPath target from the site', async t => {
+  const site = job(ids[1]);
+  const spec = JSON.parse(site.Meta.spec);
+  site.Meta.spec = JSON.stringify({ ...spec, videoIPath: { id: 'p1', url: 'wss://vip.site/x-driver/v1', mode: 'per-device' } });
+  const jobs = new Map([[`driverhub-${ids[0]}`, job(ids[0])], [`driverhub-${ids[1]}`, site]]);
+  const deployments = new Deployments({ nomad: fakeNomad(jobs), datacenters: ['dc1'] });
+  const base = await listen(t, createApi(null, null, { deployments }));
+  const detail = async nodeId => (await fetch(`${base}/api/v1/deployments/${nodeId}`)).json();
+  assert.equal((await detail(ids[0])).inheritsSite, false);
+  assert.equal((await detail(ids[1])).inheritsSite, true);
 });
 
 test('admins rename deployments without touching Nomad; labels are validated, durable and admin-only', async t => {
@@ -197,6 +210,10 @@ test('the manager serves the frontend shell, hashed assets and API from one orig
   });
   assert.equal((await raw('/_app/immutable/entry/start.js', { 'Accept-Encoding': 'gzip, br' })).headers['content-encoding'], 'br');
   assert.equal((await fetch(`${base}/_app/immutable/missing.js`)).status, 404);
+  // A release version is a route, not a file extension.
+  const release = await fetch(`${base}/catalog/meter/1.4.0`);
+  assert.equal(release.status, 200);
+  assert.match(release.headers.get('content-type'), /^text\/html/);
   for (const path of ['/.env', '/../../.env', '/%2e%2e/%2e%2e/.env', '/_app/%2e%2e/.env', '/a%00b', '/%E0%A4%A']) {
     assert.equal((await raw(path)).statusCode, 400, path);
   }

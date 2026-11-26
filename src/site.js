@@ -101,7 +101,8 @@ export class Site {
       assignments: (tokens ?? []).map(tokenKey).filter(hash => used[hash]).map(hash => ({
         nodeId: used[hash], tokenFingerprint: hash
       })),
-      availableTokens: tokens ? tokens.filter(t => !used[tokenKey(t)]).length : null } };
+      availableTokens: tokens ? tokens.filter(t => !used[tokenKey(t)]).length : null,
+      pool: (tokens ?? []).map(t => ({ tokenFingerprint: tokenKey(t), nodeId: used[tokenKey(t)] ?? null })) } };
   }
 
   serialized(fn) {
@@ -111,6 +112,28 @@ export class Site {
   }
 
   configure(service, input) { return this.serialized(() => this.save(service, input)); }
+
+  // Removes a per-device token from the pool by fingerprint: an unused one, or one reserved for a
+  // device whose deployment no longer exists (`released` decides that). Revocation stays in VideoIPath.
+  removeToken(fingerprint, revision, released) {
+    return this.serialized(async () => {
+      const old = this.state;
+      expect(revision === old.revision, 'Reload the current site settings', 409, 'revision_conflict',
+        { currentRevision: old.revision });
+      const profile = old.videoipath;
+      expect(profile?.mode === 'per-device', 'Only per-device tokens can be removed from a pool', 409);
+      const token = profile.tokens.find(t => tokenKey(t) === fingerprint);
+      expect(token, 'Unknown token fingerprint', 404);
+      const nodeId = old.used[fingerprint];
+      if (nodeId) expect(await released(nodeId), 'The token is reserved for an existing deployment', 409, 'token_in_use',
+        { nodeId });
+      const used = { ...old.used };
+      delete used[fingerprint];
+      await this.persist({ ...old, revision: old.revision + 1, used,
+        videoipath: { ...profile, tokens: profile.tokens.filter(t => t !== token) } });
+      return this.describe();
+    });
+  }
 
   checkAvailable(profileId, nodeId) {
     const { videoipath: profile, used } = this.state;

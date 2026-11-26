@@ -21,8 +21,8 @@ function contentSecurityPolicy(html) {
   ].join('; ');
 }
 
-// Serves the built single-page frontend from the same origin as the API. Unknown routes without
-// a file extension return the application shell, which then routes in the browser.
+// Serves the built single-page frontend from the same origin as the API. Unknown routes return
+// the application shell, which then routes in the browser; missing assets return 404.
 export class WebApp {
   static async open(root) {
     const directory = resolve(root);
@@ -67,7 +67,9 @@ export class WebApp {
     }
     let path = this.resolve(pathname);
     let info = path && await this.file(path);
-    if (!info && path && !extname(path)) {
+    // App routes may end in something that looks like an extension, such as a release version
+    // (/catalog/meter/1.4.0). Only extensions the app is actually built with mark a missing file.
+    if (!info && path && !Object.hasOwn(types, extname(path))) {
       path = join(this.root, 'index.html');
       info = await this.file(path);
     }

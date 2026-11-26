@@ -44,6 +44,7 @@ Both processes must have access to the published files; use the same service UID
 | `POST /auth/password` | A local user supplies `currentPassword` and `newPassword`. Success invalidates all their sessions; sign in again. |
 | `GET /users`, `POST /users` | Admin only. List local accounts or create one with `username`, `password`, and `role`. Usernames are case-insensitive; passwords require at least 12 characters (up to 1024 UTF-8 bytes). |
 | `PATCH /users/{username}` | Admin only. Supply `role`, `enabled`, and/or a replacement `password`. Changes invalidate the user's sessions. The last enabled local admin cannot be disabled or demoted. |
+| `DELETE /users/{username}` | Admin only. Deletes a local account and ends its sessions. Refuses the last enabled admin (`409 last_admin`) and the signed-in operator's own account (`409 own_account`). Recreating the username starts a new account; sessions of the deleted one never become valid again. |
 
 **Persistence and recovery:** back up `DRIVER_HUB_DATA_DIR/auth` with the manager data and restrict access to it. The account store contains salted scrypt hashes and roles. Use one manager per directory. A second admin (or an operator with host access who configures the admin service token and restarts the manager) can reset a forgotten password. Operator sessions are held in memory; signing out does not affect any running driver.
 
@@ -70,12 +71,13 @@ Use these admin-only JSON endpoints under `/api/v1`. Supply the latest `revision
 | `GET /site` | Returns revision, addresses, namespace, datacenters, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
 | `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. |
 | `PUT /site/videoipath` | `{"revision":1,"address":"vip.site.example","tokens":["<driver token A>","<driver token B>"]}`. Hub normalizes the address to `wss://vip.site.example/x-driver/v1`. The default `tokenMode` is `per-device`. Repeat with the current revision to add more pre-issued tokens. Saving does not open a driver session. |
+| `DELETE /site/videoipath/tokens/{fingerprint}?revision=N` | Removes a per-device token from the pool, identified by the SHA-256 fingerprint that `GET /site` lists under `videoipath.pool`. Allowed for an unused token, or one reserved for a device whose deployment no longer exists; a token of an existing deployment returns `409 token_in_use`. Revoke removed tokens in VideoIPath. |
 
 **Token ownership:** Create external-driver bearer tokens in the VideoIPath CLI. Hub reserves one distinct token per device UUID when actually staging. A preview consumes none. An empty pool returns `409 driver_token_pool_empty`; it never falls back to sharing. Retrying a failed stage with the same UUID reuses its reservation. Rescheduling, restarting, updating and rolling back an existing device do not claim another token. To deliberately share one token among future deployments, set `"tokenMode":"shared"` and supply `"token"` instead of `"tokens"`. Revocation remains in VideoIPath. Match the admin-visible fingerprint to your issuance record; the logged fingerprint should be computed on the exact token bytes without a newline.
 
 **Stage:** Send a client-generated lowercase UUID in `Idempotency-Key` for new site-managed devices (the existing `nodeId` for migration). Omit VideoIPath connection settings. The driver receives `VIDEOIPATH_URL`, `VIDEOIPATH_TOKEN` and `VIDEOIPATH_NODE_ID`; the driver must support those bindings and establish the WebSocket itself. For different env/file bindings, a release can declare `"videoIPathInputs":{"url":"backendUrl","token":"backendToken"}` referencing a public string and a secret string input. Set `"inheritSite":false` at staging to use manual release settings. Existing jobs keep their saved target; changing sites does not migrate or stop them. Selecting a different configured Nomad address/namespace clears the VideoIPath defaults for future jobs.
 
-**Storage and access:** Give the manager read/write access to the task Variables at `nomad/jobs/driverhub-<uuid>/device/driver` in its namespace, in addition to its existing job rights. The job contains a reference; the allocation reads its token from Nomad independently of the manager. Use HTTPS to remote Nomad when delivering credentials. For a private CA, configure the manager's Node trust store (e.g. `NODE_EXTRA_CA_CERTS`); separately configure trust in driver images for VideoIPath.
+**Storage and access:** Give the manager read/write access to the task Variables at `nomad/jobs/driverhub-<uuid>/device/driver` in its namespace, in addition to its existing job rights. To let it remove that Variable when a deployment is deleted, also grant `destroy` on the same path; without it the deletion succeeds and reports the Variable as left behind. The job contains a reference; the allocation reads its token from Nomad independently of the manager. Use HTTPS to remote Nomad when delivering credentials. For a private CA, configure the manager's Node trust store (e.g. `NODE_EXTRA_CA_CERTS`); separately configure trust in driver images for VideoIPath.
 
 One manager process owns a data directory. Settings, including reservations, are persisted under `DRIVER_HUB_DATA_DIR/site` with AES-256-GCM. By default the key is created alongside the ciphertext: anyone with access to both can decrypt it. To separate the key, mount a file containing exactly 32 random bytes and set `DRIVER_HUB_SITE_KEY_FILE` **before first setup**. Protect and back up the state and corresponding key; losing assignments can lead to token reuse. Persisted settings take precedence over `NOMAD_*` startup defaults.
 
@@ -86,14 +88,16 @@ The following paths are relative to `/api/v1`. JSON requests use `Content-Type: 
 | Operation | Request | Result |
 | --- | --- | --- |
 | Acquire | `PUT /retained/{driverId}/{version}` | Downloads immutable release metadata, settings declaration and archive. `GET /retained` lists local releases, including customer builds. |
+| Remove a release | `DELETE /retained/{driverId}/{version}` | Admin only. Removes the retained release and its verified image from the distribution store. Refused with `409 release_in_use`, listing `details.deployments` with `use: current` or `previous`, while a deployment in the configured namespace runs the release or keeps it for rollback. Hub cannot see deployments left on a previously configured cluster or namespace; keep the releases they use. |
 | Stage | `POST /deployments` with `driverId`, `version`, `settings`, and optional `nodeId` | Validates configuration, verifies and publishes the image, then creates a persistent zero-instance job. Returns `nodeId`, digest-pinned `image`, `revision`, `evaluationId`. |
-| List / inspect | `GET /deployments` or `GET /deployments/{nodeId}` | The list returns one summary per managed device: label, driver and version, Nomad job status, revision, requested state, communication evidence and the newest allocation Nomad wants running. A device Nomad cannot report at that moment stays listed with `requested: null` and evidence reason `status_unavailable`. The detail adds current settings, pinned image, prior version and all allocations. |
+| List / inspect | `GET /deployments` or `GET /deployments/{nodeId}` | The list returns one summary per managed device: label, driver and version, Nomad job status, revision, requested state, communication evidence and the newest allocation Nomad wants running. A device Nomad cannot report at that moment stays listed with `requested: null` and evidence reason `status_unavailable`. The detail adds current settings, pinned image, prior version, all allocations and `inheritsSite` (whether the device takes its VideoIPath target and token from the site, as saved at staging; render update forms with the same choice). |
 | Name a device | `PUT /deployments/{nodeId}/label` with `{"label":"Studio 3 meter"}` or `{"label":null}` | Admin only. 1–80 characters, trimmed, no control characters. Labels are stored by the manager, not in the Nomad job, so renaming never changes or restarts a driver. A stage request may include the same optional `label`. |
 | Find updates | `GET /updates` | Compares each deployment with discovered stable versions of the same driver. Shows newer versions by SemVer precedence; customer builds are never automatically treated as outdated. Suggestions do not download or deploy anything. |
 | Start / cut over | `POST /deployments/{nodeId}/start` with `revision` | Sets desired count to one. For migration, first stop the original process, then include `originalStopped: true`. |
 | Update | `POST /deployments/{nodeId}/update` with `revision`, `version`, optional replacement `settings` | Preflights the target before submission; preserves the device identity and saves the previous version **and settings**. Settings default to the existing set. |
 | Roll back | `POST /deployments/{nodeId}/rollback` with `revision` | Switches to the preceding saved version/settings. Does not undo physical device configuration changes. |
 | Stop | `POST /deployments/{nodeId}/stop` with `revision` | Sets count to zero without needing the image store. Keeps deployment state. For migration back to an external host, verify that the allocation has actually stopped before restarting the original. |
+| Delete | `DELETE /deployments/{nodeId}?revision=N` | Admin only, for a stopped deployment (`409 deployment_running` otherwise). Purges the Nomad job and its history, Hub's label and the registration Variable Hub wrote (`registrationVariable`: `removed`, `none` or `failed`). Nomad's deregistration has no index check, so Hub compares the revision immediately before. Remove the device's own secrets Variable yourself; its reserved VideoIPath token stays in the pool until removed. Cannot be undone. |
 
 Example stage body using the proposed meter configuration:
 
@@ -159,6 +163,43 @@ Linux Nomad clients need a healthy Docker task driver and access to VideoIPath, 
 An optional declaration extension, `"controlHealth":{"port":8080,"path":"/control"}`, tells Hub to register an HTTP check with Nomad service discovery. Use it **only** for a driver endpoint that returns success when both its VideoIPath session and device communication are working. The driver must listen on the declared container port. Hub returns `driver-reports-connected` only for a recent successful check on the current running allocation, `check-failed` for a recent failure, and `unknown` without fresh evidence. Approval is always `unknown` in this API. Container liveness alone is not a control check.
 
 Nomad's service scheduler restarts or reschedules the job without Hub intervention. Updates have no canaries. The job uses [`disconnect.stop_on_client_after`](https://developer.hashicorp.com/nomad/docs/job-specification/disconnect) (30 seconds) to have a disconnected client stop its task. This is **not hard fencing**: it depends on the Nomad agent still running and on synchronized clocks. If a driver survives a frozen agent or a management partition, two instances may compete for the same VideoIPath session. For sites requiring a strict single-writer guarantee, commission host or network fencing before enabling automatic takeover; a successful clean host-loss test does not prove partition safety.
+
+## Import a local image
+
+`PUT /api/v1/imports/{driverId}/{version}` verifies a prebuilt image and adds it to **retained releases**. Use a normal driver ID and SemVer, e.g. `meter/1.2.0`. Uploading does not run the driver, publish it upstream, or contact GitHub, Docker or Nomad. It requires an administrator; browser requests use the usual session cookie and `X-Driver-Hub-Request: 1`.
+
+In **Catalog → Import local image**, supply the archive, driver ID and version. Under **Optional details**, add configuration if the driver expects Hub to supply inputs or monitor a control health check. The verified release appears under **Retained releases**.
+
+Send a multipart form with:
+
+- `image`: a **gzipped OCI image-layout tar** (up to 2 GiB compressed, 8 GiB expanded). Use a single manifest or a multi-platform index for one image, not a collection of separately tagged images. An ordinary Docker save archive without an OCI layout is not supported.
+- `metadata` (optional): UTF-8 JSON (up to 256 KiB). `displayName` defaults to the driver ID. `source.commit` (full lowercase Git hash) and `source.directory` are independently optional provenance fields. Omitting `configuration` declares no driver inputs or control health check. Supply a declaration when the driver needs them.
+
+For example, save this as `metadata.json`, substituting the actual source revision and configuration:
+
+```json
+{
+  "displayName": "Meter",
+  "source": { "commit": "0123456789abcdef0123456789abcdef01234567", "directory": "Drivers/Meter" },
+  "configuration": {
+    "schemaVersion": 1,
+    "inputs": [{ "name": "deviceHost", "type": "string", "required": true, "env": "DEVICE_HOST" }]
+  }
+}
+```
+
+```sh
+curl --fail-with-body -X PUT http://localhost:8080/api/v1/imports/meter/1.2.0 \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -F 'metadata=<metadata.json;type=application/json' \
+  -F 'image=@image.oci.tar.gz;type=application/gzip'
+```
+
+The synchronous response contains the retained release and its `Location`: `201` for a new release, `200` for an identical retry, `409 release_conflict` if that driver/version already has different content. Retry with the same archive bytes and metadata; choose a new version for changed content. The manager computes the archive and configuration checksums, verifies the image graph, and records the image digest, platforms and `customer` origin. Only a completed import appears in `GET /api/v1/retained`. Use the ordinary deploy-form, staging, update and rollback endpoints from there.
+
+After staging, an imported release is a normal Nomad-managed deployment. The same status, allocation, evaluation and history endpoints apply. Include `configuration.controlHealth` if the driver exposes a device-communication check; without it, the Hub can report process state but cannot verify device communication.
+
+Allow temporary disk space in the manager data volume for both the compressed archive and verification scratch space. At most two imports run concurrently (`429` when busy). Oversized requests return `413`, an unsupported upload format `415`, and invalid release metadata or OCI content `422`. Partial imports are discarded; abandoned upload workspaces are cleaned when the manager restarts.
 
 ## Customer builds
 

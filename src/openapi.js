@@ -38,6 +38,8 @@ const acquisition = [
 ];
 const path = name => ({ name, in: 'path', required: true, schema: ['nodeId', 'id'].includes(name) ? uuid : str });
 const releasePath = [path('driverId'), path('version')];
+const revisionQuery = { name: 'revision', in: 'query', required: true, schema: integer,
+  description: 'The revision the client reviewed; a different current revision is refused with 409.' };
 const content = schema => ({ 'application/json': { schema } });
 function endpoint(operationId, result, { parameters, body, async = false } = {}) {
   const responses = {
@@ -55,7 +57,9 @@ const schemas = {
   Site: object({ revision: integer,
     nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool }),
     videoipath: object({ url: { type: ['string', 'null'] }, tokenMode, tokenConfigured: bool,
-      assignments: array(object({ nodeId: uuid, tokenFingerprint: str })), availableTokens: { type: ['integer', 'null'] } })
+      assignments: array(object({ nodeId: uuid, tokenFingerprint: str })), availableTokens: { type: ['integer', 'null'] },
+      pool: { ...array(object({ tokenFingerprint: str, nodeId: { type: ['string', 'null'], format: 'uuid' } })),
+        description: 'Every per-device token by SHA-256 fingerprint, with the device it is reserved for, if any.' } })
   }),
   Error: object({ error: str, code: str, details: anyObject }, ['error', 'code']),
   Validation: object({ valid: bool, errors: fieldErrors }),
@@ -69,9 +73,9 @@ const schemas = {
   Release: object({
     record: object({
       ...identity, schemaVersion: { const: 1 }, displayName: str, origin: values('customer', 'maintainer'),
-      source: object({ commit: str, directory: str }), configuration: object({ file: str, sha256: str }),
+      source: object({ commit: str, directory: str }, []), configuration: object({ file: str, sha256: str }),
       image: object({ digest: str, platforms: array(str), archive: str, archiveSha256: str })
-    }, ['driverId', 'version', 'schemaVersion', 'displayName', 'source', 'configuration', 'image']),
+    }, ['driverId', 'version', 'schemaVersion', 'displayName', 'configuration', 'image']),
     configuration: ref('Declaration')
   }),
   Operation: object({
@@ -90,6 +94,8 @@ const schemas = {
   Submission: object({ nodeId: uuid, revision: integer, evaluationId: str, image: str, replayed: bool, unchanged: bool }, ['nodeId', 'revision']),
   Deployment: object({
     ...identity, nodeId: uuid, label: deviceLabel, settings, revision: integer, image: str, requiresOriginalStopped: bool,
+    inheritsSite: { type: 'boolean',
+      description: 'Whether the deployment takes its VideoIPath target and token from the site, as saved at staging.' },
     previousVersion: { type: ['string', 'null'] }, ...observation, requested: values('stopped', 'running'),
     allocations: array(allocation)
   }),
@@ -111,7 +117,10 @@ const paths = {
   '/users': { get: endpoint('listLocalUsers', object({ users: array(ref('LocalAccount')) })),
     post: endpoint('createLocalUser', ref('LocalAccount'), { body: object({ username: str, role, password: secret }) }) },
   '/users/{username}': { patch: endpoint('updateLocalUser', ref('LocalAccount'), { parameters: [path('username')],
-    body: object({ password: secret, role, enabled: bool }, []) }) },
+    body: object({ password: secret, role, enabled: bool }, []) }),
+  delete: { ...endpoint('deleteLocalUser', object({ username: str, deleted: { const: true } }), {
+    parameters: [path('username')] }), description: 'Ends the account\'s sessions. Refused for the last enabled ' +
+    'administrator (409 last_admin) and for the signed-in operator\'s own account (409 own_account).' } },
   '/site': { get: endpoint('getSiteSettings', ref('Site')) },
   '/site/nomad': { put: endpoint('configureNomad', ref('Site'), { body: object({ revision: integer,
     address: str, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str)
@@ -119,6 +128,10 @@ const paths = {
   '/site/videoipath': { put: endpoint('configureVideoIPath', ref('Site'), { body: object({
     revision: integer, address: str, tokenMode, token: secret, tokens: array(secret)
   }, ['revision', 'address']) }) },
+  '/site/videoipath/tokens/{fingerprint}': { delete: { ...endpoint('removeVideoIPathToken', ref('Site'), {
+    parameters: [path('fingerprint'), revisionQuery] }), description: 'Removes a per-device token from the pool: ' +
+    'an unused one, or one reserved for a device whose deployment no longer exists (otherwise 409 token_in_use). ' +
+    'Revoke the token in VideoIPath separately.' } },
   '/openapi.json': { get: endpoint('getContract', anyObject) },
   '/capabilities': { get: endpoint('getCapabilities', object({
     apiVersion: str, access: values('admin', 'viewer'), buildsEnabled: bool, asyncAcquisition: bool,
@@ -142,7 +155,13 @@ const paths = {
     post: endpoint('stageDeployment', submitted, { parameters: [preview, { name: 'Idempotency-Key', in: 'header',
       schema: uuid, description: 'For a new device only: use this random UUID as its nodeId and safely retry staging.' }], body: ref('Stage') })
   },
-  '/deployments/{nodeId}': { get: endpoint('getDeployment', ref('Deployment'), { parameters: [path('nodeId')] }) },
+  '/deployments/{nodeId}': { get: endpoint('getDeployment', ref('Deployment'), { parameters: [path('nodeId')] }),
+    delete: { ...endpoint('deleteDeployment', object({ nodeId: uuid, deleted: { const: true },
+      registrationVariable: { ...values('removed', 'none', 'failed'),
+        description: 'The registration Variable Hub wrote for a site-connected device.' } }), {
+      parameters: [path('nodeId'), revisionQuery] }), description: 'Purges the stopped deployment\'s Nomad job and ' +
+      'history and its Hub label (409 deployment_running while it is requested to run). The device\'s own secrets ' +
+      'Variable and any reserved VideoIPath token stay until removed separately.' } },
   '/deployments/{nodeId}/label': { put: endpoint('labelDeployment', object({ nodeId: uuid, label: deviceLabel }), {
     parameters: [path('nodeId')], body: object({ label: deviceLabel })
   }) },
@@ -162,6 +181,21 @@ for (const [collection, label] of [['releases', 'Published'], ['retained', 'Reta
   }) };
 }
 paths['/retained/{driverId}/{version}'].put = endpoint('retainRelease', ref('Release'), { async: true, parameters: [...releasePath, ...acquisition] });
+paths['/retained/{driverId}/{version}'].delete = { ...endpoint('removeRetainedRelease', object({ ...identity,
+  removed: { const: true }, image: values('removed', 'none') }), { parameters: releasePath }),
+description: 'Removes the retained release and its verified image. Refused with 409 release_in_use, listing ' +
+  'deployments in details.deployments, while a deployment in the configured namespace runs it or keeps it for rollback.' };
+const imported = endpoint('importLocalRelease', ref('Release'), { parameters: releasePath });
+imported.description = 'Administrator only. Verify and retain a local OCI release without publishing or deploying it. Identical retries are idempotent.';
+imported.requestBody = { required: true, content: { 'multipart/form-data': {
+  schema: object({ metadata: object({ displayName: str, source: object({ commit: str, directory: str }, []),
+    configuration: ref('Declaration') }, []), image: { type: 'string', format: 'binary', description: 'Gzipped OCI image-layout tar, up to 2 GiB.' } }, ['image']),
+  encoding: { metadata: { contentType: 'application/json' }, image: { contentType: 'application/gzip' } }
+} } };
+for (const [status, description] of [[200, 'Already retained with identical content'], [201, 'New release retained']]) {
+  imported.responses[status] = { description, headers: { Location: { schema: str } }, content: content(ref('Release')) };
+}
+paths['/imports/{driverId}/{version}'] = { put: imported };
 for (const action of ['start', 'stop', 'update', 'rollback']) {
   const properties = { revision: integer };
   if (action === 'start') properties.originalStopped = bool;

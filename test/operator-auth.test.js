@@ -73,6 +73,7 @@ test('local accounts, browser sessions, service tokens and role changes through 
   assert.equal((await send('/users', 'POST', viewer, machine)).status, 409);
   assert.equal((await send('/users', 'POST', admin, machine)).status, 200);
   const adminCookie = await login(admin);
+  assert.equal((await send('/imports/meter/1.0.0', 'PUT', {}, { ...adminCookie, 'X-Driver-Hub-Request': '' })).status, 403);
   assert.equal((await send('/users', 'POST', viewer, { ...adminCookie, 'X-Driver-Hub-Request': '' })).status, 403);
   assert.equal((await send('/users', 'POST', viewer, { ...adminCookie, Origin: 'https://other.example' })).status, 403);
   assert.equal((await send('/users', 'POST', viewer, adminCookie)).status, 200);
@@ -123,4 +124,56 @@ test('provider-independent sessions expire, reject changed identities and bound 
   await assert.rejects(sessions.login(request, {}, {}), { status: 429 });
   now += 60000;
   await assert.rejects(sessions.login(request, {}, {}), { status: 401 });
+});
+
+test('deleting an account ends its sessions, keeps an administrator and never revives old sessions', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'driverhub-delete-users-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const localUsers = await LocalUsers.open(directory);
+  const sessions = new OperatorSessions(localUsers);
+  const token = randomUUID();
+  const server = createApi(null, null, { localUsers, sessions, token }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}/api/v1`;
+  const send = (path, method = 'GET', input, headers = {}) => fetch(`${base}${path}`, { method,
+    headers: { 'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1', ...headers },
+    body: input === undefined ? undefined : JSON.stringify(input) });
+  const machine = { Authorization: `Bearer ${token}` };
+  const login = async (username, password) => {
+    const res = await send('/auth/login', 'POST', { username, password });
+    assert.equal(res.status, 200);
+    return { Cookie: res.headers.get('set-cookie').split(';')[0] };
+  };
+  const first = { username: 'first', role: 'admin', password: randomUUID() };
+  const other = { username: 'other', role: 'viewer', password: randomUUID() };
+  for (const account of [first, other]) assert.equal((await send('/users', 'POST', account, machine)).status, 200);
+
+  // The only administrator cannot be deleted, and an operator cannot delete their own account.
+  const lastAdmin = await send('/users/first', 'DELETE', undefined, machine);
+  assert.equal(lastAdmin.status, 409);
+  assert.equal((await lastAdmin.json()).code, 'last_admin');
+  const firstSession = await login('first', first.password);
+  const own = await send('/users/FIRST', 'DELETE', undefined, firstSession);
+  assert.equal((await own.json()).code, 'own_account');
+
+  const otherSession = await login('other', other.password);
+  assert.equal((await send('/users/other', 'DELETE', undefined, otherSession)).status, 403);
+  assert.equal((await send('/users/other', 'DELETE', undefined, { ...firstSession, 'X-Driver-Hub-Request': '' })).status,
+    403, 'browser writes still need the request header');
+  const deleted = await send('/users/other', 'DELETE', undefined, firstSession);
+  assert.deepEqual(await deleted.json(), { username: 'other', deleted: true });
+  assert.equal((await send('/auth/session', 'GET', undefined, otherSession)).status, 401);
+  assert.equal((await send('/users/other', 'DELETE', undefined, machine)).status, 404);
+  assert.deepEqual((await (await send('/users', 'GET', undefined, machine)).json()).users.map(u => u.username), ['first']);
+
+  // Recreating the name does not bring a session of the deleted account back, also after a restart.
+  const again = await login('first', first.password);
+  const kept = await login('first', first.password);
+  assert.equal((await send('/users', 'POST', other, machine)).status, 200);
+  assert.equal((await send('/auth/session', 'GET', undefined, otherSession)).status, 401);
+  const reopened = await LocalUsers.open(directory);
+  assert.ok(reopened.resolve('other').revision > 1);
+  assert.equal((await send('/auth/session', 'GET', undefined, again)).status, 200);
+  assert.equal((await send('/auth/session', 'GET', undefined, kept)).status, 200);
 });
