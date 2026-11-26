@@ -29,18 +29,21 @@ Run `npx playwright install chromium` once before browser tests. On Windows, run
 
 ## Structure
 
-| Path                              | Responsibility                                                                                                      |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/api/`                    | Typed client generated from the OpenAPI contract, the browser-write header, session-expiry detection, `ApiError`.   |
-| `src/lib/session/`                | `Session` state (depends on the `AuthService` interface), sign-in, re-authentication and password dialogs.          |
-| `src/lib/query/`                  | TanStack Query defaults: retry only transient failures, poll every 10 s, pause while hidden.                        |
-| `src/lib/<feature>/`              | Query factories and pure view logic per area, for example `system/readiness.ts` and `deployments/status-path.ts`.   |
-| `src/lib/deployments/`            | The deployment list and detail: conditions and filters (`view.ts`), preview-then-apply lifecycle (`lifecycle.ts`).  |
-| `src/lib/shell/`                  | Top bar, navigation (route IDs, role filtering), command palette (`Ctrl K`), theme and account menus.               |
-| `src/lib/ui/`                     | Design system: tokens (`styles/tokens.css`), base styles and components built on Bits UI primitives.                |
-| `src/lib/theme/`, `src/lib/time/` | Theme preference and the shared clock behind "Updated 4 s ago".                                                     |
-| `src/routes/`                     | Pages only; the root layout is the composition root that creates and provides every service.                        |
-| `messages/en.json`                | Every user-facing string (Paraglide). Add a locale file and list it in `project.inlang/settings.json` to translate. |
+| Path                              | Responsibility                                                                                                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/api/`                    | Typed client generated from the OpenAPI contract, the browser-write header, session-expiry detection, `ApiError`.                                                                                 |
+| `src/lib/session/`                | `Session` state (depends on the `AuthService` interface), sign-in, re-authentication and password dialogs.                                                                                        |
+| `src/lib/query/`                  | TanStack Query defaults: retry only transient failures, poll every 10 s, pause while hidden.                                                                                                      |
+| `src/lib/<feature>/`              | Query factories and pure view logic per area, for example `system/readiness.ts` and `deployments/status-path.ts`.                                                                                 |
+| `src/lib/deployments/`            | The deployment list and detail: conditions and filters (`view.ts`), preview-then-apply lifecycle (`lifecycle.ts`), the settings form (`settings-form.ts`) and staging (`stage.ts`).               |
+| `src/lib/catalog/`                | Published and retained releases, the release page's inputs, downloads, local imports, source builds, removal, staging and form validation (`validation.ts`).                                      |
+| `src/lib/operations/`             | Background downloads and builds for Activity and the catalog, polled quickly only while one runs.                                                                                                 |
+| `src/lib/site/`, `src/lib/users/` | Nomad and VideoIPath settings (mirroring the manager's address rules) and local accounts.                                                                                                         |
+| `src/lib/shell/`                  | Top bar, navigation (route IDs, role filtering, a sheet on narrow screens), command palette (`Ctrl K`, also devices and releases), theme and account menus, and notices carried to the next page. |
+| `src/lib/ui/`                     | Design system: tokens (`styles/tokens.css`), base styles and components built on Bits UI primitives.                                                                                              |
+| `src/lib/theme/`, `src/lib/time/` | Theme preference and the shared clock behind "Updated 4 s ago".                                                                                                                                   |
+| `src/routes/`                     | Pages only; the root layout is the composition root that creates and provides every service.                                                                                                      |
+| `messages/en.json`                | Every user-facing string (Paraglide). Add a locale file and list it in `project.inlang/settings.json` to translate.                                                                               |
 
 State lives in rune-based classes and TanStack queries; components read fields and call methods, so only the parts of the page that depend on a changed value update.
 

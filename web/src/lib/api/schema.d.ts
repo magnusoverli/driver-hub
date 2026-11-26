@@ -95,7 +95,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /** @description Ends the account's sessions. Refused for the last enabled administrator (409 last_admin) and for the signed-in operator's own account (409 own_account). */
+        delete: operations["deleteLocalUser"];
         options?: never;
         head?: never;
         patch: operations["updateLocalUser"];
@@ -144,6 +145,23 @@ export interface paths {
         put: operations["configureVideoIPath"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site/videoipath/tokens/{fingerprint}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Removes a per-device token from the pool: an unused one, or one reserved for a device whose deployment no longer exists (otherwise 409 token_in_use). Revoke the token in VideoIPath separately. */
+        delete: operations["removeVideoIPathToken"];
         options?: never;
         head?: never;
         patch?: never;
@@ -319,7 +337,8 @@ export interface paths {
         get: operations["getDeployment"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** @description Purges the stopped deployment's Nomad job and history and its Hub label (409 deployment_running while it is requested to run). The device's own secrets Variable and any reserved VideoIPath token stay until removed separately. */
+        delete: operations["deleteDeployment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -431,7 +450,8 @@ export interface paths {
         get: operations["getRetainedRelease"];
         put: operations["retainRelease"];
         post?: never;
-        delete?: never;
+        /** @description Removes the retained release and its verified image. Refused with 409 release_in_use, listing deployments in details.deployments, while a deployment in the configured namespace runs it or keeps it for rollback. */
+        delete: operations["removeRetainedRelease"];
         options?: never;
         head?: never;
         patch?: never;
@@ -463,6 +483,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["getRetainedDeployForm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{driverId}/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Administrator only. Verify and retain a local OCI release without publishing or deploying it. Identical retries are idempotent. */
+        put: operations["importLocalRelease"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -568,6 +605,12 @@ export interface components {
                     tokenFingerprint: string;
                 }[];
                 availableTokens: number | null;
+                /** @description Every per-device token by SHA-256 fingerprint, with the device it is reserved for, if any. */
+                pool: {
+                    tokenFingerprint: string;
+                    /** Format: uuid */
+                    nodeId: string | null;
+                }[];
             };
         };
         Error: {
@@ -639,9 +682,9 @@ export interface components {
                 displayName: string;
                 /** @enum {string} */
                 origin?: "customer" | "maintainer";
-                source: {
-                    commit: string;
-                    directory: string;
+                source?: {
+                    commit?: string;
+                    directory?: string;
                 };
                 configuration: {
                     file: string;
@@ -740,6 +783,8 @@ export interface components {
             revision: number;
             image: string;
             requiresOriginalStopped: boolean;
+            /** @description Whether the deployment takes its VideoIPath target and token from the site, as saved at staging. */
+            inheritsSite: boolean;
             previousVersion: string | null;
             /** @enum {string} */
             communication: "unknown" | "driver-reports-connected" | "check-failed";
@@ -1022,6 +1067,44 @@ export interface operations {
             };
         };
     };
+    deleteLocalUser: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path: {
+                username: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        username: string;
+                        /** @constant */
+                        deleted: true;
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     updateLocalUser: {
         parameters: {
             query?: never;
@@ -1158,6 +1241,43 @@ export interface operations {
                 };
             };
         };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    removeVideoIPathToken: {
+        parameters: {
+            query: {
+                /** @description The revision the client reviewed; a different current revision is refused with 409. */
+                revision: number;
+            };
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path: {
+                fingerprint: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Success */
             200: {
@@ -1613,6 +1733,53 @@ export interface operations {
             };
         };
     };
+    deleteDeployment: {
+        parameters: {
+            query: {
+                /** @description The revision the client reviewed; a different current revision is refused with 409. */
+                revision: number;
+            };
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path: {
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        nodeId: string;
+                        /** @constant */
+                        deleted: true;
+                        /**
+                         * @description The registration Variable Hub wrote for a site-connected device.
+                         * @enum {string}
+                         */
+                        registrationVariable: "removed" | "none" | "failed";
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     labelDeployment: {
         parameters: {
             query?: never;
@@ -1953,6 +2120,48 @@ export interface operations {
             };
         };
     };
+    removeRetainedRelease: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path: {
+                driverId: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        driverId: string;
+                        version: string;
+                        /** @constant */
+                        removed: true;
+                        /** @enum {string} */
+                        image: "removed" | "none";
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     validateRetainedSettings: {
         parameters: {
             query?: never;
@@ -2031,6 +2240,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeployForm"];
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    importLocalRelease: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path: {
+                driverId: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    metadata?: {
+                        displayName?: string;
+                        source?: {
+                            commit?: string;
+                            directory?: string;
+                        };
+                        configuration?: components["schemas"]["Declaration"];
+                    };
+                    /**
+                     * Format: binary
+                     * @description Gzipped OCI image-layout tar, up to 2 GiB.
+                     */
+                    image: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Already retained with identical content */
+            200: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Release"];
+                };
+            };
+            /** @description New release retained */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Release"];
                 };
             };
             /** @description Request failed */

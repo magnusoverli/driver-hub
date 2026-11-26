@@ -153,6 +153,19 @@ test('an update that needs new settings is refused with the missing fields', asy
 	);
 	await expect(dialog.getByRole('alert')).toContainText('region is required');
 	await expect(dialog.getByRole('button', { name: /Update to/ })).toHaveCount(0);
+
+	// Back to the settings the new version needs, starting from the current ones.
+	await dialog.getByRole('button', { name: 'Change settings' }).click();
+	await expect(dialog.getByLabel('deviceHost')).toHaveValue('gw-rack-b.site.example');
+	await expect(dialog.getByLabel('port (optional)')).toHaveValue('9001');
+	await expect(dialog.getByLabel('region')).toHaveAccessibleDescription(/Required\./);
+	await dialog.getByLabel('region').fill('eu-north');
+	await dialog.getByRole('button', { name: 'Preview update' }).click();
+	await dialog.getByRole('button', { name: 'Update to 2.1.0' }).click();
+	await expect(page.getByText(/^Update to 2\.1\.0 submitted/)).toBeVisible();
+	const settings = page.getByRole('region', { name: 'Settings' });
+	await expect(settings).toContainText('eu-north');
+	await expect(settings).toContainText('9001');
 });
 
 test('a migrated device starts only once the original driver is confirmed stopped', async ({

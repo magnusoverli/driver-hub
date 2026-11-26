@@ -93,6 +93,7 @@ describe('current allocation', () => {
 		const detail = {
 			...base,
 			allocation: undefined,
+			inheritsSite: false,
 			requested: 'running' as const,
 			settings: {},
 			image: 'i',

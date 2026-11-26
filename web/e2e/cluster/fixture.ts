@@ -45,3 +45,37 @@ export async function changeElsewhere(
 	if (!response.ok)
 		throw new Error(`${action} failed: ${response.status} ${await response.text()}`);
 }
+
+/** Stages a new device that takes its VideoIPath target and token from the site. */
+export async function stageWithSite(label: string): Promise<string> {
+	const nodeId = crypto.randomUUID();
+	const response = await fetch(`${CLUSTER_BASE_URL}/api/v1/deployments`, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${SERVICE_TOKEN}`,
+			'Content-Type': 'application/json',
+			'Idempotency-Key': nodeId
+		},
+		body: JSON.stringify({
+			driverId: 'exampleco-meter',
+			version: '1.4.0',
+			label,
+			inheritSite: true,
+			settings: { deviceHost: 'meter.site.example', deviceCredential: { secretRef: 'token' } }
+		})
+	});
+	if (!response.ok) throw new Error(`staging failed: ${response.status} ${await response.text()}`);
+	return nodeId;
+}
+
+/** Deletes a stopped deployment through the service API, as another operator would. */
+export async function deleteDeployment(nodeId: string): Promise<void> {
+	const headers = { Authorization: `Bearer ${SERVICE_TOKEN}` };
+	const current = await fetch(`${CLUSTER_BASE_URL}/api/v1/deployments/${nodeId}`, { headers });
+	const { revision } = (await current.json()) as { revision: number };
+	const response = await fetch(
+		`${CLUSTER_BASE_URL}/api/v1/deployments/${nodeId}?revision=${revision}`,
+		{ method: 'DELETE', headers }
+	);
+	if (!response.ok) throw new Error(`delete failed: ${response.status} ${await response.text()}`);
+}

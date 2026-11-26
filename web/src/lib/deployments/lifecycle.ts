@@ -1,6 +1,7 @@
 import { unwrap, type ApiClient } from '#lib/api/client.js';
 import { ApiError, NETWORK_ERROR } from '#lib/api/errors.js';
-import type { Schema } from '#lib/api/types.js';
+import { errorMessage } from '#lib/api/messages.js';
+import type { ResponseBody, Schema } from '#lib/api/types.js';
 import { m } from '#lib/paraglide/messages.js';
 import type { PlacementFailure } from './queries';
 
@@ -22,6 +23,8 @@ export interface ActionInput {
 	revision: number;
 	/** Update only: the retained version to switch to. */
 	version?: string;
+	/** Update only: replacement settings; the current ones are kept when omitted. */
+	settings?: NonNullable<Schema<'Stage'>['settings']>;
 	/** Start only: confirms that the external driver this deployment replaces is stopped. */
 	originalStopped?: boolean;
 }
@@ -47,7 +50,9 @@ function send(api: ApiClient, action: LifecycleAction, input: ActionInput, dryRu
 			return unwrap(
 				api.POST('/deployments/{nodeId}/update', {
 					params,
-					body: { revision, version: input.version }
+					body: input.settings
+						? { revision, version: input.version, settings: input.settings }
+						: { revision, version: input.version }
 				})
 			);
 		case 'rollback':
@@ -167,4 +172,26 @@ const settingsCodes: Record<string, () => string> = {
 
 export function settingsErrorText(code: string): string {
 	return settingsCodes[code]?.() ?? code;
+}
+
+export type Deletion = ResponseBody<'/deployments/{nodeId}', 'delete'>;
+
+/** Deletes a stopped deployment at the revision the operator reviewed. Cannot be undone. */
+export function deleteDeployment(
+	api: ApiClient,
+	nodeId: string,
+	revision: number
+): Promise<Deletion> {
+	return unwrap(
+		api.DELETE('/deployments/{nodeId}', { params: { path: { nodeId }, query: { revision } } })
+	);
+}
+
+/** Why the manager refused to delete a deployment. */
+export function deletionProblem(error: unknown): string {
+	if (error instanceof ApiError) {
+		if (error.code === 'revision_conflict') return m.delete_problem_conflict();
+		if (error.code === 'deployment_running') return m.delete_problem_running();
+	}
+	return errorMessage(error);
 }

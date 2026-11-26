@@ -20,6 +20,7 @@
 	import { documentTarget, setTheme, ThemePreference } from '#lib/theme/theme.svelte.js';
 	import { Clock, setClock } from '#lib/time/clock.svelte.js';
 	import StartupScreen from '#lib/shell/StartupScreen.svelte';
+	import { Notices, setNotices } from '#lib/shell/notices.js';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -35,6 +36,7 @@
 	setApi(api);
 	setSession(session);
 	setClock(clock);
+	setNotices(new Notices());
 	setTheme(new ThemePreference(documentTarget(), browserStorage()));
 
 	function browserStorage(): Storage | undefined {

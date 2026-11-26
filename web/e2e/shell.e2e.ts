@@ -63,3 +63,38 @@ test('the overview reports what the site still needs', async ({ page }) => {
 	await readiness.getByRole('link', { name: 'Open settings' }).first().click();
 	await expect(page).toHaveURL('/site/nomad');
 });
+
+test('on a narrow screen the navigation opens from a menu and closes after choosing', async ({
+	page
+}) => {
+	await signIn(page, ADMIN);
+	await page.setViewportSize({ width: 420, height: 860 });
+	await expect(page.getByRole('navigation', { name: 'Main' })).toBeHidden();
+	await page.getByRole('button', { name: 'Open navigation' }).click();
+	const menu = page.getByRole('dialog', { name: 'Navigation' });
+	await menu.getByRole('link', { name: 'Catalog' }).click();
+	await expect(page).toHaveURL('/catalog');
+	await expect(menu).toBeHidden();
+	const width = await page.evaluate(() => document.documentElement.scrollWidth);
+	expect(width).toBeLessThanOrEqual(420);
+});
+
+test('running downloads and builds are counted beside Activity on every page', async ({ page }) => {
+	await page.route('**/api/v1/operations', (route) =>
+		route.fulfill({
+			json: {
+				operations: [
+					{
+						id: crypto.randomUUID(),
+						kind: 'retain',
+						state: 'running',
+						target: { driverId: 'exampleco-meter', version: '1.5.0' },
+						startedAt: new Date().toISOString()
+					}
+				]
+			}
+		})
+	);
+	await signIn(page, ADMIN, '/site/users');
+	await expect(page.getByRole('link', { name: 'Activity 1 running' })).toBeVisible();
+});

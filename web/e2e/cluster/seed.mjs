@@ -123,7 +123,7 @@ export const RELEASES = [
 ];
 
 /** A gzipped OCI image layout with one tiny layer, and the digest of its manifest. */
-function ociArchive(/** @type {string} */ content) {
+export function ociArchive(/** @type {string} */ content) {
 	/** @type {{ name: string, data: Buffer }[]} */
 	const files = [];
 	const type = 'application/vnd.oci.image.';
@@ -241,7 +241,8 @@ export async function seedCluster({ managerUrl, nomadUrl, token }) {
 	 * @param {Record<string, unknown>} settings
 	 */
 	async function stage({ nodeId, label }, driverId, version, settings, { migration = false } = {}) {
-		const body = { driverId, version, settings, label };
+		// Manual settings, so seeding never depends on, or draws from, a site's VideoIPath tokens.
+		const body = { driverId, version, settings, label, inheritSite: false };
 		const staged = migration
 			? await call('POST', '/deployments', { ...body, nodeId })
 			: await call('POST', '/deployments', body, { 'Idempotency-Key': nodeId });

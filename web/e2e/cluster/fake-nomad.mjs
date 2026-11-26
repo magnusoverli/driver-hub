@@ -283,6 +283,11 @@ async function handle(nomad, request, response) {
 			const stored = nomad.variables.get(key);
 			return stored ? send(response, 200, stored) : send(response, 404, 'variable not found');
 		}
+		if (method === 'DELETE') {
+			return nomad.variables.delete(key)
+				? send(response, 200, '')
+				: send(response, 404, 'variable not found');
+		}
 		const body = /** @type {{ Items: Record<string, string> }} */ (await json(request));
 		const cas = Number(url.searchParams.get('cas') ?? 0);
 		if ((nomad.variables.get(key)?.ModifyIndex ?? 0) !== cas) {
@@ -302,6 +307,12 @@ async function handle(nomad, request, response) {
 		}
 		const record = nomad.jobs.get(id);
 		if (!record) return send(response, 404, 'job not found');
+		// Deregistering with purge removes the job and its history.
+		if (method === 'DELETE' && !part) {
+			nomad.jobs.delete(id);
+			nomad.scenarios.delete(id);
+			return send(response, 200, { EvalID: randomUUID() });
+		}
 		if (part === 'allocations') return send(response, 200, nomad.allocations(id));
 		if (part === 'evaluations') return send(response, 200, nomad.evaluations(id));
 		if (part === 'versions')

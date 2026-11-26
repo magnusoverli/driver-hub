@@ -18,6 +18,7 @@ const stopped: Deployment = {
 	revision: 7,
 	image: `images.test/driverhub/k@${digest('a')}`,
 	requiresOriginalStopped: false,
+	inheritsSite: false,
 	previousVersion: null,
 	communication: 'unknown',
 	approval: 'unknown',

@@ -22,6 +22,7 @@
 	} from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
+	import { getNotices } from '#lib/shell/notices.js';
 	import { capabilitiesQuery } from '#lib/system/queries.js';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
@@ -35,6 +36,8 @@
 
 	const api = getApi();
 	const session = getSession();
+	// Outcomes of actions that led here, such as deleting a deployment.
+	const notices = getNotices().take('/(app)/deployments');
 	const capabilities = createQuery(() => capabilitiesQuery(api));
 	// Without a cluster the manager has no deployments to list and answers 503.
 	const clusterConfigured = $derived(capabilities.data?.nomadConfigured === true);
@@ -46,7 +49,8 @@
 	const retained = createQuery(() => ({ ...retainedQuery(api), enabled: clusterConfigured }));
 
 	// The filter lives in the address, so returning from a device restores the same view.
-	const initial = page.url.searchParams;
+	// Read from the browser's address: after going back, it carries the view that was last shown.
+	const initial = new URL(location.href).searchParams;
 	let search = $state(initial.get('q') ?? '');
 	let filter = $state<DeploymentFilter>(
 		DEPLOYMENT_FILTERS.find((value) => value === initial.get('show')) ?? 'all'
@@ -95,6 +99,10 @@
 		{/if}
 	{/snippet}
 </PageHeader>
+
+{#each notices as notice, index (index)}
+	<Callout tone={notice.tone} title={notice.title} live>{notice.body}</Callout>
+{/each}
 
 {#if capabilities.error}
 	<Callout tone="fail" title={m.deployments_error_title()} live>

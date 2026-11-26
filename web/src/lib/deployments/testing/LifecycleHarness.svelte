@@ -1,5 +1,6 @@
 <!-- Test-only: provides an API client and a live deployment to the lifecycle dialog. -->
 <script lang="ts">
+	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import type { ApiClient } from '#lib/api/client.js';
 	import { setApi } from '#lib/api/context.js';
 	import type { AppliedChange, LifecycleAction } from '../lifecycle.js';
@@ -29,6 +30,7 @@
 	}: Props = $props();
 	// svelte-ignore state_referenced_locally
 	setApi(api);
+	setQueryClientContext(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
 	let open = $state(true);
 	// svelte-ignore state_referenced_locally
 	let deployment = $state(initial);

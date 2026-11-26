@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
+	import { createQuery } from '@tanstack/svelte-query';
 	import { getApi } from '#lib/api/context.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import Badge from '#lib/ui/Badge.svelte';
@@ -23,6 +24,14 @@
 	} from './lifecycle';
 	import PlacementFailures from './PlacementFailures.svelte';
 	import type { Deployment } from './queries';
+	import SettingsFields from './SettingsFields.svelte';
+	import {
+		fieldProblems,
+		initialValues,
+		settingsFromValues,
+		type SettingValues
+	} from './settings-form';
+	import { deployForm } from './stage';
 	import { deviceName, imageDigest, shortDigest, type UpdateTarget } from './view';
 
 	type Props = {
@@ -63,8 +72,42 @@
 	let previewing = $state(false);
 	let applying = $state(false);
 	let originalStopped = $state(false);
+	/** Update with settings edited for the target version, instead of the current ones. */
+	let changeSettings = $state(false);
+	let values = $state<SettingValues>({});
+	let settingsAttempted = $state(false);
 	// Only the answer to the latest preview request is shown.
 	let request = 0;
+
+	// The target version's form, resolved for this device and the target it was staged with.
+	const settingsForm = createQuery(() => ({
+		queryKey: ['deployments', 'update-form', deployment.nodeId, version, deployment.inheritsSite],
+		queryFn: () =>
+			deployForm(
+				api,
+				{ driverId: deployment.driverId, version: version ?? deployment.version },
+				{
+					inheritSite: deployment.inheritsSite,
+					nodeId: deployment.nodeId,
+					settings: deployment.settings
+				}
+			),
+		enabled: open && action === 'update' && changeSettings && version !== undefined
+	}));
+	// Start from the current settings each time another version's form arrives.
+	$effect(() => {
+		const data = settingsForm.data;
+		if (data) untrack(() => (values = initialValues(data, deployment.settings)));
+	});
+	const reportedSettings = $derived(
+		problem?.kind === 'settings'
+			? problem.fields
+			: (settingsForm.data?.validation.errors.filter((error) => error.code !== 'unknown_input') ??
+					[])
+	);
+	const settingProblems = $derived(
+		settingsForm.data ? fieldProblems(settingsForm.data, values, reportedSettings) : new Map()
+	);
 
 	$effect(() => {
 		if (open) untrack(begin);
@@ -72,7 +115,7 @@
 
 	function begin() {
 		preview = problem = null;
-		originalStopped = applying = false;
+		originalStopped = applying = changeSettings = settingsAttempted = false;
 		revision = deployment.revision;
 		if (action === 'update') {
 			step = 'choose';
@@ -117,6 +160,10 @@
 			nodeId: deployment.nodeId,
 			revision,
 			version: action === 'update' ? version : undefined,
+			settings:
+				action === 'update' && changeSettings && settingsForm.data
+					? settingsFromValues(settingsForm.data, values)
+					: undefined,
 			originalStopped: needsConfirmation ? originalStopped : undefined
 		};
 	}
@@ -138,8 +185,21 @@
 	function review(event: SubmitEvent) {
 		event.preventDefault();
 		if (!version) return;
+		if (changeSettings) {
+			settingsAttempted = true;
+			// Problems the manager reported are rechecked by the preview itself.
+			if (!settingsForm.data || fieldProblems(settingsForm.data, values).size) return;
+		}
 		step = 'review';
 		void runPreview();
+	}
+
+	/** Back to choosing; after a settings refusal, straight to the settings it needs. */
+	function back() {
+		if (problem?.kind === 'settings') {
+			changeSettings = settingsAttempted = true;
+		}
+		step = 'choose';
 	}
 
 	/** After a conflict: show the current state and plan against it. */
@@ -211,7 +271,36 @@
 					{m.update_published_body()}
 				</Callout>
 			{/if}
-			<p class="note">{m.update_settings_note()}</p>
+			{#if targets.length}
+				<Checkbox bind:checked={changeSettings} hint={m.update_change_settings_hint()}>
+					{m.update_change_settings()}
+				</Checkbox>
+			{/if}
+			{#if changeSettings && version}
+				{#if settingsForm.error}
+					<Callout tone="fail" title={m.stage_form_error()} live>
+						{settingsForm.error.message}
+					</Callout>
+				{:else if !settingsForm.data}
+					<Loading label={m.stage_form_loading()} />
+				{:else}
+					<fieldset class="settings">
+						<legend>{m.update_settings_legend({ version })}</legend>
+						{#if problem?.kind === 'settings'}
+							<Callout tone="fail" title={problem.message} live />
+						{/if}
+						<SettingsFields
+							form={settingsForm.data}
+							bind:values
+							problems={settingProblems}
+							showProblems={settingsAttempted}
+							variable={`nomad/jobs/driverhub-${deployment.nodeId}`}
+						/>
+					</fieldset>
+				{/if}
+			{:else}
+				<p class="note">{m.update_settings_note()}</p>
+			{/if}
 		</form>
 	{:else}
 		<div class="stack">
@@ -316,8 +405,8 @@
 			</Button>
 		{:else}
 			{#if action === 'update'}
-				<Button variant="ghost" class="back" onclick={() => (step = 'choose')}>
-					{m.common_back()}
+				<Button variant="ghost" class="back" onclick={back}>
+					{problem?.kind === 'settings' ? m.update_fix_settings() : m.common_back()}
 				</Button>
 			{/if}
 			<Button variant="ghost" onclick={() => (open = false)}>
@@ -356,6 +445,22 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
+	}
+
+	.settings {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-width: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+
+	.settings legend {
+		padding: 0;
+		margin-bottom: var(--space-3);
+		font-weight: var(--weight-semibold);
 	}
 
 	.versions {

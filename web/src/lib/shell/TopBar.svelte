@@ -1,8 +1,10 @@
 <script lang="ts">
+	import Menu from '@lucide/svelte/icons/menu';
 	import Search from '@lucide/svelte/icons/search';
 	import { resolve } from '$app/paths';
 	import { m } from '#lib/paraglide/messages.js';
 	import type { Operator } from '#lib/session/auth-service.js';
+	import IconButton from '#lib/ui/IconButton.svelte';
 	import Kbd from '#lib/ui/Kbd.svelte';
 	import Logo from '#lib/ui/Logo.svelte';
 	import AccountMenu from './AccountMenu.svelte';
@@ -15,6 +17,8 @@
 		shortcut: string;
 		canChangePassword: boolean;
 		onSearch: () => void;
+		/** Opens the navigation on screens too narrow to show it beside the page. */
+		onMenu: () => void;
 		onChangePassword: () => void;
 		onSignOut: () => void;
 	};
@@ -25,6 +29,7 @@
 		shortcut,
 		canChangePassword,
 		onSearch,
+		onMenu,
 		onChangePassword,
 		onSignOut
 	}: Props = $props();
@@ -32,6 +37,7 @@
 
 <header class="top-bar">
 	<div class="brand">
+		<IconButton class="menu-button" icon={Menu} label={m.shell_open_menu()} onclick={onMenu} />
 		<a class="home" href={resolve('/(app)')} aria-label={m.topbar_home()}>
 			<Logo />
 			<span class="product">Driver Hub</span>
@@ -46,7 +52,7 @@
 	<button type="button" class="search" onclick={onSearch} aria-keyshortcuts="Control+K Meta+K">
 		<Search size={15} aria-hidden="true" />
 		<span class="search-label">{m.topbar_search()}</span>
-		<Kbd>{shortcut}</Kbd>
+		<span class="shortcut"><Kbd>{shortcut}</Kbd></span>
 	</button>
 
 	<div class="end">
@@ -136,5 +142,47 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	:global(.menu-button) {
+		display: none !important;
+	}
+
+	/* Narrow screens: the navigation moves into a menu and the search becomes a button. */
+	@media (max-width: 56rem) {
+		.top-bar {
+			grid-template-columns: minmax(0, 1fr) auto auto;
+			gap: var(--space-2);
+			padding: 0 var(--space-3);
+		}
+
+		:global(.menu-button) {
+			display: inline-flex !important;
+		}
+
+		.scope,
+		.shortcut {
+			display: none;
+		}
+
+		.search {
+			padding: 0 var(--space-3);
+		}
+	}
+
+	@media (max-width: 36rem) {
+		/* Still the button's name, which must contain any visible label (WCAG 2.5.3). */
+		.search-label {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+		}
+
+		.product {
+			font-size: var(--text-md);
+		}
 	}
 </style>

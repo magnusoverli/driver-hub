@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Command, Dialog } from 'bits-ui';
 	import KeyRound from '@lucide/svelte/icons/key-round';
+	import Layers from '@lucide/svelte/icons/layers';
+	import Package from '@lucide/svelte/icons/package';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Search from '@lucide/svelte/icons/search';
 	import { goto } from '$app/navigation';
@@ -13,6 +15,10 @@
 	type Props = {
 		open: boolean;
 		navigation: NavItem[];
+		/** Devices to jump to, loaded while the palette is open. */
+		devices?: { nodeId: string; name: string; detail: string }[];
+		/** Retained releases to jump to. */
+		releases?: { driverId: string; version: string; name: string }[];
 		canChangePassword: boolean;
 		onChangePassword: () => void;
 		onSignOut: () => void;
@@ -21,6 +27,8 @@
 	let {
 		open = $bindable(false),
 		navigation,
+		devices = [],
+		releases = [],
 		canChangePassword,
 		onChangePassword,
 		onSignOut
@@ -76,6 +84,59 @@
 								{/each}
 							</Command.GroupItems>
 						</Command.Group>
+						{#if devices.length}
+							<Command.Group>
+								<Command.GroupHeading class="menu-label">
+									{m.palette_group_devices()}
+								</Command.GroupHeading>
+								<Command.GroupItems>
+									{#each devices as device (device.nodeId)}
+										<Command.Item
+											class="menu-item"
+											value={`device ${device.nodeId}`}
+											keywords={[device.name, device.nodeId, device.detail]}
+											onSelect={() =>
+												run(() =>
+													goto(resolve('/(app)/deployments/[nodeId]', { nodeId: device.nodeId }))
+												)}
+										>
+											<Layers size={15} aria-hidden="true" />
+											<span class="item-text">{device.name}</span>
+											<span class="item-detail">{device.detail}</span>
+										</Command.Item>
+									{/each}
+								</Command.GroupItems>
+							</Command.Group>
+						{/if}
+						{#if releases.length}
+							<Command.Group>
+								<Command.GroupHeading class="menu-label">
+									{m.palette_group_releases()}
+								</Command.GroupHeading>
+								<Command.GroupItems>
+									{#each releases as release (`${release.driverId}/${release.version}`)}
+										<Command.Item
+											class="menu-item"
+											value={`release ${release.driverId} ${release.version}`}
+											keywords={[release.name, release.driverId, release.version]}
+											onSelect={() =>
+												run(() =>
+													goto(
+														resolve('/(app)/catalog/[driverId]/[version]', {
+															driverId: release.driverId,
+															version: release.version
+														})
+													)
+												)}
+										>
+											<Package size={15} aria-hidden="true" />
+											<span class="item-text">{release.name}</span>
+											<span class="item-detail">{release.driverId} {release.version}</span>
+										</Command.Item>
+									{/each}
+								</Command.GroupItems>
+							</Command.Group>
+						{/if}
 						<Command.Group>
 							<Command.GroupHeading class="menu-label">
 								{m.palette_group_theme()}
@@ -177,6 +238,20 @@
 		max-height: min(24rem, 60vh);
 		padding: var(--space-1);
 		overflow-y: auto;
+	}
+
+	.item-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.item-detail {
+		margin-left: auto;
+		color: var(--text-3);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		white-space: nowrap;
 	}
 
 	:global(.palette-empty) {

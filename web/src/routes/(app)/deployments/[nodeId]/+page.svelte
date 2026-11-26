@@ -7,18 +7,21 @@
 	import Play from '@lucide/svelte/icons/play';
 	import SearchX from '@lucide/svelte/icons/search-x';
 	import Square from '@lucide/svelte/icons/square';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import Undo2 from '@lucide/svelte/icons/undo-2';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { getApi } from '#lib/api/context.js';
 	import { isApiError } from '#lib/api/errors.js';
 	import { retainedQuery } from '#lib/catalog/queries.js';
 	import AllocationsTable from '#lib/deployments/AllocationsTable.svelte';
+	import DeleteDeploymentDialog from '#lib/deployments/DeleteDeploymentDialog.svelte';
 	import DeviceFacts from '#lib/deployments/DeviceFacts.svelte';
 	import EvaluationsTable from '#lib/deployments/EvaluationsTable.svelte';
 	import HistoryTable from '#lib/deployments/HistoryTable.svelte';
-	import type { AppliedChange, LifecycleAction } from '#lib/deployments/lifecycle.js';
+	import type { AppliedChange, Deletion, LifecycleAction } from '#lib/deployments/lifecycle.js';
 	import LifecycleDialog from '#lib/deployments/LifecycleDialog.svelte';
 	import {
 		deploymentKeys,
@@ -30,10 +33,13 @@
 	import RenameDialog from '#lib/deployments/RenameDialog.svelte';
 	import SettingsList from '#lib/deployments/SettingsList.svelte';
 	import StatusHops from '#lib/deployments/StatusHops.svelte';
+	import { secretReferences } from '#lib/deployments/settings-form.js';
 	import { detailStatusInput } from '#lib/deployments/status-path.js';
 	import { deviceName, updateTargets } from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
+	import { getNotices } from '#lib/shell/notices.js';
+	import { siteKeys } from '#lib/site/settings.js';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -68,9 +74,19 @@
 		return version && !targets.some((target) => target.version === version) ? version : undefined;
 	});
 
+	// Staged but never asked to run: the operator still has to provide secrets and start it.
+	const neverStarted = $derived(
+		deployment?.requested === 'stopped' &&
+			history.data !== undefined &&
+			history.data.every((entry) => entry.requested === 'stopped')
+	);
+	const secrets = $derived(deployment ? secretReferences(deployment.settings) : []);
+
 	let action = $state<LifecycleAction>('start');
 	let actionOpen = $state(false);
 	let renameOpen = $state(false);
+	let deleteOpen = $state(false);
+	const notices = getNotices();
 	type Notice = { nodeId: string; title: string; body: string };
 	let notice = $state<Notice | null>(null);
 	const visibleNotice = $derived(notice?.nodeId === nodeId ? notice : null);
@@ -101,6 +117,24 @@
 
 	function renamed() {
 		void refresh();
+	}
+
+	async function deleted({ registrationVariable }: Deletion) {
+		const name = deployment ? deviceName(deployment) : nodeId;
+		notices.leave('/(app)/deployments', {
+			tone: registrationVariable === 'failed' ? 'warn' : 'info',
+			title: m.delete_done({ name }),
+			body:
+				registrationVariable === 'failed'
+					? m.delete_done_variable_failed({
+							variable: `nomad/jobs/driverhub-${nodeId}/device/driver`
+						})
+					: m.delete_done_body({ variable: `nomad/jobs/driverhub-${nodeId}` })
+		});
+		queryClient.removeQueries({ queryKey: deploymentKeys.device(nodeId) });
+		void queryClient.invalidateQueries({ queryKey: deploymentKeys.list() });
+		void queryClient.invalidateQueries({ queryKey: siteKeys.all });
+		await goto(resolve('/(app)/deployments'));
 	}
 
 	const admin = $derived(session.isAdmin);
@@ -170,6 +204,12 @@
 									{deployment.label ? m.action_rename() : m.action_name()}
 								</DropdownMenu.Item>
 							{/if}
+							{#if admin}
+								<DropdownMenu.Item class="menu-item" onSelect={() => (deleteOpen = true)}>
+									<Trash2 size={15} aria-hidden="true" />
+									{m.delete_action()}
+								</DropdownMenu.Item>
+							{/if}
 							{#if deployment.previousVersion}
 								<DropdownMenu.Item class="menu-item" onSelect={() => openAction('rollback')}>
 									<Undo2 size={15} aria-hidden="true" />
@@ -192,6 +232,17 @@
 	{#if deployment.requiresOriginalStopped}
 		<Callout tone="warn" title={m.deployment_migration_title()}>
 			{m.deployment_migration_body()}
+		</Callout>
+	{/if}
+	{#if neverStarted}
+		<Callout title={m.deployment_staged_title()}>
+			{#if secrets.length}
+				<p>
+					{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
+					<code>{secrets.join(', ')}</code>
+				</p>
+			{/if}
+			<p>{m.deployment_staged_body()}</p>
 		</Callout>
 	{/if}
 	{#if detail.error}
@@ -266,6 +317,7 @@
 		onApplied={applied}
 	/>
 	{#if admin}
+		<DeleteDeploymentDialog bind:open={deleteOpen} {deployment} onDeleted={deleted} />
 		<RenameDialog
 			bind:open={renameOpen}
 			nodeId={deployment.nodeId}
