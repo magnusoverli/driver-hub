@@ -1,18 +1,20 @@
 # Deploy Driver Hub from a release image: docker compose pull && docker compose up -d
-# The compose.yaml attached to each release already names that release's image, so no .env is
-# needed to start. To change a setting, create .env next to this file with only the lines you need:
+# No .env is needed to start. This file starts the latest Driver Hub release, and
+# docker compose pull && docker compose up -d upgrades to a newer one. The copy attached to each
+# release instead stays on that exact release. To change a setting, create .env next to this file
+# with only the lines you need:
 #
 #   DRIVER_HUB_LISTEN_ADDRESS=127.0.0.1         # web interface on this machine only
 #   DRIVER_HUB_ALLOW_PLAIN_HTTP=false           # behind HTTPS: keep the session cookie Secure
 #   DRIVER_HUB_DISTRIBUTION_ADDRESS=10.0.0.5    # how Nomad clients reach this machine
-#   DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z   # a different release
+#   DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z   # stay on one release
 #
 # Keep the original project name so upgrades reuse the existing data volume.
 name: driver-hub-trial
 
 services:
   manager:
-    image: ${DRIVER_HUB_IMAGE:?Set DRIVER_HUB_IMAGE in .env to the full versioned Driver Hub image reference}
+    image: ${DRIVER_HUB_IMAGE:-ghcr.io/magnusoverli/driver-hub:latest}
     depends_on:
       buildkit:
         condition: service_healthy

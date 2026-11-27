@@ -31,7 +31,13 @@ Only the manager is in the archive. Skip the BuildKit pull if the exact worker i
 
 ### Upgrading a Compose installation
 
-Back up the manager data, keep the Compose project name and data volume, and take the `compose.yaml` from the new release. Set `DRIVER_HUB_IMAGE` in `.env` to the new versioned image (or its `tag@sha256:…` reference), then run `docker compose pull` and `docker compose up -d`. This recreates the manager and signs operators out. Reconciliation rolls out a changed image-service package to Nomad; check **Settings → Nomad → Image distribution** and the expected client count. Keep the previous image reference and backup for rollback. Do not use `down -v` during an upgrade.
+Back up the manager data and keep the Compose project name and data volume. Then run `docker compose pull` and `docker compose up -d`:
+
+- **With the `compose.yaml` from `main`:** it defaults to `ghcr.io/magnusoverli/driver-hub:latest`, which each release moves to itself when GitHub marks it as the repository's latest. Prereleases never move it.
+- **With a release's own `compose.yaml`:** it stays pinned to that release, so download the new release's copy first.
+- **With `DRIVER_HUB_IMAGE` in `.env`:** that always wins. Set it to the new versioned image (or its `tag@sha256:…` reference).
+
+The commands recreate the manager and sign operators out. Reconciliation rolls out a changed image-service package to Nomad; check **Settings → Nomad → Image distribution** and the expected client count. Keep the previous image reference and backup for rollback. Do not use `down -v` during an upgrade.
 
 The supplied project name remains `driver-hub-trial` for compatibility. For an installation previously built by `docker compose up --build`, add `DRIVER_HUB_IMAGE` to its existing `.env` before using the new Compose file. Keep any site-specific override file. Accounts are stored in the data volume; the new Compose file does not read the old `DRIVER_HUB_INITIAL_PASSWORD` variable. To continue building locally with the bundled Buildx tools, follow the [local image build](README.md#build-the-manager-image-locally).
 
