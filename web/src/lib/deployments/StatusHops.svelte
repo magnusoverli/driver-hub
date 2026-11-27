@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import CopyButton from '#lib/ui/CopyButton.svelte';
 	import type { CommunicationEvidence } from './queries';
 	import { HOPS, statusPath, type Hop, type HopState, type StatusInput } from './status-path';
 	import { hopExplanations } from './view';
 
-	type Props = { input: StatusInput & { communicationEvidence: CommunicationEvidence } };
+	type Props = {
+		nodeId: string;
+		input: StatusInput & { communicationEvidence: CommunicationEvidence };
+	};
 
-	let { input }: Props = $props();
+	let { input, nodeId }: Props = $props();
 
 	const path = $derived(statusPath(input));
 	const explanations = $derived(hopExplanations(input));
@@ -33,9 +37,21 @@
 			<div class="content">
 				<p class="heading">
 					<span class="hop">{hopLabel[hop]()}</span>
-					<span class="state">{stateLabel[path[hop]]()}</span>
+					<span class="state">
+						{hop === 'approval'
+							? m.device_status_manual()
+							: hop === 'control' && input.communicationEvidence.reason === 'no_control_check'
+								? m.control_not_provided()
+								: stateLabel[path[hop]]()}
+					</span>
 				</p>
 				<p class="explanation">{explanations[hop]}</p>
+				{#if hop === 'approval'}
+					<p>
+						{m.facts_node_id()}: <code>{nodeId}</code>
+						<CopyButton value={nodeId} label={m.facts_copy_node_id()} />
+					</p>
+				{/if}
 			</div>
 		</li>
 	{/each}

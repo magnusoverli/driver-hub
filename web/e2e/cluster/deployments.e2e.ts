@@ -52,7 +52,7 @@ test('the list shows each device with what Hub can verify, and keeps the view in
 	await expect(row(/Edit suite meter/)).toContainText('Replaces external driver');
 	await expect(row(/Unnamed device/)).toContainText('Stopped');
 	await expect(row(/Studio 3 meter/).getByRole('img')).toHaveAccessibleName(
-		'Requested: verified, Allocation: verified, Control: verified, Approval: not observable'
+		'Requested: verified, Allocation: verified, Control: verified, VideoIPath device status: Check in Inspect → Devices'
 	);
 
 	await page.getByRole('radio', { name: /Needs attention/ }).click();
@@ -80,8 +80,10 @@ test('a device explains each step to control and shows its Nomad history', async
 	const status = statusOf(page);
 	await page.getByText('Diagnostics, configuration and device details').click();
 	await expect(status).toContainText(/Placed on nomad-client-\d, but not running yet \(pending\)/);
-	await expect(status).toContainText('This release declares no control check');
-	await expect(status).toContainText('Approval happens in VideoIPath');
+	await expect(status).toContainText('No control check provided');
+	const deviceStatus = status.getByRole('listitem').filter({ hasText: 'VideoIPath device status' });
+	await expect(deviceStatus).toContainText('Check in Inspect → Devices');
+	await expect(deviceStatus).toContainText(gateway.nodeId);
 	const allocation = page.getByRole('table', { name: 'Allocations' }).getByRole('row').nth(1);
 	const allocationId = await allocation.locator('code').getAttribute('title');
 	await expect(allocation.getByRole('link', { name: 'Nomad logs' })).toHaveAttribute(

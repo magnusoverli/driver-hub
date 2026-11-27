@@ -20,7 +20,10 @@
 	};
 
 	const description = $derived(
-		HOPS.map((hop) => `${hopLabel[hop]()}: ${stateLabel[path[hop]]()}`).join(', ')
+		HOPS.map(
+			(hop) =>
+				`${hopLabel[hop]()}: ${hop === 'approval' ? m.device_status_manual() : stateLabel[path[hop]]()}`
+		).join(', ')
 	);
 </script>
 

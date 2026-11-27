@@ -184,7 +184,7 @@ describe('evidence and hops', () => {
 			/an unknown client, but not running yet \(pending\)/
 		);
 		expect(hop({ requested: 'stopped' })).toMatch(/stopped/);
-		expect(hopExplanations(running).approval).toMatch(/never shown as verified/);
+		expect(hopExplanations(running).approval).toMatch(/does not read device status/);
 	});
 });
 

@@ -21,8 +21,12 @@
 	} from '#lib/catalog/queries.js';
 	import { deploymentsQuery, updatesQuery } from '#lib/deployments/queries.js';
 	import { compareVersions, deviceName, shortId } from '#lib/deployments/view.js';
-	import { operationKeys, operationsQuery } from '#lib/operations/operations.js';
-	import OperationsTable from '#lib/operations/OperationsTable.svelte';
+	import {
+		operationKeys,
+		operationOutcome,
+		operationsQuery,
+		type Operation
+	} from '#lib/operations/operations.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { getNotices } from '#lib/shell/notices.js';
@@ -111,24 +115,33 @@
 	const building = $derived(
 		operations.data?.some((op) => op.kind === 'build' && op.state === 'running') === true
 	);
-	/** The latest few; the full history with filters is on the Activity page. */
-	const recent = $derived((operations.data ?? []).slice(0, 5));
 
 	let submitting = $state(false);
 	let problem = $state<string | null>(null);
 	let notice = $state<string | null>(null);
+	/** The download or build started here, followed until it ends. Activity keeps the history. */
+	let started = $state<Operation | null>(null);
+	const outcome = $derived.by(() => {
+		if (!started) return null;
+		const id = started.id;
+		return operationOutcome(operations.data?.find((op) => op.id === id) ?? started);
+	});
 
 	async function start(input: Identity | BuildInput) {
 		if (submitting || !session.isAdmin || !caps.data) return;
 		submitting = true;
-		problem = notice = null;
+		problem = notice = started = null;
 		try {
 			const result = await acquire(api, input, caps.data.asyncAcquisition);
 			if (result.kind === 'operation') {
-				notice = m.catalog_submitted({ driver: input.driverId });
+				started = result.operation;
 				await client.invalidateQueries({ queryKey: operationKeys.all });
 			} else {
-				notice = m.catalog_saved({ driver: input.driverId });
+				const { driverId: driver, version } = result.release.record;
+				notice =
+					'commit' in input
+						? m.catalog_build_done({ driver, version })
+						: m.catalog_download_done({ driver, version });
 				await client.invalidateQueries({ queryKey: catalogKeys.retained() });
 			}
 		} catch (error) {
@@ -140,6 +153,7 @@
 
 	function removed() {
 		if (removing) {
+			started = null;
 			notice = m.release_removed({ driver: removing.driverId, version: removing.version });
 		}
 		void client.invalidateQueries({ queryKey: catalogKeys.all });
@@ -187,14 +201,20 @@
 		<Button size="sm" onclick={() => caps.refetch()}>{m.common_retry()}</Button>
 	</Callout>
 {/if}
+{#if operations.error}
+	<Callout tone="warn" title={errorMessage(operations.error)} live>
+		<Button size="sm" onclick={() => operations.refetch()}>{m.common_retry()}</Button>
+	</Callout>
+{/if}
 {#if problem}
 	<Callout tone="fail" title={problem} live />
-{:else if notice}
-	<Callout title={notice} live>
-		{#if caps.data?.asyncAcquisition}
-			<a href={resolve('/(app)/activity')}>{m.catalog_all_activity()}</a>
-		{/if}
+{:else if outcome}
+	<Callout tone={outcome.tone} title={outcome.title} live>
+		{#if outcome.body}<p>{outcome.body}</p>{/if}
+		<a href={resolve('/(app)/activity')}>{m.catalog_all_activity()}</a>
 	</Callout>
+{:else if notice}
+	<Callout title={notice} live />
 {/if}
 
 {#snippet toolbar(remote: boolean, fetching: boolean, refetch: () => unknown)}
@@ -225,37 +245,44 @@
 					<th scope="col">{m.catalog_version()}</th>
 					<th scope="col">{m.catalog_channel()}</th>
 					<th scope="col">{m.catalog_availability()}</th>
+					<th scope="col"><span class="visually-hidden">{m.users_column_actions()}</span></th>
 				</tr>
 			</thead>
 			<tbody>
 				{#each rows as row (`${row.driverId}/${row.version}`)}
+					{@const local = inLibrary(row)}
+					{@const pending = !local && downloading(row)}
 					<tr>
 						<td><a class="release-link mono" href={releasePage(row)}>{row.driverId}</a></td>
 						<td><span class="mono">{row.version}</span></td>
 						<td>{row.prerelease ? m.catalog_prerelease() : m.catalog_stable()}</td>
 						<td>
-							{#if inLibrary(row)}
-								{m.catalog_local()}
-								{#if clusterReady}
-									<Button
-										size="sm"
-										onclick={() => {
-											staging = retainedRows.find((r) => same(r, row)) ?? null;
-											stageOpen = true;
-										}}
-									>
-										{m.catalog_stage()}
+							{local
+								? m.catalog_downloaded()
+								: pending
+									? m.catalog_downloading()
+									: m.catalog_published_only()}
+						</td>
+						<td>
+							<span class="row-actions">
+								{#if local}
+									{#if clusterReady}
+										<Button
+											size="sm"
+											onclick={() => {
+												staging = retainedRows.find((r) => same(r, row)) ?? null;
+												stageOpen = true;
+											}}
+										>
+											{m.catalog_stage()}
+										</Button>
+									{/if}
+								{:else if !pending && session.isAdmin && caps.data}
+									<Button size="sm" disabled={submitting} onclick={() => start(row)}>
+										{m.catalog_download()}
 									</Button>
 								{/if}
-							{:else if downloading(row)}
-								{m.catalog_running()}
-							{:else if session.isAdmin && caps.data}
-								<Button size="sm" disabled={submitting} onclick={() => start(row)}>
-									{m.catalog_download()}
-								</Button>
-							{:else}
-								{m.catalog_published_only()}
-							{/if}
+							</span>
 						</td>
 					</tr>
 				{/each}
@@ -404,29 +431,13 @@
 	/>
 </Card>
 
-{#if operations.error}
-	<Callout tone="warn" title={errorMessage(operations.error)} live>
-		<Button size="sm" onclick={() => operations.refetch()}>{m.common_retry()}</Button>
-	</Callout>
-{:else if recent.length}
-	<Card title={m.catalog_recent()} flush>
-		{#snippet actions()}
-			<a class="all-activity" href={resolve('/(app)/activity')}>{m.catalog_all_activity()}</a>
-		{/snippet}
-		<OperationsTable
-			operations={recent}
-			asOf={operations.dataUpdatedAt}
-			label={m.catalog_recent()}
-		/>
-	</Card>
-{/if}
-
 {#if importOpen && session.isAdmin}
 	<ImportDialog
 		bind:open={importOpen}
 		onImported={({ driverId, version }: Identity) => {
 			search = '';
 			tab = 'retained';
+			started = null;
 			notice = m.catalog_import_done({ driver: driverId, version });
 			void client.invalidateQueries({ queryKey: catalogKeys.retained() });
 		}}
@@ -495,15 +506,5 @@
 		justify-content: flex-end;
 		align-items: center;
 		gap: var(--space-2);
-	}
-
-	.all-activity {
-		font-size: var(--text-sm);
-		font-weight: var(--weight-semibold);
-		text-decoration: none;
-	}
-
-	.all-activity:hover {
-		text-decoration: underline;
 	}
 </style>

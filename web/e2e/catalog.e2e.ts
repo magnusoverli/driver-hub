@@ -66,14 +66,17 @@ test('published prereleases can be downloaded and only become local after comple
 	await expect(page.getByRole('alert')).toBeVisible();
 	expect(keys).toHaveLength(1);
 	await download.click();
-	const tasks = page.getByRole('table', { name: 'Recent downloads and builds' });
-	await expect(tasks).toContainText('In progress');
+	const row = page
+		.getByRole('table', { name: 'Published releases' })
+		.getByRole('row')
+		.filter({ hasText: release.driverId });
+	await expect(row).toContainText('Downloading…');
+	await expect(page.getByText('Downloading exampleco-meter 1.4.0…')).toBeVisible();
+	await expect(download).toHaveCount(0);
 	expect(keys).toEqual([keys[0], keys[0]]);
 	state = 'succeeded';
-	await expect(tasks).toContainText('Completed');
-	await expect(page.getByRole('table', { name: 'Published releases' })).toContainText(
-		'On this Hub'
-	);
+	await expect(page.getByText('exampleco-meter 1.4.0 is downloaded.')).toBeVisible();
+	await expect(row).toContainText('Downloaded');
 	await page.getByRole('tab', { name: 'Retained releases' }).click();
 	await expect(page.getByRole('table', { name: 'Retained releases' })).toContainText(
 		'Example Meter'
@@ -232,13 +235,9 @@ test('a build-enabled site accepts a pinned source revision and shows build fail
 	await page.getByLabel('Source directory').fill(body.directory);
 	await page.getByLabel('Platform').selectOption(body.platform);
 	await page.getByRole('button', { name: 'Build driver' }).click();
-	const tasks = page.getByRole('table', { name: 'Recent downloads and builds' });
-	await expect(tasks.getByRole('row', { name: /Source build/ })).toContainText('Failed');
-	await expect(tasks).toContainText('Buildx failed');
-	await page
-		.getByRole('region', { name: 'Recent downloads and builds' })
-		.getByRole('link', { name: 'View all activity' })
-		.click();
+	const result = page.getByRole('alert').filter({ hasText: 'Building exampleco-meter failed' });
+	await expect(result).toContainText('Buildx failed');
+	await result.getByRole('link', { name: 'View all activity' }).click();
 	await expect(page).toHaveURL('/activity');
 	await expect(page.getByRole('table', { name: 'Downloads and builds' })).toContainText(
 		'Buildx failed'

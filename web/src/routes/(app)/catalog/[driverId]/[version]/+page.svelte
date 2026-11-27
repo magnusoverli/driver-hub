@@ -194,7 +194,10 @@
 						<Badge tone={record.origin === 'customer' ? 'neutral' : 'accent'}>
 							{record.origin === 'customer' ? m.catalog_customer() : m.catalog_maintainer()}
 						</Badge>
-						{#if retained.data}<Badge>{m.catalog_local()}</Badge>{/if}
+						<!-- Customer releases are imported or built here; only published ones are downloaded. -->
+						{#if retained.data && record.origin !== 'customer'}
+							<Badge>{m.catalog_downloaded()}</Badge>
+						{/if}
 					</dd>
 					{#if record.source?.commit}
 						<dt>{m.catalog_commit()}</dt>

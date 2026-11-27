@@ -3,6 +3,7 @@ import { formatDuration } from '#lib/time/format.js';
 import {
 	matchesOperationFilter,
 	operationDuration,
+	operationOutcome,
 	operationSubject,
 	type Operation
 } from './operations';
@@ -39,6 +40,25 @@ describe('operations', () => {
 	it('names what a download or a build works on', () => {
 		expect(operationSubject(download)).toEqual({ driver: 'meter', detail: '1.4.0' });
 		expect(operationSubject(build)).toEqual({ driver: 'rust-example', detail: 'at f64a319caf5f' });
+	});
+
+	it('tells the operator how the download or build they started turned out', () => {
+		expect(operationOutcome(download)).toEqual({
+			tone: 'info',
+			title: 'meter 1.4.0 is downloaded.'
+		});
+		expect(operationOutcome(build)).toEqual({ tone: 'info', title: 'Building rust-example…' });
+		expect(
+			operationOutcome({
+				...build,
+				state: 'failed',
+				failure: { error: 'Buildx failed', code: 'build_failed', status: 422 }
+			})
+		).toEqual({ tone: 'fail', title: 'Building rust-example failed', body: 'Buildx failed' });
+		expect(operationOutcome({ ...download, state: 'interrupted' })).toMatchObject({
+			tone: 'warn',
+			title: 'Downloading meter 1.4.0 was interrupted'
+		});
 	});
 
 	it('measures finished work, and running work up to now', () => {

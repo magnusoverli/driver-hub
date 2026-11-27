@@ -94,7 +94,10 @@
 	const nodeId = $derived(identity === 'replace' ? existingId.trim() : key);
 	const reported = $derived(problem?.kind === 'settings' ? problem.fields : []);
 	const problems = $derived(form.data ? fieldProblems(form.data, values, reported) : new Map());
-	const nameError = $derived(attempted && label.trim() ? labelProblem(label) : null);
+	/** The API allows unnamed devices, but every device set up here gets a name. */
+	const nameProblem = (value: string) =>
+		value.trim() ? labelProblem(value) : m.stage_error_name_required();
+	const nameError = $derived(attempted ? nameProblem(label) : null);
 	const idError = $derived(attempted && identity === 'replace' ? nodeIdProblem(existingId) : null);
 	const variable = $derived(`nomad/jobs/driverhub-${nodeId || '…'}`);
 
@@ -104,7 +107,7 @@
 			...path,
 			settings,
 			inheritSite,
-			...(label.trim() && { label: label.trim() }),
+			label: label.trim(),
 			...(identity === 'replace' && { nodeId: existingId.trim() })
 		};
 	}
@@ -114,12 +117,7 @@
 		attempted = true;
 		problem = null;
 		if (!form.data || busy) return;
-		if (
-			(label.trim() && labelProblem(label)) ||
-			(identity === 'replace' && nodeIdProblem(existingId))
-		) {
-			return;
-		}
+		if (nameProblem(label) || (identity === 'replace' && nodeIdProblem(existingId))) return;
 		const issues = fieldProblems(form.data, values);
 		if (issues.size) {
 			if (
@@ -257,7 +255,7 @@
 		<div class="stack">
 			<Facts>
 				<dt>{m.stage_review_name()}</dt>
-				<dd>{review.body.label ?? m.deployment_unnamed()}</dd>
+				<dd>{review.body.label}</dd>
 				<dt>{m.stage_review_release()}</dt>
 				<dd>{release.displayName ?? release.driverId} · {release.version}</dd>
 				{#if review.body.nodeId}
@@ -329,17 +327,6 @@
 			{/if}
 			<fieldset class="settings">
 				<legend>{m.stage_required()}</legend>
-				<ConfigurationFields
-					form={form.data}
-					bind:values
-					{problems}
-					showProblems={attempted}
-					{variable}
-					group="required"
-				/>
-			</fieldset>
-			<details bind:open={optionsOpen}>
-				<summary>{m.stage_options()}</summary>
 				<div class="stack">
 					<TextField
 						label={m.stage_name()}
@@ -360,6 +347,7 @@
 							error={idError}
 						/>
 					{/if}
+					<!-- Before the driver's own inputs: entering the connection manually adds some. -->
 					{#if siteAvailable}
 						<RadioGroup
 							legend={m.stage_connection()}
@@ -369,6 +357,19 @@
 					{:else}
 						<p class="note">{m.stage_connection_unavailable()}</p>
 					{/if}
+					<ConfigurationFields
+						form={form.data}
+						bind:values
+						{problems}
+						showProblems={attempted}
+						{variable}
+						group="required"
+					/>
+				</div>
+			</fieldset>
+			<details bind:open={optionsOpen}>
+				<summary>{m.stage_options()}</summary>
+				<div class="stack">
 					<fieldset class="settings">
 						<legend>{m.stage_configuration()}</legend>
 						<ConfigurationFields

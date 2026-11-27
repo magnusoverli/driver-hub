@@ -83,6 +83,47 @@ export function operationSubject(operation: Operation): { driver: string; detail
 	return { driver, detail: operation.release?.version ?? operation.target?.version ?? '' };
 }
 
+export type OperationOutcome = { tone: 'info' | 'warn' | 'fail'; title: string; body?: string };
+
+/** What the catalog tells the operator about a download or build they started there. */
+export function operationOutcome(operation: Operation): OperationOutcome {
+	const driver = operation.release?.driverId ?? operation.target?.driverId ?? m.operation_unknown();
+	const version = operation.release?.version ?? operation.target?.version ?? '';
+	const build = operation.kind === 'build';
+	switch (operation.state) {
+		case 'running':
+			return {
+				tone: 'info',
+				title: build
+					? m.catalog_build_running({ driver })
+					: m.catalog_download_running({ driver, version })
+			};
+		case 'succeeded':
+			return {
+				tone: 'info',
+				title: build
+					? m.catalog_build_done({ driver, version })
+					: m.catalog_download_done({ driver, version })
+			};
+		case 'failed':
+			return {
+				tone: 'fail',
+				title: build
+					? m.catalog_build_failed({ driver })
+					: m.catalog_download_failed({ driver, version }),
+				body: operation.failure?.error ?? m.operation_failed_unknown()
+			};
+		case 'interrupted':
+			return {
+				tone: 'warn',
+				title: build
+					? m.catalog_build_interrupted({ driver })
+					: m.catalog_download_interrupted({ driver, version }),
+				body: m.operation_interrupted_reason()
+			};
+	}
+}
+
 /** How long it ran, or has been running so far. */
 export function operationDuration(operation: Operation, now: number): number {
 	const started = Date.parse(operation.startedAt);

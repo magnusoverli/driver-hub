@@ -27,10 +27,10 @@ test('a retained release works without GitHub and stages a new stopped device af
 	const form = page.getByRole('dialog');
 	await expect(form.getByLabel('deviceHost')).toBeVisible();
 	await expect(form.getByLabel('pollSeconds')).toBeHidden();
-	await form.getByText('Optional settings and advanced setup').click();
 	await form.getByLabel('Device name').fill('Catalog test meter');
 	await form.getByLabel('deviceHost').fill('meter.example');
 	await form.getByLabel('deviceCredential').fill('meter_token');
+	await form.getByText('Optional settings').click();
 	await form.getByLabel('pollSeconds').fill('13');
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
 	await expect(form).toHaveAccessibleName('Review device setup');
@@ -64,12 +64,15 @@ test('an external driver is replaced under its existing node ID, after its input
 		.getByRole('button', { name: 'Set up driver' })
 		.click();
 	const form = page.getByRole('dialog');
-	await form.getByText('Optional settings and advanced setup').click();
-	await form.getByLabel('Replace an external driver').check();
+	await form.getByLabel('Replace existing driver').check();
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
+	await expect(form.getByLabel('Device name')).toHaveAccessibleDescription(
+		'Enter a name for the device.'
+	);
 	await expect(form.getByText('Enter the node ID.')).toBeVisible();
 	await expect(form.getByLabel('deviceHost')).toHaveAccessibleDescription(/Required\./);
-	await form.getByLabel('Node ID of the external driver').fill(nodeId);
+	await form.getByLabel('Device name').fill('Replacement meter');
+	await form.getByLabel('Node ID of the existing driver').fill(nodeId);
 	await form.getByLabel('deviceHost').fill('meter-edit2.site.example');
 	await form.getByLabel('deviceCredential').fill('not a key name');
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
@@ -77,6 +80,7 @@ test('an external driver is replaced under its existing node ID, after its input
 		/letters, digits and underscores/
 	);
 	await form.getByLabel('deviceCredential').fill('device_token');
+	await form.getByText('Optional settings').click();
 	await form.getByLabel('pollSeconds').fill('99');
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
 	await expect(form.getByLabel('pollSeconds')).toHaveAccessibleDescription(
@@ -107,6 +111,7 @@ test('a downloaded driver goes from the published catalog to a live deployment r
 		.click();
 	const form = page.getByRole('dialog');
 	await expect(form.getByLabel('port (optional)')).toBeHidden();
+	await form.getByLabel('Device name').fill('Gateway');
 	await form.getByLabel('deviceHost').fill('gateway.site.example');
 	await form.getByRole('button', { name: 'Preview' }).click();
 	await form.getByRole('button', { name: 'Deploy driver' }).click();

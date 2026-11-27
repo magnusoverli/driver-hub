@@ -260,12 +260,17 @@
 							? m.deployment_copy_verified({ client: deployment.backupImageClient })
 							: m.deployment_copy_pending()}
 					</p>
-					{#if state === 'connected'}
-						<p>{m.stage_next_approve()}</p>
-					{:else}<p>{m.condition_running()}</p>{/if}
+					<p>
+						{state === 'connected'
+							? m.condition_connected()
+							: deployment.communicationEvidence.reason === 'no_control_check'
+								? m.control_not_provided()
+								: m.condition_running()}
+					</p>
 				{:else}
 					<p>{m.deployment_result_help()}</p>
 				{/if}
+				<p>{m.status_hop_approval()}: {m.device_status_manual()}</p>
 			</div>
 			{#if deployment.requested === 'stopped'}
 				<Button variant="primary" icon={Play} onclick={() => openAction('start')}>
@@ -304,6 +309,7 @@
 					flush
 				>
 					<StatusHops
+						nodeId={deployment.nodeId}
 						input={{
 							...detailStatusInput(deployment),
 							communicationEvidence: deployment.communicationEvidence

@@ -61,7 +61,7 @@ To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), repeat the pull an
 
 ## Product tour
 
-**From catalog to running driver:** Download the release, then select **Set up driver** on the same catalog row. Fill in the required settings; defaults, naming, and connection overrides are under **Optional settings and advanced setup**. Preview the setup and select **Deploy driver**. The device page reports the observed result, with diagnostics available on demand. If the driver needs secret keys provisioned in Nomad, or replaces an external driver, create the deployment first and choose **Start** after the prerequisites are met.
+**From catalog to running driver:** Download the release. When its row shows **Downloaded**, select **Set up driver** at the end of the row. Name the device, choose whether it is a new device or replaces an existing driver, choose its VideoIPath connection and fill in the driver's required inputs. Inputs with defaults are under **Optional settings**. Preview the setup and select **Deploy driver**. The device page reports the observed result, with diagnostics available on demand. If the driver needs secret keys provisioned in Nomad, or replaces an external driver, create the deployment first and choose **Start** after the prerequisites are met.
 
 ![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
 

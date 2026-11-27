@@ -16,7 +16,7 @@ describe('StatusPath', () => {
 		await expect
 			.element(page.getByRole('img'))
 			.toHaveAccessibleName(
-				'Requested: verified, Allocation: verified, Control: failed, Approval: not observable'
+				'Requested: verified, Allocation: verified, Control: failed, VideoIPath device status: Check in Inspect → Devices'
 			);
 	});
 
