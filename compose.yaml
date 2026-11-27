@@ -105,7 +105,10 @@ services:
     restart: unless-stopped
 
   buildkit:
-    image: moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be
+    image: moby/buildkit:rootless # Latest stable BuildKit, running as an unprivileged user.
+    pull_policy: always
+    # Driver builds use the OCI worker and do not need host devices or a containerd socket.
+    command: ["--oci-worker=true", "--containerd-worker=false", "--cdi-disabled"]
     # Rootless BuildKit needs nested user namespaces, mounts and a separate /proc for build steps.
     security_opt:
       - seccomp=unconfined

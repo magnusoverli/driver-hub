@@ -327,6 +327,8 @@ The manager's Docker CLI/Buildx uses the `hub-compose` builder. Its rootless Bui
 
 If the switch is unavailable, check `docker compose ps` and `docker compose logs buildkit`, then `docker compose exec manager docker buildx du`. The host must support rootless BuildKit (unprivileged user namespaces). Restart the manager after restoring the worker: Hub checks builder availability at startup. Allow up to 30 minutes for a build when configuring proxy timeouts.
 
+On a fresh host, `failed check for fsverity support` means the cache filesystem did not pass BuildKit's probe for optional file-integrity support. `currently, only the default worker can be used` is a BuildKit notice even with just one worker. Neither message requires action if the worker is healthy.
+
 On Ubuntu 24.04 and other hosts that restrict unprivileged user namespaces with AppArmor, select a host-approved worker profile with `DRIVER_HUB_BUILDKIT_APPARMOR` in `.env`. For example, the following worker-only profile permits rootless namespaces without changing the kernel-wide policy:
 
 ```text
