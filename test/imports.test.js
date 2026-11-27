@@ -122,6 +122,22 @@ test('disconnecting an incomplete upload cleans scratch files and frees a concur
   assert.equal((await put(form(bytes))).status, 201);
 });
 
+// The socket closed before upload() could listen for it, so no close event will ever arrive.
+test('a client that disconnected before its upload began does not hold a concurrency slot', { timeout: 10000 }, async t => {
+  const { put, imports } = await manager(t);
+  const departed = () => {
+    const request = new PassThrough();
+    request.socket = Object.assign(new EventEmitter(), { destroyed: true });
+    request.headers = { 'content-type': 'multipart/form-data; boundary=trial' };
+    request.destroy();
+    return assert.rejects(imports.upload(request, 'meter', '1.0.0'), /disconnected/);
+  };
+  await Promise.all([departed(), departed()]);
+  assert.deepEqual(await readdir(imports.workspace), []);
+  const { bytes } = await archive('one');
+  assert.equal((await put(form(bytes))).status, 201);
+});
+
 test('missing permissions, invalid parts, malformed archives and oversized uploads never become visible', async t => {
   const { put, store, imports, base } = await manager(t, { maxArchiveBytes: 4096 });
   const { bytes } = await archive('one');

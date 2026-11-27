@@ -111,12 +111,16 @@ export class Imports {
     const identity = parseTag(`drivers/${driverId}/v${version}`);
     expect(identity && identity.driverId === driverId && identity.version === version, 'Invalid driver ID or SemVer');
     expect(this.active < 2, 'Too many active image imports', 429);
-    this.active++;
     const controller = new AbortController();
     const closed = () => controller.abort(new RequestError(400, 'Upload disconnected'));
-    request.socket.once('close', closed);
+    const { socket } = request;
     let staging;
+    this.active++;
     try {
+      socket.once('close', closed);
+      // A client that left before the upload began has already closed and never closes again.
+      if (socket.destroyed || request.destroyed) closed();
+      controller.signal.throwIfAborted();
       staging = await mkdtemp(join(this.workspace, 'upload-'));
       const archive = join(staging, archiveName);
       const { input, archiveSha256 } = await receive(request, archive, this.limit, controller.signal);
@@ -136,7 +140,7 @@ export class Imports {
       const record = readRecord(manifestBytes, identity);
       return await this.store.commit(staging, { detail: { record, configuration }, manifestBytes, configBytes });
     } finally {
-      request.socket.removeListener('close', closed);
+      socket?.removeListener('close', closed);
       try { if (staging) await rm(staging, { recursive: true, force: true }); }
       finally { this.active--; }
     }

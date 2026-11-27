@@ -177,3 +177,16 @@ test('deleting an account ends its sessions, keeps an administrator and never re
   assert.equal((await send('/auth/session', 'GET', undefined, again)).status, 200);
   assert.equal((await send('/auth/session', 'GET', undefined, kept)).status, 200);
 });
+
+test('an account named after a built-in object property keeps a whole-number revision across restarts', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'driverhub-property-users-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const users = await LocalUsers.open(directory);
+  await users.create({ username: 'first', role: 'admin', password: randomUUID() });
+  await users.create({ username: 'constructor', role: 'viewer', password: randomUUID() });
+  assert.equal(users.resolve('constructor').revision, 1);
+  assert.equal((await LocalUsers.open(directory)).resolve('constructor').revision, 1);
+  await users.remove('constructor');
+  await users.create({ username: 'constructor', role: 'viewer', password: randomUUID() });
+  assert.equal((await LocalUsers.open(directory)).resolve('constructor').revision, 2);
+});

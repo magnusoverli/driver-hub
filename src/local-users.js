@@ -22,8 +22,9 @@ export class LocalUsers {
     users.path = join(directory, 'users.json');
     users.records = new Map();
     // Last revision of each deleted account. A recreated account continues above it, so a session
-    // of the deleted account can never match the new one.
-    users.retired = {};
+    // of the deleted account can never match the new one. A Map, so a name such as "constructor"
+    // never reads an inherited object property.
+    users.retired = new Map();
     users.pending = Promise.resolve();
     users.dummySalt = randomBytes(16).toString('hex');
     let data;
@@ -36,7 +37,7 @@ export class LocalUsers {
     const retired = store.retired ?? {};
     if (typeof retired !== 'object' || Array.isArray(retired) || !Object.entries(retired).every(([name, revision]) =>
       usernamePattern.test(name) && Number.isSafeInteger(revision))) throw new Error('Invalid retired account record');
-    users.retired = { ...retired };
+    users.retired = new Map(Object.entries(retired));
     for (const record of store.users) {
       if (typeof record.username !== 'string' || !usernamePattern.test(record.username) || users.records.has(record.username) ||
           !roles.includes(record.role) || typeof record.enabled !== 'boolean' || !Number.isSafeInteger(record.revision) ||
@@ -76,7 +77,7 @@ export class LocalUsers {
       records.delete(name);
       expect([...records.values()].some(u => u.enabled && u.role === 'admin'), 'At least one enabled local admin is required', 409,
         'last_admin');
-      const retired = { ...this.retired, [name]: current.revision };
+      const retired = new Map(this.retired).set(name, current.revision);
       await this.persist(records, retired);
       return { username: name, deleted: true };
     });
@@ -103,7 +104,7 @@ export class LocalUsers {
     expect(roles.includes(role), 'Role must be admin or viewer');
     expect(changes.enabled === undefined || typeof changes.enabled === 'boolean', 'Expected boolean enabled');
     const next = { ...current, username, role, enabled: changes.enabled ?? current?.enabled ?? true,
-      revision: (current?.revision ?? this.retired[username] ?? 0) + 1 };
+      revision: (current?.revision ?? this.retired.get(username) ?? 0) + 1 };
     if (create || changes.password !== undefined) {
       const password = changes.password;
       expect(typeof password === 'string' && [...password].length >= 12 && Buffer.byteLength(password) <= 1024,
@@ -121,7 +122,7 @@ export class LocalUsers {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const tmp = join(this.directory, `${randomUUID()}.tmp`);
     try {
-      await writeFile(tmp, JSON.stringify({ version: 1, users: [...records.values()], retired }), { mode: 0o600, flag: 'wx' });
+      await writeFile(tmp, JSON.stringify({ version: 1, users: [...records.values()], retired: Object.fromEntries(retired) }), { mode: 0o600, flag: 'wx' });
       await rename(tmp, this.path);
       this.records = records;
       this.retired = retired;
