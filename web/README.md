@@ -1,6 +1,6 @@
 # Driver Hub web frontend
 
-A static single-page app built with Svelte 5 (runes) and SvelteKit 3. The manager (`../src/main.js`) serves the build from `web/build` on the same origin as `/api/v1`, with a strict Content-Security-Policy. There is no frontend server. Signing in uses the manager's `HttpOnly` session cookie; service tokens never reach the browser.
+A static single-page app built with Svelte 5 (runes) and SvelteKit 3. The [manager](../src/main.js) serves the build from `web/build` on the same origin as `/api/v1`, with a strict Content-Security-Policy. No separate frontend server is needed in production. The browser authenticates with the manager's `HttpOnly` session cookie.
 
 ## Develop
 
@@ -25,6 +25,8 @@ Run a manager next to it (`npm start` in the repository root, with `DRIVER_HUB_B
 
 The end-to-end tests run two managers: a fresh site on port 4180, and one on port 4182 connected to the fake Nomad in `e2e/cluster/`. That stand-in implements the Nomad API calls the manager makes and keeps jobs, versions, allocations and evaluations in memory. Retained releases are tiny but valid OCI images, and every device is staged, started and updated through the manager's own API, so the deployment screens see exactly what the backend reports. Tests set conditions such as a failing control check through its `/_fake` routes. `npm run demo` starts the same installation for a manual look (it needs `npm ci` in the repository root too). The sign-in details are printed on start.
 
+The demo exercises the UI, not real Nomad image pulls. With a source checkout that has no packaged image service, a configured demo can show **Nomad: Connected** and **Image distribution: Unavailable** at the same time. To exercise distribution itself, use the [container and a real development cluster](../OPERATIONS.md#image-distribution).
+
 Run `npx playwright install chromium` once before browser tests. On Windows, run Vitest from a working directory with an upper-case drive letter (`C:\…`); a lower-case one loads Vitest twice and every suite fails with "failed to find the current suite".
 
 ## Structure
@@ -35,7 +37,7 @@ Run `npx playwright install chromium` once before browser tests. On Windows, run
 | `src/lib/session/`                | `Session` state (depends on the `AuthService` interface), sign-in, re-authentication and password dialogs.                                                                                        |
 | `src/lib/query/`                  | TanStack Query defaults: retry only transient failures, poll every 10 s, pause while hidden.                                                                                                      |
 | `src/lib/<feature>/`              | Query factories and pure view logic per area, for example `system/readiness.ts` and `deployments/status-path.ts`.                                                                                 |
-| `src/lib/deployments/`            | The deployment list and detail: conditions and filters (`view.ts`), preview-then-apply lifecycle (`lifecycle.ts`), the settings form (`settings-form.ts`) and staging (`stage.ts`).               |
+| `src/lib/deployments/`            | The deployment list and detail: conditions and filters (`view.ts`), preview-then-apply lifecycle (`lifecycle.ts`), the configuration form (`configuration-form.ts`) and staging (`stage.ts`).     |
 | `src/lib/catalog/`                | Published and retained releases, the release page's inputs, downloads, local imports, source builds, removal, staging and form validation (`validation.ts`).                                      |
 | `src/lib/operations/`             | Background downloads and builds for Activity and the catalog, polled quickly only while one runs.                                                                                                 |
 | `src/lib/site/`, `src/lib/users/` | Nomad and VideoIPath settings (mirroring the manager's address rules) and local accounts.                                                                                                         |
@@ -46,6 +48,8 @@ Run `npx playwright install chromium` once before browser tests. On Windows, run
 | `messages/en.json`                | Every user-facing string (Paraglide). Add a locale file and list it in `project.inlang/settings.json` to translate.                                                                               |
 
 State lives in rune-based classes and TanStack queries; components read fields and call methods, so only the parts of the page that depend on a changed value update.
+
+The overview and **Settings → Nomad** read `GET /api/v1/integrations/images`. `src/lib/system/image-distribution.ts` maps the manager's state to UI text; `ImageDistributionCard.svelte` shows the counts, source and current client problems. Use the returned `state`: two healthy running clients can still mean **Starting** while a third is downloading. The connection form saves the trusted-network `plainHttp` opt-in through `PUT /api/v1/site/nomad`; the browser never connects directly to Nomad.
 
 ## Design
 
