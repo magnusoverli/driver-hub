@@ -14,6 +14,7 @@ const fieldCodes: Record<string, () => string> = {
 	required: m.configuration_field_required,
 	wrong_type: m.configuration_field_wrong_type,
 	too_short: m.configuration_field_too_short,
+	too_long: m.configuration_field_too_long,
 	out_of_range: m.configuration_field_out_of_range,
 	secret_reference_required: m.configuration_field_secret_reference,
 	invalid_secret_key: m.configuration_error_secret_key,
@@ -77,13 +78,24 @@ export function localProblem(field: FormField, value: string): string | null {
 		if (field.maximum !== undefined && number > field.maximum)
 			return fieldErrorText('out_of_range');
 	}
-	if (
-		field.type === 'string' &&
-		field.minLength !== undefined &&
-		[...value].length < field.minLength
-	) {
-		return fieldErrorText('too_short');
+	if (field.type === 'string') {
+		const length = [...value].length;
+		if (field.minLength !== undefined && length < field.minLength)
+			return fieldErrorText('too_short');
+		if (field.maxLength !== undefined && length > field.maxLength)
+			return fieldErrorText('too_long');
 	}
+	return null;
+}
+
+/** "At least 3 characters", "At most 80 characters" or "3 to 80 characters". */
+function lengthHint({ minLength, maxLength }: FormField): string | null {
+	// A minimum of one character is what "required" already says.
+	const minimum = minLength !== undefined && minLength > 1 ? minLength : undefined;
+	if (minimum !== undefined && maxLength !== undefined)
+		return m.configuration_hint_length({ minimum, maximum: maxLength });
+	if (minimum !== undefined) return m.configuration_hint_min_length({ count: minimum });
+	if (maxLength !== undefined) return m.configuration_hint_max_length({ count: maxLength });
 	return null;
 }
 
@@ -111,9 +123,10 @@ export function secretReferences(settings: Settings): string[] {
 		.map((value) => value.secretRef);
 }
 
-/** A short description of what an input accepts, for its hint. */
+/** What an input is for, as its driver describes it, then what it accepts. */
 export function fieldHint(field: FormField, variable: string): string {
 	const parts: string[] = [];
+	if (field.description) parts.push(field.description.trim());
 	if (field.secret) parts.push(m.configuration_hint_secret({ variable }));
 	if (field.default !== undefined)
 		parts.push(m.configuration_hint_default({ value: String(field.default) }));
@@ -123,10 +136,9 @@ export function fieldHint(field: FormField, variable: string): string {
 		parts.push(m.configuration_hint_minimum({ minimum: field.minimum }));
 	else if (field.maximum !== undefined)
 		parts.push(m.configuration_hint_maximum({ maximum: field.maximum }));
-	// A minimum of one character is what "required" already says.
-	if (field.minLength && field.minLength > 1) {
-		parts.push(m.configuration_hint_min_length({ count: field.minLength }));
-	}
+	// A secret's length bounds describe its value; the operator only enters the name of its key.
+	const length = field.secret ? null : lengthHint(field);
+	if (length) parts.push(length);
 	parts.push(
 		field.env
 			? m.configuration_hint_env({ name: field.env })

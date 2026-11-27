@@ -1,13 +1,17 @@
 import { requireRelease } from './release.js';
 
+// The input properties of driver-config.json v1, as the VideoIPath External Drivers repository's
+// schema defines them (Drivers/schemas/driver-config-v1.schema.json).
 const fieldProperties = new Set([
-  'name', 'type', 'required', 'secret', 'env', 'file', 'default', 'minimum', 'maximum', 'minLength'
+  'name', 'type', 'required', 'description', 'secret', 'env', 'file', 'default', 'minimum', 'maximum',
+  'minLength', 'maxLength'
 ]);
 
 export function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// A secret's length bounds describe its value, which Hub never sees: only its key name.
 function valueError(field, value) {
   if (field.secret) {
     if (!isObject(value) || Object.keys(value).length !== 1 ||
@@ -16,6 +20,7 @@ function valueError(field, value) {
   }
   if (field.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== field.type) return 'wrong_type';
   if (field.type === 'string' && [...value].length < (field.minLength ?? 0)) return 'too_short';
+  if (field.type === 'string' && [...value].length > (field.maxLength ?? Infinity)) return 'too_long';
   if (value < field.minimum || value > field.maximum) return 'out_of_range';
 }
 
@@ -47,8 +52,13 @@ export function checkDeclaration(declaration) {
     'Invalid input binding');
     requireRelease(!bindings.has(binding), 'Duplicate input binding');
     bindings.add(binding);
-    requireRelease(field.minLength === undefined || (field.type === 'string' && !field.secret &&
-      Number.isSafeInteger(field.minLength) && field.minLength >= 0), 'Invalid minimum length');
+    requireRelease(field.description === undefined || (typeof field.description === 'string' &&
+      field.description.trim() && [...field.description].length <= 1000), 'Invalid input description');
+    for (const bound of [field.minLength, field.maxLength]) {
+      requireRelease(bound === undefined || (field.type === 'string' && Number.isSafeInteger(bound) && bound >= 0),
+        'Invalid length bound');
+    }
+    requireRelease(!(field.minLength > field.maxLength), 'Inverted length bounds');
     for (const bound of [field.minimum, field.maximum]) {
       requireRelease(bound === undefined || (field.type === 'integer' && Number.isSafeInteger(bound)),
         'Invalid integer bound');

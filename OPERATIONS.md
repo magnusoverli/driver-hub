@@ -4,7 +4,7 @@ Operators use the manager's web app; scripts use the same `/api/v1` endpoints. T
 
 ## Installation
 
-Use the [Docker Compose installation](README.md#deploy-with-docker-compose) with Compose v2.20+ (or newer) and Linux containers. The `linux/amd64` and `linux/arm64` variants each include the manager, built web frontend, Docker CLI/Buildx and matching image-service package. Compose selects the platform for the Docker host. Choose a host architecture matching the Nomad clients that should run the image service.
+Use the [Docker Compose installation](README.md#deploy-with-docker-compose) with Compose v2.20+ (or newer) and Linux containers. The `linux/amd64` and `linux/arm64` variants each include the manager, built web frontend, Docker CLI/Buildx, and the image-service package for **both** client architectures. Compose selects the platform for the Docker host; the manager's own architecture does not limit which Nomad clients can run drivers.
 
 Compose binds the management UI/API to `127.0.0.1:8080` on the host. For remote browser access, put that listener behind HTTPS and preserve the public `Host` header at the reverse proxy. The manager requires authentication even on loopback. The browser uses a `Secure` session cookie; scripts use [Hub API tokens](#api-tokens).
 
@@ -91,7 +91,7 @@ What it needs from the cluster:
 - The Docker driver's defaults: host networking and loading an image from a file.
 - Disk for the images in use, in the allocation's data directory; it is kept when Nomad replaces the allocation on the same client.
 - Clients must reach the manager's distribution listener (default TCP `5481`) for package and image downloads, and each other's TCP `5480` for peer copies. Both are read-only HTTP listeners: restrict them to the client network. For `Failed Artifact Download`, compare the job's artifact URL and checksum with what the client can fetch at the advertised address. Do not disable checksum verification.
-- The clients' CPU architecture must match the manager image's (the job is constrained to it).
+- Clients are `linux/amd64` or `linux/arm64`. The job has one task group per architecture, each running the image service built for it, and all copies serve one another. Drivers are placed only on architectures that both their image and the image service support.
 
 Back up retained releases, `DRIVER_HUB_DATA_DIR/images` and `DRIVER_HUB_DATA_DIR/labels` (operator-entered device names); use the customer's normal Nomad backup process for jobs and Variables. Do not delete a published digest needed by a running deployment or its rollback version.
 
@@ -228,7 +228,7 @@ Back up `site/deployments/` with site state. It holds the installation identity,
 
 | `fields[].source` | Frontend behavior |
 | --- | --- |
-| `operator` | Render the declared type, required flag, optional default and limits (`minimum`, `maximum`, `minLength`). For `secret:true`, collect a **reference name** matching `secretRefPattern` and submit `{"secretRef":"name"}`. A required field with a default may be omitted. |
+| `operator` | Render the declared type, required flag, optional `description`, default and limits (`minimum`, `maximum`, `minLength`, `maxLength`). For `secret:true`, collect a **reference name** matching `secretRefPattern` and submit `{"secretRef":"name"}`; a secret's length limits describe its value, which Hub never sees, and are not applied to the name. A required field with a default may be omitted. |
 | `site` | Show as supplied by the site. Omit from `settings`, including URL and token bindings with custom names. |
 | `identity` | Show as supplied by Hub, including for migrations that use a top-level `nodeId`. Omit from `settings`. |
 
@@ -256,11 +256,11 @@ The journal in `DRIVER_HUB_DATA_DIR/operations` is for **one running manager per
 
 ## Monitoring and failover
 
-Linux Nomad clients need a healthy Docker task driver and access to VideoIPath, the device and Nomad Variables, and must run the image service (see [image distribution](#image-distribution)). Jobs constrain placement to a supported architecture. Resources currently default to 500 MHz CPU and 256 MiB per task; qualify driver-specific requirements before production use.
+Linux Nomad clients need a healthy Docker task driver and access to VideoIPath, the device and Nomad Variables, and must run the image service (see [image distribution](#image-distribution)). Jobs constrain placement to the architectures both the driver image and the image service support. Hub stops a driver with SIGTERM and kills it after 5 seconds. Resources currently default to 500 MHz CPU and 256 MiB per task; qualify driver-specific requirements before production use.
 
 Use datacenters containing only qualified clients. Architecture matching alone does not establish CPU variant compatibility, VLAN routing or spare capacity. Confirm both the actual device read and VideoIPath session on each eligible host, including after a cold pull. Digest-pinned jobs permit reuse of an exact local image; a cold client still needs the complete registry graph. A manifest HEAD checks the backing file and length, not every blob or its hash. Measure a warm restart with the registry down separately from a cold replacement with the manager absent.
 
-An optional declaration extension, `"controlHealth":{"port":8080,"path":"/control"}`, tells Hub to register an HTTP check with Nomad service discovery. Use it **only** for a driver endpoint that returns success when both its VideoIPath session and device communication are working. The driver must listen on the declared container port. Hub returns `driver-reports-connected` only for a recent successful check on the current running allocation, `check-failed` for a recent failure, and `unknown` without fresh evidence. Approval is always `unknown` in this API. Container liveness alone is not a control check.
+An optional declaration extension, `"controlHealth":{"port":8080,"path":"/control"}`, tells Hub to register an HTTP check with Nomad service discovery. Use it **only** for a driver endpoint that returns success when both its VideoIPath session and device communication are working. The driver must listen on the declared container port. Hub stops a driver with SIGTERM and kills it 5 seconds later, so a driver must finish its shutdown within that time. Hub returns `driver-reports-connected` only for a recent successful check on the current running allocation, `check-failed` for a recent failure, and `unknown` without fresh evidence. Approval is always `unknown` in this API. Container liveness alone is not a control check.
 
 Nomad's service scheduler restarts or reschedules the job without Hub intervention. Updates have no canaries. The job uses [`disconnect.stop_on_client_after`](https://developer.hashicorp.com/nomad/docs/job-specification/disconnect) (30 seconds) to have a disconnected client stop its task. This is **not hard fencing**: it depends on the Nomad agent still running and on synchronized clocks. If a driver survives a frozen agent or a management partition, two instances may compete for the same VideoIPath session. For sites requiring a strict single-writer guarantee, commission host or network fencing before enabling automatic takeover; a successful clean host-loss test does not prove partition safety.
 

@@ -10,19 +10,34 @@ COPY web/ ./
 RUN npm run build
 
 # The image service Driver Hub runs on every Nomad client: Node.js, Hub's code and its
-# dependencies, nothing else.
-FROM node:22-alpine AS image-service-root
+# dependencies, nothing else. It is built for every client architecture Hub supports, whatever
+# the manager's own. The dependencies are plain JavaScript, so they are installed once and
+# copied, and the other architecture's file system is assembled without running anything in it.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS image-service-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+FROM --platform=linux/amd64 node:22-alpine AS image-service-amd64
+WORKDIR /app
+COPY --from=image-service-deps /app/package.json /app/package-lock.json ./
+COPY --from=image-service-deps /app/node_modules ./node_modules
 COPY src ./src
 
-# Packed as a `docker save` archive. The manager hands it to the clients through Nomad, so they
-# need no registry or internet access to start the image service.
-FROM image-service-root AS image-service-package
-COPY --from=image-service-root / /rootfs/
+FROM --platform=linux/arm64 node:22-alpine AS image-service-arm64
+WORKDIR /app
+COPY --from=image-service-deps /app/package.json /app/package-lock.json ./
+COPY --from=image-service-deps /app/node_modules ./node_modules
+COPY src ./src
+
+# Each packed as a `docker save` archive. The manager hands them to the clients through Nomad, so
+# they need no registry or internet access to start the image service.
+FROM image-service-deps AS image-service-package
+COPY --from=image-service-amd64 / /rootfs/amd64/
+COPY --from=image-service-arm64 / /rootfs/arm64/
 COPY tools/pack-image-service.js ./tools/
-RUN node tools/pack-image-service.js /rootfs /image-service
+RUN node tools/pack-image-service.js /rootfs/amd64 /image-service/amd64 amd64 && \
+    node tools/pack-image-service.js /rootfs/arm64 /image-service/arm64 arm64
 
 FROM node:22-alpine AS base
 WORKDIR /app

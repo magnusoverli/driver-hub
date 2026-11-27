@@ -43,16 +43,24 @@ function bindings(configuration, settings, nodeId, jobId, profile) {
   return { templates, volumes };
 }
 
-export function createJob({ spec, previous, running, migrated, image, release, namespace, datacenters }) {
+// `architectures`: the client architectures Hub's image service runs on. A driver is placed only
+// there, so its machine has a copy of the image to pull. Empty or unset places it on any
+// architecture the image has, for installations without image distribution.
+export function createJob({ spec, previous, running, migrated, image, release, namespace, datacenters,
+  architectures }) {
   const id = `driverhub-${spec.nodeId}`;
   const { templates, volumes } = bindings(release.configuration, spec.settings, spec.nodeId, id, spec.videoIPath);
-  const arch = release.record.image.platforms.filter(p => p.startsWith('linux/')).map(p => p.split('/')[1]);
-  expect(arch.length && arch.every(value => /^[a-z0-9]+$/.test(value)), 'No supported Linux image platform', 422);
+  const offered = release.record.image.platforms.filter(p => p.startsWith('linux/')).map(p => p.split('/')[1]);
+  expect(offered.length && offered.every(value => /^[a-z0-9]+$/.test(value)), 'No supported Linux image platform', 422);
+  const arch = architectures?.length ? [...new Set(offered)].filter(value => architectures.includes(value)) : offered;
+  expect(arch.length, `The release is built for ${offered.join(', ')}, but Hub's image service runs only on ` +
+    `${architectures?.join(', ')} clients`, 422, 'no_image_service_architecture');
   const health = release.configuration.controlHealth;
   const task = {
     Name: 'driver', Driver: 'docker', Config: { image, volumes, force_pull: false },
     Env: { [nodeEnv]: spec.nodeId }, Templates: templates,
-    Resources: { CPU: 500, MemoryMB: 256 }, KillTimeout: 5 * second
+    // The stop signal and grace period drivers are written for: shut down within 5 seconds.
+    Resources: { CPU: 500, MemoryMB: 256 }, KillSignal: 'SIGTERM', KillTimeout: 5 * second
   };
   if (health) {
     task.Config.ports = ['control'];
