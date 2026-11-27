@@ -2,7 +2,7 @@ FROM docker:29-cli AS docker-tools
 
 # The web frontend is built separately with the toolchain its lockfile was made with (npm >= 11);
 # only its static output enters the runtime image.
-FROM node:26-alpine AS web
+FROM --platform=$BUILDPLATFORM node:26-alpine AS web
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json web/.npmrc ./
 RUN npm ci && npm cache clean --force
@@ -40,5 +40,8 @@ CMD ["node", "src/main.js"]
 FROM base AS builder
 COPY --from=docker-tools /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-tools /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
+# Register the Compose builder without contacting it during the image build. Without
+# BUILDX_BUILDER, native/custom installations can still use their own Docker context.
+RUN docker buildx create --name hub-compose --driver remote unix:///run/hub-buildkit/buildkit/buildkitd.sock
 
-FROM base AS runtime
+FROM builder AS runtime

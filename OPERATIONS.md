@@ -4,7 +4,27 @@ Operators use the manager's web app; scripts use the same `/api/v1` endpoints. T
 
 ## Installation
 
-Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. A native installation listens on loopback by default. The manager requires authentication even on loopback. The manager also serves the web frontend from `web/build` (the container image includes it), so the browser loads the app and `/api/v1` from one origin. For remote browser access, put that listener behind HTTPS, preserve the public `Host` header at the reverse proxy, and use a local operator account. Plain HTTP works only at `http://localhost`, because the session cookie is `Secure`. Scripts use API tokens (see [API tokens](#api-tokens)).
+Use the [Docker Compose installation](README.md#deploy-with-docker-compose) with Compose v2.20+ (or newer) and Linux containers. The `linux/amd64` and `linux/arm64` variants each include the manager, built web frontend, Docker CLI/Buildx and matching image-service package. Compose selects the platform for the Docker host. Choose a host architecture matching the Nomad clients that should run the image service.
+
+Compose binds the management UI/API to `127.0.0.1:8080` on the host. For remote browser access, put that listener behind HTTPS and preserve the public `Host` header at the reverse proxy. The manager requires authentication even on loopback. The browser uses a `Secure` session cookie; scripts use [Hub API tokens](#api-tokens).
+
+### Registry access
+
+For a private GHCR package, run `docker login ghcr.io --username YOUR_GITHUB_USERNAME` on the deployment host. At the password prompt, use a GitHub personal access token (classic) with `read:packages`; the account must have read access to the package. Public packages can be pulled anonymously. Registry credentials belong in Docker's credential store, not the Hub `.env`. Nomad clients fetch their image-service package from Hub and do not need a GHCR login.
+
+### Upgrading a Compose installation
+
+Back up the manager data, keep the Compose project name and data volume, and take the `compose.yaml` from the new release. Set `DRIVER_HUB_IMAGE` in `.env` to the new versioned image (or its `tag@sha256:…` reference), then run `docker compose pull` and `docker compose up -d`. This recreates the manager and signs operators out. Reconciliation rolls out a changed image-service package to Nomad; check **Settings → Nomad → Image distribution** and the expected client count. Keep the previous image reference and backup for rollback. Do not use `down -v` during an upgrade.
+
+The supplied project name remains `driver-hub-trial` for compatibility. For an installation previously built by `docker compose up --build`, add `DRIVER_HUB_IMAGE` to its existing `.env` before using the new Compose file. Keep the existing password setting and any site-specific override file. To continue building locally with the bundled Buildx tools, follow the [local image build](README.md#build-the-manager-image-locally).
+
+### Publishing a manager release
+
+Publish a **GitHub Release** from a commit containing [the image workflow](.github/workflows/release-image.yml), using a tag such as `v1.2.3` or `v1.2.3-rc.1` (`alpha.N` and `beta.N` are also accepted). A branch push, a bare Git tag, or saving a draft does not publish an image. A published prerelease gets its own exact tag.
+
+The workflow tests the backend and starts the runtime image with the installation Compose file. It verifies the UI, embedded package checksum and an OCI export with the bundled builder after administrator opt-in. Pull requests run verification without publishing. On a published release, a separate job uses GitHub's workflow token with `packages: write` to push the multi-platform image to `ghcr.io/<owner>/driver-hub:<release-tag>`. The job summary gives the digest-pinned reference for `.env`. No `latest` tag is published. Use a new version for changed content and check that the first package's visibility and read access match the intended deployment audience.
+
+### Manager settings
 
 The environment holds only what the manager needs before its web interface runs, or what describes the machine it runs on. Everything else is saved in the site settings and changed under **Settings** in the web interface (or with the endpoints in [site setup](#site-setup-after-container-startup)). Settings > Manager lists the values below as the running manager sees them; changing one takes a restart.
 
@@ -95,18 +115,7 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 
 ## Site setup after container startup
 
-Start the manager with a durable directory writable by UID 1000, then sign in and enter the Nomad cluster and VideoIPath under Settings; image distribution then starts by itself. Example using a bootstrap password file (expose the loopback port through your HTTPS gateway). It publishes the image listener on the host and tells Hub the host's address, because inside a container with bridge networking Hub cannot see the address the Nomad clients reach:
-
-```sh
-docker run -d --name driverhub --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 -p 5481:5481 -e HOST=0.0.0.0 \
-  -v /srv/driverhub/bootstrap-password:/run/secrets/initial-password:ro \
-  -e DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/initial-password \
-  -e DRIVER_HUB_DISTRIBUTION_ADDRESS=driverhub.site.example \
-  -v /srv/driverhub/data:/data -e DRIVER_HUB_DATA_DIR=/data driver-hub:local
-```
-
-With host networking (`--network host`) instead, leave `DRIVER_HUB_DISTRIBUTION_ADDRESS` unset and set `HOST=127.0.0.1` to keep the API on loopback.
+The supplied Compose file mounts the named data volume at `/data` and the bootstrap secret at `/run/secrets/initial-password`. Set `DRIVER_HUB_DISTRIBUTION_ADDRESS` in `.env` to the Docker host address the clients can reach; inside the bridge network Hub may see only a container address. Once running, enter the Nomad cluster and VideoIPath target under **Settings**.
 
 The site endpoints below are admin-only; integration status is also readable by viewers. Paths are relative to `/api/v1`. Supply the latest site `revision` on each PUT; it covers all site settings. Tokens are write-only.
 
@@ -280,7 +289,11 @@ Allow temporary disk space in the manager data volume for both the compressed ar
 
 ## Customer builds
 
-Turn on source builds under Settings > Manager. That is possible only on a manager with a Docker CLI, an OCI-export-capable Buildx builder and access to the public repository. For the containerized manager build the optional `builder` target (`docker build --target builder -t driver-hub:builder .`) and connect it to a dedicated build daemon. A source build executes the selected Dockerfile; use a builder appropriate for the code's trust level. No push credentials are needed. Configure an HTTP timeout long enough for builds (up to 30 minutes).
+**Source builds are available in the standard installation but disabled on a new site.** An administrator enables them under **Settings → Manager**. Both the UI and `POST /api/v1/builds` honor that saved choice. Existing sites keep their saved setting across upgrades.
+
+The manager's Docker CLI/Buildx uses the `hub-compose` builder. Its rootless BuildKit worker communicates over a shared Unix socket, has its own cache volume, and exposes no TCP port or host Docker socket. The worker needs outbound access to the public source repository and any base-image registries. Its container permits nested namespaces, mounts and process sandboxing; use it for reviewed driver source. Builds export OCI archives to Hub, not to a registry.
+
+If the switch is unavailable, check `docker compose ps` and `docker compose logs buildkit`, then `docker compose exec manager docker buildx du`. The host must support rootless BuildKit (unprivileged user namespaces). Restart the manager after restoring the worker: Hub checks builder availability at startup. Allow up to 30 minutes for a build when configuring proxy timeouts.
 
 `POST /api/v1/builds` with `driverId`, full Git `commit`, `directory` under `Drivers/` or `examples/`, and optionally `platform` (`linux/amd64` or `linux/arm64`). Hub uses `driver-config.json` at that same revision unless the admin provides the `configuration` declaration in the request. The driver directory must contain a self-contained Dockerfile/context. Buildx receives a pinned Git context and exports OCI locally. A successful build returns a retained release with `origin: "customer"` and a unique `0.0.0-local.…` version. It is deployable through the same API; nothing is published to GitHub or a public registry.
 

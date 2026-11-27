@@ -730,7 +730,7 @@
 	"manager_features_description": "Saved with the site settings; they apply at once.",
 	"manager_builds": "Source builds",
 	"manager_builds_hint": "Lets administrators build drivers from the public repository. A build runs the driver's own Dockerfile on this manager's Docker daemon.",
-	"manager_builds_unavailable": "This manager cannot build: its image has no Docker Buildx, or it reaches no Docker daemon. Run the image's builder target with access to a Docker daemon, then restart the manager.",
+	"manager_builds_unavailable": "The manager could not reach its Buildx builder at startup. Check the Compose buildkit service, then restart the manager.",
 	"manager_timings": "Request timings",
 	"manager_timings_hint": "Adds a Server-Timing header to API responses with the request's duration and its Nomad calls. For diagnosing slow pages.",
 	"manager_submit": "Save",

@@ -1,0 +1,95 @@
+name: Driver Hub image
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-image.yml'
+      - '.github/tests/compose-smoke.mjs'
+      - '.dockerignore'
+      - 'Dockerfile'
+      - 'compose.yaml'
+      - 'package*.json'
+      - 'src/**'
+      - 'test/**'
+      - 'tools/pack-image-service.js'
+      - 'web/**'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test the backend
+        run: |
+          docker run --rm -v "$PWD:/app" -w /app node:22-alpine sh -ec 'npm ci && npm test'
+      - name: Build the runtime image
+        run: docker build --target runtime --tag driver-hub:verify .
+      - name: Start the packaged app with the release Compose file
+        env:
+          DRIVER_HUB_IMAGE: driver-hub:verify
+          COMPOSE_PROJECT_NAME: hub-smoke
+        run: |
+          DRIVER_HUB_INITIAL_PASSWORD="$(openssl rand -hex 24)"
+          export DRIVER_HUB_INITIAL_PASSWORD
+          trap 'docker compose down --volumes' EXIT
+          docker compose pull buildkit
+          docker compose up --detach --no-build --pull never
+          curl --fail --silent --show-error --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:8080/ | grep -i '<!doctype html>'
+          docker compose exec -T -e DRIVER_HUB_INITIAL_PASSWORD manager node --input-type=module - < .github/tests/compose-smoke.mjs
+
+  publish:
+    if: github.event_name == 'release'
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Select the exact release image tag
+        id: image
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          number='(0|[1-9][0-9]*)'
+          if [[ ! "$TAG" =~ ^v${number}\.${number}\.${number}(-(alpha|beta|rc)\.${number})?$ ]] || (( ${#TAG} > 128 )); then
+            echo "::error::Expected vMAJOR.MINOR.PATCH, optionally followed by -alpha.N, -beta.N or -rc.N"
+            exit 1
+          fi
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish the runtime image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.event.release.tag_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Record the install reference
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: printf 'Digest-pinned Compose setting for .env:\n\n    DRIVER_HUB_IMAGE=%s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
