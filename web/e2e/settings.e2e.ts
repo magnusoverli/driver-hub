@@ -23,45 +23,32 @@ test('the settings pages are listed under Settings, for administrators only', as
 	await context.close();
 });
 
-test('the image host is entered in the Nomad settings and the overview then reports it', async ({
+test('image distribution needs no settings, and starts once the Nomad cluster is set up', async ({
 	page
 }) => {
 	await signIn(page, ADMIN, '/settings/nomad');
-	const jobs = page.getByRole('region', { name: 'Jobs and images' });
-	const host = jobs.getByLabel('Image host');
+	await expect(page.getByLabel('Image host')).toHaveCount(0);
+	const images = page.getByRole('region', { name: 'Image distribution' });
+	await expect(images).toContainText('Not set up');
+	await expect(images).toContainText('Starts by itself once the Nomad cluster is set up.');
+
+	const jobs = page.getByRole('region', { name: 'Jobs', exact: true });
 	const ui = jobs.getByLabel('Nomad web interface');
 	const saved = jobs.getByText('Saved. New jobs and device pages use these values.');
-	await host.fill('https://images.site.example');
-	await jobs.getByRole('button', { name: 'Save' }).click();
-	await expect(
-		jobs.getByText('Enter a host name or IP address, optionally with a port')
-	).toBeVisible();
-	await host.fill('images.site.example:5000');
 	await ui.fill('http://nomad.site.example');
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(jobs.getByText('Enter an HTTPS address without a path')).toBeVisible();
-
 	await ui.fill('https://nomad.site.example/');
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(saved).toBeVisible();
 	const current = page.getByRole('region', { name: 'Current connection' });
-	await expect(current).toContainText('images.site.example:5000');
 	await expect(current).toContainText('https://nomad.site.example');
 
-	await page.goto('/');
-	await expect(
-		page
-			.getByRole('region', { name: 'Site readiness' })
-			.getByText('Nomad clients pull driver images from the configured image service.')
-	).toBeVisible();
-
-	// The other tests expect a site without an image host.
-	await page.goto('/settings/nomad');
-	await host.fill('');
+	// The other tests expect a site without a Nomad web interface.
 	await ui.fill('');
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(saved).toBeVisible();
-	await expect(current).not.toContainText('images.site.example');
+	await expect(current).not.toContainText('https://nomad.site.example');
 });
 
 test('an API token is shown once, acts with its role, and stops working when revoked', async ({

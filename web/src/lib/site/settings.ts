@@ -103,17 +103,6 @@ export function videoIPathEndpoint(value: string): string | null {
 	return `wss://${url.host}/x-driver/v1`;
 }
 
-/** Mirrors the manager: a host name or IP address, optionally with a port, and nothing else. */
-export function imageHostProblem(value: string): string | null {
-	const host = value.trim();
-	if (!host) return null;
-	const valid =
-		host.length <= 253 &&
-		/^[a-zA-Z0-9.-]+(?::[0-9]{1,5})?$/.test(host) &&
-		(host === 'localhost' || /[.:]/.test(host));
-	return valid ? null : m.nomad_error_image_host();
-}
-
 /** The HTTPS origin the manager saves for the Nomad web interface, or null when it would refuse. */
 export function nomadUiOrigin(value: string): string | null {
 	try {
@@ -127,12 +116,11 @@ export function nomadUiOrigin(value: string): string | null {
 
 export function deploymentInput(
 	revision: number,
-	form: { imageHost: string; nomadUiOrigin: string; sharedWriters: boolean }
+	form: { nomadUiOrigin: string; sharedWriters: boolean }
 ): DeploymentInput {
 	const ui = form.nomadUiOrigin.trim();
 	return {
 		revision,
-		imageHost: form.imageHost.trim() || null,
 		nomadUiOrigin: ui ? nomadUiOrigin(ui) : null,
 		sharedWriters: form.sharedWriters
 	};
@@ -186,6 +174,12 @@ export function canKeepNomadToken(site: Site, origin: string | null, namespace: 
 	);
 }
 
+/** A plain-HTTP address on another machine: the manager sends a token there only when allowed. */
+export function isRemotePlainHttp(origin: string | null): boolean {
+	if (!origin?.startsWith('http://')) return false;
+	return !['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
+}
+
 export function nomadInput(
 	revision: number,
 	form: {
@@ -194,13 +188,15 @@ export function nomadInput(
 		datacenters: string;
 		tokenChoice: NomadTokenChoice;
 		token: string;
+		plainHttp: boolean;
 	}
 ): NomadInput {
 	const input: NomadInput = {
 		revision,
 		address: form.address.trim(),
 		namespace: form.namespace.trim(),
-		datacenters: parseDatacenters(form.datacenters)
+		datacenters: parseDatacenters(form.datacenters),
+		plainHttp: form.plainHttp
 	};
 	if (form.tokenChoice === 'replace') input.token = form.token.trim();
 	if (form.tokenChoice === 'none') input.token = null;

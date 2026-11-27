@@ -3,7 +3,7 @@ import {
 	canKeepNomadToken,
 	datacentersProblem,
 	deploymentInput,
-	imageHostProblem,
+	isRemotePlainHttp,
 	namespaceProblem,
 	nomadInput,
 	nomadOrigin,
@@ -21,9 +21,10 @@ const site: Site = {
 		address: 'https://nomad.site.example:4646',
 		namespace: 'driverhub',
 		datacenters: ['dc1'],
-		tokenConfigured: true
+		tokenConfigured: true,
+		plainHttp: false
 	},
-	deployment: { imageHost: null, nomadUiOrigin: null, sharedWriters: false },
+	deployment: { nomadUiOrigin: null, sharedWriters: false },
 	manager: { buildsEnabled: false, buildsAvailable: false, timings: false },
 	videoipath: {
 		url: null,
@@ -80,16 +81,25 @@ describe('Nomad connection form', () => {
 			address: ' nomad.site.example ',
 			namespace: 'driverhub',
 			datacenters: 'dc1, dc2',
-			token: ' secret '
+			token: ' secret ',
+			plainHttp: false
 		};
 		expect(nomadInput(4, { ...form, tokenChoice: 'keep' })).toEqual({
 			revision: 4,
 			address: 'nomad.site.example',
 			namespace: 'driverhub',
-			datacenters: ['dc1', 'dc2']
+			datacenters: ['dc1', 'dc2'],
+			plainHttp: false
 		});
 		expect(nomadInput(4, { ...form, tokenChoice: 'none' }).token).toBeNull();
 		expect(nomadInput(4, { ...form, tokenChoice: 'replace' }).token).toBe('secret');
+	});
+
+	it('asks for permission only to send a token to another machine over plain HTTP', () => {
+		expect(isRemotePlainHttp('http://192.0.2.10:4646')).toBe(true);
+		expect(isRemotePlainHttp('http://127.0.0.1:4646')).toBe(false);
+		expect(isRemotePlainHttp('https://nomad.site.example:4646')).toBe(false);
+		expect(isRemotePlainHttp(null)).toBe(false);
 	});
 
 	it('validates namespace and datacenters like the manager', () => {
@@ -106,20 +116,7 @@ describe('Nomad connection form', () => {
 	});
 });
 
-describe('jobs and images form', () => {
-	it('accepts an image host as the manager does', () => {
-		for (const host of [
-			'',
-			'images.site.example',
-			'images.site.example:5000',
-			'10.0.0.5',
-			'localhost'
-		])
-			expect(imageHostProblem(host), host).toBeNull();
-		for (const host of ['images', 'https://images.site', 'images.site/path', 'images.site:port'])
-			expect(imageHostProblem(host), host).not.toBeNull();
-	});
-
+describe('jobs form', () => {
 	it('accepts only an HTTPS origin for the Nomad web interface', () => {
 		expect(nomadUiOrigin('https://nomad.site.example/')).toBe('https://nomad.site.example');
 		expect(nomadUiOrigin('http://nomad.site.example')).toBeNull();
@@ -128,21 +125,14 @@ describe('jobs and images form', () => {
 	});
 
 	it('clears empty fields instead of saving blanks', () => {
-		expect(
-			deploymentInput(7, { imageHost: '  ', nomadUiOrigin: ' ', sharedWriters: true })
-		).toEqual({ revision: 7, imageHost: null, nomadUiOrigin: null, sharedWriters: true });
-		expect(
-			deploymentInput(7, {
-				imageHost: ' images.site ',
-				nomadUiOrigin: 'https://nomad.site/',
-				sharedWriters: false
-			})
-		).toEqual({
+		expect(deploymentInput(7, { nomadUiOrigin: ' ', sharedWriters: true })).toEqual({
 			revision: 7,
-			imageHost: 'images.site',
-			nomadUiOrigin: 'https://nomad.site',
-			sharedWriters: false
+			nomadUiOrigin: null,
+			sharedWriters: true
 		});
+		expect(
+			deploymentInput(7, { nomadUiOrigin: 'https://nomad.site/', sharedWriters: false })
+		).toEqual({ revision: 7, nomadUiOrigin: 'https://nomad.site', sharedWriters: false });
 	});
 });
 

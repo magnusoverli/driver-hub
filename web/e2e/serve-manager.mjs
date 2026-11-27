@@ -52,7 +52,9 @@ const manager = spawn(process.execPath, [join(web, '..', 'src', 'main.js')], {
 		DRIVER_HUB_WEB_DIR: join(web, 'build'),
 		DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: passwordFile,
 		DRIVER_HUB_BOOTSTRAP_USERNAME: ADMIN.username,
-		DRIVER_HUB_ADMIN_TOKEN: SERVICE_TOKEN
+		DRIVER_HUB_ADMIN_TOKEN: SERVICE_TOKEN,
+		// Each test manager needs its own port for the images it serves to Nomad clients.
+		DRIVER_HUB_DISTRIBUTION_PORT: String(port + 100)
 	}
 });
 

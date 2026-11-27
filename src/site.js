@@ -32,29 +32,18 @@ const tokenKey = value => createHash('sha256').update(value).digest('hex');
 // A site that has never been saved: no cluster, no VideoIPath target, every optional behaviour off.
 const initialState = () => ({
   revision: 0, videoipath: null, used: {},
-  nomad: { address: null, token: null, namespace: 'default', datacenters: ['dc1'] },
-  deployment: { imageHost: null, nomadUiOrigin: null, sharedWriters: false },
+  nomad: { address: null, token: null, namespace: 'default', datacenters: ['dc1'], plainHttp: false },
+  deployment: { nomadUiOrigin: null, sharedWriters: false },
   manager: { buildsEnabled: false, timings: false }
 });
 
 // The fields each part of the site settings accepts, besides the revision.
 const fields = {
-  nomad: ['address', 'token', 'namespace', 'datacenters'],
+  nomad: ['address', 'token', 'namespace', 'datacenters', 'plainHttp'],
   videoipath: ['address', 'token', 'tokenMode', 'tokens'],
-  deployment: ['imageHost', 'nomadUiOrigin', 'sharedWriters'],
+  deployment: ['nomadUiOrigin', 'sharedWriters'],
   manager: ['buildsEnabled', 'timings']
 };
-
-// Host name or IP address, optionally with a port, that Nomad clients pull driver images from.
-export function validImageHost(value) {
-  return typeof value === 'string' && value.length <= 253 && /^[a-zA-Z0-9.-]+(?::[0-9]{1,5})?$/.test(value) &&
-    (value === 'localhost' || /[.:]/.test(value));
-}
-
-function imageHost(value) {
-  expect(validImageHost(value), 'Expected an image host name or IP address, optionally with a port');
-  return value;
-}
 
 function uiOrigin(value) {
   let url;
@@ -121,7 +110,7 @@ export class Site {
   // `initial` overrides parts of the state of a site that has never been saved.
   // `buildsAvailable` says whether this manager's image can run source builds at all.
   static async open(directory, initial = {}, { keyFile, buildsAvailable = false, client = settings =>
-    new Nomad(settings.address, settings.token, settings.namespace) } = {}) {
+    new Nomad(settings.address, settings.token, settings.namespace, fetch, { plainHttp: settings.plainHttp }) } = {}) {
     const site = new Site();
     site.directory = directory;
     site.journal = await DeploymentJournal.open(join(directory, 'deployments'));
@@ -148,8 +137,8 @@ export class Site {
     const { revision, nomad, videoipath, used, deployment, manager } = this.state;
     const tokens = videoipath?.tokens;
     return { revision, nomad: { address: nomad.address ?? null, namespace: nomad.namespace,
-      datacenters: nomad.datacenters, tokenConfigured: Boolean(nomad.token) },
-    deployment: { ...deployment },
+      datacenters: nomad.datacenters, tokenConfigured: Boolean(nomad.token), plainHttp: Boolean(nomad.plainHttp) },
+    deployment: { nomadUiOrigin: deployment.nomadUiOrigin, sharedWriters: deployment.sharedWriters },
     manager: { ...manager, buildsAvailable: this.buildsAvailable },
     videoipath: { url: videoipath?.url ?? null, tokenMode: videoipath?.mode ?? 'per-device',
       tokenConfigured: Boolean(videoipath?.token || tokens?.length),
@@ -218,8 +207,7 @@ export class Site {
       { currentRevision: old.revision });
     const next = { ...old, revision: old.revision + 1 };
     if (service === 'deployment') {
-      next.deployment = { imageHost: choose(input, old.deployment, 'imageHost', imageHost),
-        nomadUiOrigin: choose(input, old.deployment, 'nomadUiOrigin', uiOrigin),
+      next.deployment = { nomadUiOrigin: choose(input, old.deployment, 'nomadUiOrigin', uiOrigin),
         sharedWriters: choose(input, old.deployment, 'sharedWriters', flag) };
     } else if (service === 'manager') {
       expect(input.buildsEnabled !== true || this.buildsAvailable,
@@ -236,8 +224,9 @@ export class Site {
         typeof dc === 'string' && /^[\w.*-]+$/.test(dc)), 'Expected Nomad datacenters');
       const same = address === old.nomad.address && namespace === old.nomad.namespace;
       const token = input.token === undefined && same ? old.nomad.token : input.token == null ? null : credential(input.token);
-      next.nomad = { address, namespace, datacenters, token };
-      if (token) requireSecureNomad(address);
+      const plainHttp = choose(input, { plainHttp: Boolean(old.nomad.plainHttp) }, 'plainHttp', flag);
+      next.nomad = { address, namespace, datacenters, token, plainHttp };
+      if (token) requireSecureNomad(address, plainHttp);
       const status = await this.client(next.nomad).connection();
       expect(status.state === 'connected', 'Nomad has no elected leader', 409, 'nomad_not_ready');
       // Never carry the VideoIPath credential to a different configured cluster/namespace.

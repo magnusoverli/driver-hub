@@ -100,8 +100,7 @@ test('deployments, VideoIPath tokens and retained releases are removed only when
   await retain(store, '1.1.0');
   await retain(store, '2.0.0');
   const nomad = fakeNomad();
-  const site = await Site.open(join(root, 'site'), { nomad: { namespace: 'default', datacenters: ['dc1'] },
-    deployment: { imageHost: 'images.internal' } },
+  const site = await Site.open(join(root, 'site'), { nomad: { namespace: 'default', datacenters: ['dc1'] } },
     { client: settings => new Nomad(settings.address, settings.token, settings.namespace, nomad.request) });
   const server = createApi(null, store, { token: 'admin', apiTokens: viewerTokens('reader'), site, images,
     get deployments() { return Deployments.forSite(site, { store, images, labels }); } });
@@ -279,8 +278,8 @@ test('an ambiguous registration replays after restart and CAS cleanup never dele
     }
     return response;
   });
-  const open = () => Site.open(join(root, 'site'), { nomad: { address: 'https://nomad.example', namespace: 'default', datacenters: ['dc1'] },
-    deployment: { imageHost: 'images.internal' } }, { client });
+  const open = () => Site.open(join(root, 'site'), { nomad: { address: 'https://nomad.example', namespace: 'default', datacenters: ['dc1'] } },
+    { client });
   let site = await open();
   await site.configure('videoipath', { revision: 0, address: 'vip.example', token });
   const manager = () => Deployments.forSite(site, { store, images });

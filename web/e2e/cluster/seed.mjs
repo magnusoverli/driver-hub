@@ -6,7 +6,6 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { gzipSync } from 'node:zlib';
-import { IMAGE_HOST } from '../environment.mjs';
 
 /** @param {string | Buffer} bytes */
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -258,7 +257,7 @@ export async function seedCluster({ managerUrl, nomadUrl, token }) {
 	const reset = await fetch(new URL('/_fake/reset', nomadUrl), { method: 'POST' });
 	if (!reset.ok) throw new Error(`Resetting the fake Nomad failed: ${reset.status}`);
 
-	// The site settings an administrator enters first: the cluster and the image host.
+	// The cluster, as an administrator enters it first, and the jobs settings back at their defaults.
 	const site = await call('GET', '/site');
 	const connected = await call('PUT', '/site/nomad', {
 		revision: site.revision,
@@ -269,7 +268,6 @@ export async function seedCluster({ managerUrl, nomadUrl, token }) {
 	});
 	await call('PUT', '/site/deployment', {
 		revision: connected.revision,
-		imageHost: IMAGE_HOST,
 		nomadUiOrigin: null,
 		sharedWriters: false
 	});

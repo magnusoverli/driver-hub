@@ -9,6 +9,7 @@ import { Deployments } from '../src/deployments.js';
 import { readEnvironment } from '../src/environment.js';
 import { createApi } from '../src/http.js';
 import { Site } from '../src/site.js';
+import { Nomad } from '../src/nomad.js';
 
 async function temporary(t) {
   const root = await mkdtemp(join(tmpdir(), 'driverhub-settings-'));
@@ -71,30 +72,27 @@ test('deployment and manager settings are validated, saved with the site and use
     get deployments() { return Deployments.forSite(site, {}); }, environment: readEnvironment({}).entries });
 
   const initial = (await call('GET', '/site')).body;
-  assert.deepEqual(initial.deployment, { imageHost: null, nomadUiOrigin: null, sharedWriters: false });
+  assert.deepEqual(initial.deployment, { nomadUiOrigin: null, sharedWriters: false });
   assert.deepEqual(initial.manager, { buildsEnabled: false, timings: false, buildsAvailable: false });
-  assert.equal((await call('GET', '/capabilities')).body.imageHostConfigured, false);
+  assert.equal((await call('GET', '/capabilities')).body.sharedWriters, false);
 
-  for (const imageHost of ['images', 'https://images.site', 'images.site/path', 'images.site:port'])
-    assert.equal((await call('PUT', '/site/deployment', { revision: 0, imageHost })).status, 400, imageHost);
+  // Image distribution is Hub's own: there is no image host to set.
+  assert.equal((await call('PUT', '/site/deployment', { revision: 0, imageHost: 'images.site' })).status, 400);
   for (const nomadUiOrigin of ['http://nomad.site', 'https://nomad.site/ui', 'https://user:pw@nomad.site'])
     assert.equal((await call('PUT', '/site/deployment', { revision: 0, nomadUiOrigin })).status, 400, nomadUiOrigin);
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, sharedWriters: null })).status, 400);
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, address: 'nomad.site' })).status, 400);
 
-  const saved = await call('PUT', '/site/deployment', { revision: 0, imageHost: 'images.site:5000',
+  const saved = await call('PUT', '/site/deployment', { revision: 0,
     nomadUiOrigin: 'https://nomad.site/', sharedWriters: true });
   assert.equal(saved.status, 200);
-  assert.deepEqual(saved.body.deployment, { imageHost: 'images.site:5000', nomadUiOrigin: 'https://nomad.site',
-    sharedWriters: true });
-  const capabilities = (await call('GET', '/capabilities')).body;
-  assert.equal(capabilities.imageHostConfigured, true);
-  assert.equal(capabilities.sharedWriters, true);
+  assert.deepEqual(saved.body.deployment, { nomadUiOrigin: 'https://nomad.site', sharedWriters: true });
+  assert.equal((await call('GET', '/capabilities')).body.sharedWriters, true);
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, sharedWriters: false })).body.code, 'revision_conflict');
 
   site = await open();
   const cleared = await call('PUT', '/site/deployment', { revision: 1, nomadUiOrigin: null });
-  assert.deepEqual(cleared.body.deployment, { imageHost: 'images.site:5000', nomadUiOrigin: null, sharedWriters: true });
+  assert.deepEqual(cleared.body.deployment, { nomadUiOrigin: null, sharedWriters: true });
 
   assert.equal((await call('PUT', '/site/manager', { revision: 2, buildsEnabled: true })).body.code, 'builds_unavailable');
   const timed = await call('PUT', '/site/manager', { revision: 2, timings: true, buildsEnabled: false });
@@ -103,6 +101,28 @@ test('deployment and manager settings are validated, saved with the site and use
 
   const environment = (await call('GET', '/site/environment')).body.settings;
   assert.ok(environment.some(setting => setting.name === 'DRIVER_HUB_DATA_DIR'));
+});
+
+test('a token goes to a remote Nomad over plain HTTP only once an administrator allows it', async t => {
+  const clients = [];
+  const site = await Site.open(await temporary(t), {}, { client: settings => {
+    clients.push(new Nomad(settings.address, settings.token, settings.namespace, fetch, { plainHttp: settings.plainHttp }));
+    return { connection: async () => ({ state: 'connected', namespace: settings.namespace }) };
+  } });
+  const call = await serve(t, { site });
+  const cluster = { address: 'http://10.0.0.4:4646', token: 'acl-secret' };
+  const refused = await call('PUT', '/site/nomad', { revision: 0, ...cluster });
+  assert.equal(refused.status, 422);
+  assert.equal(refused.body.code, 'nomad_plain_http');
+  assert.equal(clients.length, 0);
+
+  const allowed = await call('PUT', '/site/nomad', { revision: 0, ...cluster, plainHttp: true });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.nomad.plainHttp, true);
+  assert.equal(clients.at(-1).plainHttp, true);
+  // The choice is kept until it is changed, and a token over HTTPS never needs it.
+  assert.equal((await call('PUT', '/site/nomad', { revision: 1, address: cluster.address })).body.nomad.plainHttp, true);
+  assert.equal((await call('PUT', '/site/nomad', { revision: 2, address: cluster.address, plainHttp: false })).status, 422);
 });
 
 test('a manager that can build lets administrators turn builds on', async t => {
@@ -118,8 +138,10 @@ test('the environment listing says where each startup setting comes from and nev
   const byName = Object.fromEntries(entries.map(entry => [entry.name, entry]));
   assert.deepEqual(byName.PORT, { name: 'PORT', secret: false, source: 'environment', value: '9000' });
   assert.deepEqual(byName.HOST, { name: 'HOST', secret: false, source: 'default', value: '127.0.0.1' });
-  assert.equal(byName.DRIVER_HUB_IMAGES_DIR.value, join('/srv/hub', 'images'));
-  assert.equal(byName.DRIVER_HUB_IMAGES_DIR.source, 'default');
+  assert.equal(byName.DRIVER_HUB_IMAGES_DIR, undefined);
+  assert.deepEqual(byName.DRIVER_HUB_DISTRIBUTION_PORT, { name: 'DRIVER_HUB_DISTRIBUTION_PORT', secret: false,
+    source: 'default', value: '5481' });
+  assert.equal(byName.DRIVER_HUB_DISTRIBUTION_ADDRESS.source, 'unset');
   assert.deepEqual(byName.DRIVER_HUB_ADMIN_TOKEN, { name: 'DRIVER_HUB_ADMIN_TOKEN', secret: true,
     source: 'environment', value: null });
   assert.equal(byName.DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE.source, 'unset');

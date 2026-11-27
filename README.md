@@ -52,7 +52,7 @@ Downloads and builds run on the manager in the background. Activity lists them w
 
 Administrators set up the site under **Settings**. Everything that can be changed while Hub runs is changed there; `compose.yaml` keeps only what the manager needs to start.
 
-- **Nomad.** The connection (address, namespace, datacenters and ACL token; Hub saves only after it reaches the leader and can list jobs), and how jobs run: the image host Nomad clients pull from, the link to the Nomad web interface, and whether other processes also edit Hub's jobs.
+- **Nomad.** The connection (address, namespace, datacenters and ACL token; Hub saves only after it reaches the leader and can list jobs), the link to the Nomad web interface, whether other processes also edit Hub's jobs, and the status of image distribution, which Hub sets up by itself.
 - **VideoIPath.** The driver endpoint and the pool of pre-issued driver tokens, one per device or shared. Tokens show as SHA-256 fingerprints to match your issuance records. Unused tokens, and tokens of deleted devices, can be removed.
 - **Users.** Local accounts with an _Administrator_ or _Viewer_ role. Accounts can be disabled, given a new password or deleted; the last administrator is protected.
 - **API tokens.** Named bearer tokens for scripts, each an _Administrator_ or _Viewer_, shown once and revocable.
@@ -98,7 +98,7 @@ Use `localhost`, not an IP address: the session cookie is `Secure`, which browse
 
 ## Running the backend
 
-For a container installation, follow [site setup after startup](OPERATIONS.md#site-setup-after-container-startup). Administrators then configure the Nomad connection, the image host and the VideoIPath target under Settings in the web app, or through the site API. By default each logical device receives its own pre-issued VideoIPath token and keeps it across allocation replacements.
+For a container installation, follow [site setup after startup](OPERATIONS.md#site-setup-after-container-startup). Administrators then configure the Nomad connection and the VideoIPath target under Settings in the web app, or through the site API. By default each logical device receives its own pre-issued VideoIPath token and keeps it across allocation replacements.
 
 Install Node.js 22 or newer and run `npm ci`. For a new installation, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected file containing the first administrator's password, then run `npm start`. See [operator sign-in](OPERATIONS.md#operator-sign-in) for the login API, account management and API tokens. The manager listens on `127.0.0.1:8080`; set `PORT` to change the port. It serves the built web app from `web/build` (`npm run web:build`) on the same origin as the API.
 
@@ -112,7 +112,7 @@ Install Node.js 22 or newer and run `npm ci`. For a new installation, set `DRIVE
 
 The [client API contract](OPERATIONS.md#client-api-contract) describes requests, errors and revisions in detail; the running manager also serves it as OpenAPI 3.1 at `/api/v1/openapi.json`, from which the web app's types are generated.
 
-Set `DRIVER_HUB_DATA_DIR` to select the data directory (default: `.driver-hub` in the user's home). Retention verifies the archive checksum and commits a version by directory rename. Before job submission, `src/images.js` validates the OCI layout, manifest/index digest, referenced descriptors, blob sizes, checksums and declared platforms. The separate pull-only distribution process serves verified content from `DRIVER_HUB_IMAGES_DIR` and needs neither the manager nor GitHub.
+Set `DRIVER_HUB_DATA_DIR` to select the data directory (default: `.driver-hub` in the user's home). Retention verifies the archive checksum and commits a version by directory rename. Before job submission, `src/images.js` validates the OCI layout, manifest/index digest, referenced descriptors, blob sizes, checksums and declared platforms. Hub delivers those images to the Nomad clients itself: an image service it runs on every client (`src/image-service.js`) keeps a verified copy of each, so drivers pull from their own machine and restart without the manager. See [image distribution](OPERATIONS.md#image-distribution).
 
 `src/catalog.js` coordinates discovery and retention, `src/imports.js` verifies uploaded images, `src/builds.js` produces site-local releases, and `src/retention.js` removes unused ones. `src/deployments.js` orchestrates lifecycle operations; `src/job.js` translates a validated deployment to a job, and `src/nomad.js` implements the cluster API. Job definitions and revision checks live in Nomad, so recovery does not depend on a running management API.
 
@@ -151,6 +151,7 @@ The web app is a SvelteKit single-page application; [`web/README.md`](web/README
 | 12. Approval | Device approval stays in VideoIPath. Distinguish Nomad process status from driver communication; report only states that can be verified. |
 | 13. Migration | Support moving an already-running external driver to Driver Hub in the first release. Preserve the existing `node_id`. Stage the replacement, stop the original, start the replacement, then verify control. To revert, stop the replacement before restarting the original. |
 | 14. Configuration | Each deployable release declares its inputs: names, types, requirements, defaults where applicable, secret fields and how the image receives them. Customer values stay local. Validate against the target release before deployment or cutover. |
+| 15. Image distribution | Image distribution is a built-in, automatic part of Driver Hub that needs no configuration. Hub runs an image service on every eligible Nomad client and keeps a verified copy of every staged image there, so drivers pull from their own machine. Running the image service outside Driver Hub, or using another registry, is not supported. This supersedes the separate image host. |
 
 The lifecycle and status meanings above are shared product behavior. The web frontend follows them: it shows process status and driver communication separately and never reports approval as verified.
 
@@ -167,7 +168,7 @@ The first unresolved design question is **safe failover during a network partiti
 | Open design item | What to establish |
 | --- | --- |
 | Failover and health | How to prevent competing instances, what evidence confirms device communication, and how quickly control needs to return. Verify takeover and recovery with the intended VideoIPath release. |
-| Image distribution | Commission the independent distribution replicas and storage; verify a pull by a cold replacement client with the management host powered off. |
+| Image distribution | Verify on a real cluster: the image service starting from its archive on every client, copies between clients, and a pull by a cold replacement client with the management host powered off. |
 | Release pilot | Whether upstream maintainers accept the convention. Exercise discovery and download of two releases of one driver, a changed required setting, update and rollback. |
 
 When resuming work, read this file first. Preserve the interview numbers when revising a decision, distinguish proposals from agreements, and add subsequent decisions with the next available number.

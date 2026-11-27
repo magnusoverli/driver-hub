@@ -10,5 +10,3 @@ export const CLUSTER_PORT = PORT + 2;
 export const CLUSTER_BASE_URL = `http://localhost:${CLUSTER_PORT}`;
 export const FAKE_NOMAD_PORT = PORT + 3;
 export const FAKE_NOMAD_URL = `http://127.0.0.1:${FAKE_NOMAD_PORT}`;
-// Only written into job definitions; nothing pulls from it in the tests.
-export const IMAGE_HOST = 'images.driverhub.test';

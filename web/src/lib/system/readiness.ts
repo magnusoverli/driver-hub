@@ -1,6 +1,7 @@
 import { ApiError } from '#lib/api/errors.js';
 import { m } from '#lib/paraglide/messages.js';
-import type { Capabilities, NomadConnection } from './queries';
+import { imageDistributionSummary } from './image-distribution';
+import type { Capabilities, ImageDistribution, NomadConnection } from './queries';
 
 export type ReadinessState =
 	/** Configured and, where Hub can check it, working. */
@@ -26,6 +27,26 @@ export interface ReadinessInput {
 	capabilities: Capabilities | undefined;
 	nomad: NomadConnection | undefined;
 	nomadError: unknown;
+	images: ImageDistribution | undefined;
+	imagesError: unknown;
+}
+
+function imagesItem({ images, imagesError }: ReadinessInput): ReadinessItem {
+	const base = {
+		id: 'images',
+		label: m.readiness_images(),
+		settingsRoute: '/(app)/settings/nomad'
+	} as const;
+	if (imagesError) {
+		const detail = imagesError instanceof ApiError ? imagesError.message : m.error_unexpected();
+		return { ...base, state: 'attention', detail: m.readiness_images_unknown({ detail }) };
+	}
+	if (!images) return { ...base, state: 'checking', detail: m.readiness_checking() };
+	return {
+		...base,
+		state: images.state === 'ready' ? 'ready' : 'attention',
+		detail: imageDistributionSummary(images)
+	};
 }
 
 function nomadItem({ nomad, nomadError }: ReadinessInput): ReadinessItem {
@@ -73,16 +94,7 @@ export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 					? { state: 'ready', detail: m.readiness_videoipath_configured() }
 					: { state: 'attention', detail: m.readiness_videoipath_missing() })
 		},
-		{
-			id: 'images',
-			label: m.readiness_images(),
-			settingsRoute: '/(app)/settings/nomad',
-			...(!capabilities
-				? checking
-				: capabilities.imageHostConfigured
-					? { state: 'ready', detail: m.readiness_images_configured() }
-					: { state: 'attention', detail: m.readiness_images_missing() })
-		},
+		imagesItem(input),
 		{
 			id: 'builds',
 			label: m.readiness_builds(),

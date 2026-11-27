@@ -11,6 +11,7 @@
 		datacentersProblem,
 		namespaceProblem,
 		nomadInput,
+		isRemotePlainHttp,
 		nomadOrigin,
 		revisionFor,
 		siteKeys,
@@ -28,6 +29,8 @@
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import JobsForm from '#lib/site/JobsForm.svelte';
+	import ImageDistributionCard from '#lib/system/ImageDistributionCard.svelte';
+	import Checkbox from '#lib/ui/Checkbox.svelte';
 	import RadioGroup from '#lib/ui/RadioGroup.svelte';
 	import TextField from '#lib/ui/TextField.svelte';
 
@@ -41,6 +44,7 @@
 	let datacenters = $state('dc1');
 	let tokenChoice = $state<NomadTokenChoice>('replace');
 	let token = $state('');
+	let plainHttp = $state(false);
 	/** The settings the form was filled from; saving against them detects concurrent changes. */
 	let basis = $state<Site | null>(null);
 	let attempted = $state(false);
@@ -58,6 +62,7 @@
 				? 'none'
 				: 'replace';
 		token = '';
+		plainHttp = settings.nomad.plainHttp;
 		basis = settings;
 		attempted = false;
 	}
@@ -68,6 +73,9 @@
 	});
 
 	const origin = $derived(nomadOrigin(address));
+	// Only a token on its way to another machine over plain HTTP needs the operator's permission.
+	const remotePlain = $derived(isRemotePlainHttp(origin));
+	const sendsToken = $derived(tokenChoice !== 'none');
 	const keepAvailable = $derived(
 		site.data ? canKeepNomadToken(site.data, origin, namespace) : false
 	);
@@ -84,6 +92,9 @@
 	const addressError = $derived(attempted && !origin ? m.nomad_error_address() : null);
 	const namespaceError = $derived(attempted ? namespaceProblem(namespace) : null);
 	const datacentersError = $derived(attempted ? datacentersProblem(datacenters) : null);
+	const plainHttpError = $derived(
+		attempted && remotePlain && sendsToken && !plainHttp ? m.nomad_error_plain_http() : null
+	);
 	const tokenError = $derived(
 		attempted && tokenChoice === 'replace' && !token.trim() ? m.nomad_error_token() : null
 	);
@@ -112,6 +123,7 @@
 		saved = false;
 		if (!origin || namespaceProblem(namespace) || datacentersProblem(datacenters)) return;
 		if (tokenChoice === 'replace' && !token.trim()) return;
+		if (remotePlain && sendsToken && !plainHttp) return;
 		if (!basis || !site.data) return;
 		busy = true;
 		try {
@@ -122,7 +134,8 @@
 					namespace,
 					datacenters,
 					tokenChoice,
-					token
+					token,
+					plainHttp: remotePlain && plainHttp
 				})
 			);
 			queryClient.setQueryData(siteKeys.settings(), result);
@@ -154,55 +167,60 @@
 	<Card><Loading label={m.site_loading()} /></Card>
 {:else}
 	<div class="layout">
-		<Card title={m.nomad_current_title()}>
-			<Facts>
-				<dt>{m.nomad_state()}</dt>
-				<dd>
-					{#if connection.error}
-						<Badge tone="fail">{m.nomad_state_error()}</Badge>
-						<span class="detail">{connection.error.message}</span>
-					{:else if connection.data?.state === 'connected'}
-						<Badge tone="ok">{m.nomad_state_connected()}</Badge>
-					{:else if connection.data?.state === 'no_leader'}
-						<Badge tone="warn">{m.nomad_state_no_leader()}</Badge>
-					{:else if connection.data}
-						<Badge>{m.nomad_state_not_configured()}</Badge>
-					{:else}
-						<span class="detail">{m.readiness_checking()}</span>
-					{/if}
-				</dd>
-				<dt>{m.nomad_address()}</dt>
-				<dd>
-					{#if site.data.nomad.address}<code>{site.data.nomad.address}</code>
-					{:else}{m.site_not_set()}{/if}
-				</dd>
-				<dt>{m.nomad_namespace()}</dt>
-				<dd><code>{site.data.nomad.namespace}</code></dd>
-				<dt>{m.nomad_datacenters()}</dt>
-				<dd><code>{site.data.nomad.datacenters.join(', ')}</code></dd>
-				<dt>{m.nomad_token()}</dt>
-				<dd>{site.data.nomad.tokenConfigured ? m.site_token_saved() : m.site_token_none()}</dd>
-				<dt>{m.nomad_image_host()}</dt>
-				<dd>
-					{#if site.data.deployment.imageHost}<code>{site.data.deployment.imageHost}</code>
-					{:else}<Badge tone="warn">{m.site_not_set()}</Badge>{/if}
-				</dd>
-				<dt>{m.nomad_ui_origin()}</dt>
-				<dd>
-					{#if site.data.deployment.nomadUiOrigin}<code>{site.data.deployment.nomadUiOrigin}</code>
-					{:else}{m.site_not_set()}{/if}
-				</dd>
-				<dt>{m.nomad_shared_writers()}</dt>
-				<dd>
-					{site.data.deployment.sharedWriters
-						? m.nomad_shared_writers_on()
-						: m.nomad_shared_writers_off()}
-				</dd>
-			</Facts>
-			<p class="footnote">{m.nomad_current_note()}</p>
-		</Card>
+		<div class="column">
+			<Card title={m.nomad_current_title()}>
+				<Facts>
+					<dt>{m.nomad_state()}</dt>
+					<dd>
+						{#if connection.error}
+							<Badge tone="fail">{m.nomad_state_error()}</Badge>
+							<span class="detail">{connection.error.message}</span>
+						{:else if connection.data?.state === 'connected'}
+							<Badge tone="ok">{m.nomad_state_connected()}</Badge>
+						{:else if connection.data?.state === 'no_leader'}
+							<Badge tone="warn">{m.nomad_state_no_leader()}</Badge>
+						{:else if connection.data}
+							<Badge>{m.nomad_state_not_configured()}</Badge>
+						{:else}
+							<span class="detail">{m.readiness_checking()}</span>
+						{/if}
+					</dd>
+					<dt>{m.nomad_address()}</dt>
+					<dd>
+						{#if site.data.nomad.address}<code>{site.data.nomad.address}</code>
+						{:else}{m.site_not_set()}{/if}
+					</dd>
+					<dt>{m.nomad_namespace()}</dt>
+					<dd><code>{site.data.nomad.namespace}</code></dd>
+					<dt>{m.nomad_datacenters()}</dt>
+					<dd><code>{site.data.nomad.datacenters.join(', ')}</code></dd>
+					<dt>{m.nomad_token()}</dt>
+					<dd>
+						{site.data.nomad.tokenConfigured ? m.site_token_saved() : m.site_token_none()}
+						{#if site.data.nomad.plainHttp}
+							<Badge tone="warn">{m.nomad_plain_http_on()}</Badge>
+						{/if}
+					</dd>
+					<dt>{m.nomad_ui_origin()}</dt>
+					<dd>
+						{#if site.data.deployment.nomadUiOrigin}<code>
+								{site.data.deployment.nomadUiOrigin}
+							</code>
+						{:else}{m.site_not_set()}{/if}
+					</dd>
+					<dt>{m.nomad_shared_writers()}</dt>
+					<dd>
+						{site.data.deployment.sharedWriters
+							? m.nomad_shared_writers_on()
+							: m.nomad_shared_writers_off()}
+					</dd>
+				</Facts>
+				<p class="footnote">{m.nomad_current_note()}</p>
+			</Card>
+			<ImageDistributionCard />
+		</div>
 
-		<div class="forms">
+		<div class="column">
 			<Card title={m.nomad_form_title()} description={m.nomad_form_description()}>
 				<form class="form" onsubmit={submit} novalidate>
 					{#if saved}<Callout tone="ok" title={m.nomad_saved()} live />{/if}
@@ -248,6 +266,12 @@
 							error={tokenError}
 						/>
 					{/if}
+					{#if remotePlain && sendsToken}
+						<Checkbox bind:checked={plainHttp} hint={m.nomad_plain_http_hint()}>
+							{m.nomad_plain_http()}
+						</Checkbox>
+						{#if plainHttpError}<Callout tone="fail" live>{plainHttpError}</Callout>{/if}
+					{/if}
 					{#if targetChanges && site.data.videoipath.url}
 						<Callout tone="warn" title={m.nomad_target_change_title()}>
 							{m.nomad_target_change_body()}
@@ -278,7 +302,7 @@
 		}
 	}
 
-	.forms {
+	.column {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);

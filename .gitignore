@@ -2,3 +2,6 @@ node_modules/
 
 # Local trial (compose.yaml)
 .env
+
+# Nomad token for testing against a real cluster; never commit it
+.nomad-token

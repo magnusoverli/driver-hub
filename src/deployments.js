@@ -8,7 +8,7 @@ import { placementIssues, requireSecureNomad } from './nomad.js';
 import { fingerprint, uuidPattern } from './request-key.js';
 import { selectProfile, validateNodeId } from './deployment-inputs.js';
 import { normalizeLabel } from './labels.js';
-import { validImageHost } from './site.js';
+import { IMAGE_HOST } from './image-distribution.js';
 
 const managed = job => job?.Meta?.managed_by === 'driver-hub';
 const running = job => !job.Stop && job.TaskGroups[0].Count === 1;
@@ -87,7 +87,7 @@ export class Deployments {
     // Only this non-secret snapshot is safe to carry in Nomad job metadata.
     const profile = videoipath && { id: videoipath.id, url: videoipath.url, mode: videoipath.mode };
     return new Deployments({ ...services, site, profile, nomad: site.client(nomad), datacenters: nomad.datacenters,
-      registry: deployment.imageHost, nomadUi: deployment.nomadUiOrigin, sharedWriters: deployment.sharedWriters });
+      registry: IMAGE_HOST, nomadUi: deployment.nomadUiOrigin, sharedWriters: deployment.sharedWriters });
   }
 
   constructor({ nomad, store, images, registry, datacenters, site, profile, labels, nomadUi, sharedWriters }) {
@@ -316,7 +316,7 @@ export class Deployments {
   async submit(spec, previous, running, migrated, revision, preview, stageFingerprint, registrationIndex) {
     expect(typeof spec.driverId === 'string' && typeof spec.version === 'string' &&
       parseTag(`drivers/${spec.driverId}/v${spec.version}`), 'Invalid driver identity or version');
-    expect(validImageHost(this.registry), 'Enter the image host in the Nomad settings', 503, 'image_host_missing');
+    expect(this.registry, 'Image distribution is not configured', 503, 'image_host_missing');
     const release = await this.store.load(spec.driverId, spec.version);
     expect(release, 'Release must be retained before deployment', 404);
     const key = imageKey(release.record);
@@ -387,7 +387,7 @@ export class Deployments {
     const profile = selectProfile(input.inheritSite, this.profile);
     if (profile) {
       expect(preview || key || migrated, 'Supply Idempotency-Key when staging a new site-managed device');
-      requireSecureNomad(this.nomad.address);
+      requireSecureNomad(this.nomad.address, this.nomad.plainHttp);
       this.site.checkAvailable(profile.id, nodeId);
       spec.videoIPath = profile;
     }

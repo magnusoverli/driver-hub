@@ -67,9 +67,7 @@
 	let importOpen = $state(false);
 
 	const caps = createQuery(() => capabilitiesQuery(api));
-	const clusterReady = $derived(
-		caps.data?.nomadConfigured === true && caps.data.imageHostConfigured
-	);
+	const clusterReady = $derived(caps.data?.nomadConfigured === true);
 	const published = createQuery(() => ({
 		...publishedQuery(api, prerelease),
 		enabled: tab === 'published'

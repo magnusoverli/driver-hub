@@ -4,21 +4,25 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 // Optional request-level counters; never record paths, tokens or request/response bodies.
 export const nomadTiming = new AsyncLocalStorage();
 
-export function requireSecureNomad(address) {
+// Credentials go to a remote Nomad over HTTPS only, unless an administrator allowed plain HTTP
+// for a trusted network in the Nomad settings.
+export function requireSecureNomad(address, plainHttp = false) {
   let url;
   try { url = new URL(address); } catch { /* rejected below */ }
-  expect(url && !url.username && !url.password && (url.protocol === 'https:' ||
-    (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))),
-  'Use HTTPS to send credentials to a remote Nomad endpoint', 422);
+  expect(url && !url.username && !url.password && (url.protocol === 'https:' || (url.protocol === 'http:' &&
+    (plainHttp || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))),
+  'Use HTTPS to send credentials to a remote Nomad endpoint, or allow plain HTTP for a trusted network', 422,
+  'nomad_plain_http');
 }
 
 export class Nomad {
-  constructor(address, token, namespace = 'default', request = fetch) {
+  constructor(address, token, namespace = 'default', request = fetch, { plainHttp = false } = {}) {
     this.address = address;
     this.token = token;
     this.namespace = namespace;
     this.request = request;
-    if (token) requireSecureNomad(address);
+    this.plainHttp = plainHttp;
+    if (token) requireSecureNomad(address, plainHttp);
   }
 
   async call(path, { body, allowMissing = false, valid, method = body ? 'POST' : 'GET' } = {}) {
@@ -78,6 +82,15 @@ export class Nomad {
   // Nomad's deregistration has no modify-index check; callers compare revisions just before.
   deregister(id) { return this.call(`job/${id}?purge=true`, { method: 'DELETE',
     valid: result => typeof result?.EvalID === 'string' && result.EvalID.length > 0 }); }
+  // For Hub's own image job, which only Hub writes: no modify-index check.
+  register(job) { return this.call('jobs', { body: { Job: job },
+    valid: result => typeof result?.EvalID === 'string' || Number.isSafeInteger(result?.JobModifyIndex) }); }
+  putVariable(path, items) { return this.call(`var/${path}`, { method: 'PUT', body: { Path: path, Items: items },
+    valid: saved => saved?.Path === path }); }
+  async services(name) {
+    const result = await this.call(`service/${encodeURIComponent(name)}`, { allowMissing: true });
+    return Array.isArray(result) ? result : [];
+  }
   variable(path) { return this.call(`var/${path}`, { allowMissing: true, valid: variable =>
     variable?.Path === path && Number.isSafeInteger(variable.ModifyIndex) && variable.ModifyIndex > 0 &&
     variable.Items && typeof variable.Items === 'object' && !Array.isArray(variable.Items) }); }

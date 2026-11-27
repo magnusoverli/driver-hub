@@ -77,7 +77,7 @@ async function listen(t, server) {
 test('post-start site setup assigns separate durable registration tokens without embedding them in jobs', async t => {
   const { root, store, images } = await setup(t);
   await retain(store, '1.0.0');
-  const defaults = { nomad: { namespace: 'default', datacenters: ['dc1'] }, deployment: { imageHost: 'images.internal' } };
+  const defaults = { nomad: { namespace: 'default', datacenters: ['dc1'] } };
   const dir = join(root, 'site');
   const jobs = new Map();
   const variables = new Map();

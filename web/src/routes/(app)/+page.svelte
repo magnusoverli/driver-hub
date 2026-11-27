@@ -20,7 +20,11 @@
 	import OperationsTable from '#lib/operations/OperationsTable.svelte';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
-	import { capabilitiesQuery, nomadConnectionQuery } from '#lib/system/queries.js';
+	import {
+		capabilitiesQuery,
+		imageDistributionQuery,
+		nomadConnectionQuery
+	} from '#lib/system/queries.js';
 	import { siteReadiness } from '#lib/system/readiness.js';
 	import ReadinessList from '#lib/system/ReadinessList.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
@@ -33,6 +37,7 @@
 	const session = getSession();
 	const capabilities = createQuery(() => capabilitiesQuery(api));
 	const nomad = createQuery(() => nomadConnectionQuery(api));
+	const images = createQuery(() => imageDistributionQuery(api));
 	const cluster = $derived(capabilities.data?.nomadConfigured === true);
 	const deployments = createQuery(() => ({ ...deploymentsQuery(api), enabled: cluster }));
 	const updates = createQuery(() => ({ ...updatesQuery(api), enabled: cluster }));
@@ -43,7 +48,13 @@
 	}));
 
 	const items = $derived(
-		siteReadiness({ capabilities: capabilities.data, nomad: nomad.data, nomadError: nomad.error })
+		siteReadiness({
+			capabilities: capabilities.data,
+			nomad: nomad.data,
+			nomadError: nomad.error,
+			images: images.data,
+			imagesError: images.error
+		})
 	);
 	const attention = $derived(items.filter((item) => item.state === 'attention').length);
 	const settled = $derived(items.every((item) => item.state !== 'checking'));
