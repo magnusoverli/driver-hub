@@ -17,6 +17,34 @@ export const IMAGE_HOST = `127.0.0.1:${IMAGE_PORT}`;
 export const IMAGE_JOB = 'driverhub-images';
 export const IMAGE_VARIABLE = `nomad/jobs/${IMAGE_JOB}`;
 const CHECK = 'images-copied';
+// A passing check for yesterday's list must not confirm a newly deployed image.
+export const copyReceipt = images => `images-v1:${createHash('sha256').update(JSON.stringify(
+  images.map(({ key, digest }) => [key, digest]).sort(([a], [b]) => a.localeCompare(b))
+)).digest('hex')}`;
+
+export async function backupImageClient(nomad, job, active, now = Date.now()) {
+  const group = job.TaskGroups[0];
+  const image = group.Tasks[0].Config.image;
+  const match = /\/driverhub\/([a-f0-9]{64})@(sha256:[a-f0-9]{64})$/.exec(image);
+  if (!active.NodeID || !match) return null;
+  const variable = await nomad.variable(IMAGE_VARIABLE);
+  const wanted = JSON.parse(variable?.Items?.wanted ?? 'null')?.images;
+  if (!Array.isArray(wanted) || !wanted.some(i => i.key === match[1] && i.digest === match[2])) return null;
+  const receipt = copyReceipt(wanted);
+  const arch = group.Constraints.find(c => c.LTarget === '${attr.cpu.arch}' && c.Operand === 'regexp')?.RTarget;
+  // Only interpret the architecture constraint emitted by createJob.
+  const allowed = /^\^\(([a-z0-9]+(?:\|[a-z0-9]+)*)\)\$$/.exec(arch ?? '')?.[1].split('|') ?? [];
+  const copies = await nomad.allocations(IMAGE_JOB);
+  for (const a of copies) {
+    if (!a.NodeID || a.NodeID === active.NodeID || a.DesiredStatus !== 'run' || a.ClientStatus !== 'running' ||
+      a.NextAllocation || !allowed.some(cpu => a.TaskGroup === `images-${cpu}`)) continue;
+    const checks = await nomad.checks(a.ID).catch(() => null);
+    if (Object.values(checks ?? {}).some(c => c.Check === CHECK && c.Status === 'success' &&
+      c.Output?.trim() === receipt && c.Timestamp * 1000 <= now && now - c.Timestamp * 1000 < 30000))
+      return a.NodeName || a.NodeID;
+  }
+  return null;
+}
 // Task events that mean a pending allocation will not start without someone acting.
 const failureEvents = new Set(['Failed Artifact Download', 'Driver Failure', 'Setup Failure', 'Failed Validation',
   'Not Restarting', 'Template Failure', 'Killing', 'Restarting']);

@@ -236,6 +236,17 @@
 						<td>
 							{#if inLibrary(row)}
 								{m.catalog_local()}
+								{#if clusterReady}
+									<Button
+										size="sm"
+										onclick={() => {
+											staging = retainedRows.find((r) => same(r, row)) ?? null;
+											stageOpen = true;
+										}}
+									>
+										{m.catalog_stage()}
+									</Button>
+								{/if}
 							{:else if downloading(row)}
 								{m.catalog_running()}
 							{:else if session.isAdmin && caps.data}

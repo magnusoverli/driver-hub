@@ -37,7 +37,7 @@
 	import { secretReferences } from '#lib/deployments/configuration-form.js';
 	import { detailStatusInput } from '#lib/deployments/status-path.js';
 	import { freshObservations } from '#lib/deployments/observations.svelte.js';
-	import { deviceName, updateTargets } from '#lib/deployments/view.js';
+	import { condition, conditionLabel, deviceName, updateTargets } from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { getNotices } from '#lib/shell/notices.js';
@@ -105,6 +105,7 @@
 	let renameOpen = $state(false);
 	let deleteOpen = $state(false);
 	const notices = getNotices();
+	const setupNotice = $derived(notices.take(`/deployments/${nodeId}`)[0]);
 	type Notice = { nodeId: string; title: string; body: string };
 	let notice = $state<Notice | null>(null);
 	const visibleNotice = $derived(notice?.nodeId === nodeId ? notice : null);
@@ -192,15 +193,6 @@
 		})}
 	>
 		{#snippet actions()}
-			{#if deployment.requested === 'stopped'}
-				<Button variant="primary" icon={Play} onclick={() => openAction('start')}>
-					{admin ? m.action_start() : m.action_preview_start()}
-				</Button>
-			{:else}
-				<Button icon={Square} onclick={() => openAction('stop')}>
-					{admin ? m.action_stop() : m.action_preview_stop()}
-				</Button>
-			{/if}
 			<Button icon={CircleArrowUp} onclick={() => openAction('update')}>
 				{admin ? m.action_update() : m.action_preview_update()}
 			</Button>
@@ -239,6 +231,53 @@
 			{/if}
 		{/snippet}
 	</PageHeader>
+	{#if setupNotice}<Callout tone={setupNotice.tone} title={setupNotice.title} live>
+			{setupNotice.body}
+		</Callout>{/if}
+	<Card title={m.deployment_result()}>
+		{@const state = condition(detailStatusInput(deployment))}
+		{@const running = state === 'running' || state === 'connected'}
+		<div class="result">
+			<div>
+				<strong>
+					{neverStarted
+						? m.deployment_staged_title()
+						: running && deployment.backupImageClient
+							? m.deployment_success()
+							: conditionLabel(state)}
+				</strong>
+				{#if deployment.requested === 'stopped'}
+					<p>{m.deployment_staged_body()}</p>
+					{#if secrets.length}
+						<p>
+							{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
+							<code>{secrets.join(', ')}</code>
+						</p>
+					{/if}
+				{:else if running}
+					<p>
+						{deployment.backupImageClient
+							? m.deployment_copy_verified({ client: deployment.backupImageClient })
+							: m.deployment_copy_pending()}
+					</p>
+					{#if state === 'connected'}
+						<p>{m.stage_next_approve()}</p>
+					{:else}<p>{m.condition_running()}</p>{/if}
+				{:else}
+					<p>{m.deployment_result_help()}</p>
+				{/if}
+			</div>
+			{#if deployment.requested === 'stopped'}
+				<Button variant="primary" icon={Play} onclick={() => openAction('start')}>
+					{admin ? m.action_start() : m.action_preview_start()}
+				</Button>
+			{:else}
+				<Button icon={Square} onclick={() => openAction('stop')}>
+					{admin ? m.action_stop() : m.action_preview_stop()}
+				</Button>
+			{/if}
+		</div>
+	</Card>
 
 	{#if visibleNotice}
 		<!-- Neutral, not "verified": Nomad accepting a change says nothing about the driver yet. -->
@@ -249,79 +288,70 @@
 			{m.deployment_migration_body()}
 		</Callout>
 	{/if}
-	{#if neverStarted}
-		<Callout title={m.deployment_staged_title()}>
-			{#if secrets.length}
-				<p>
-					{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
-					<code>{secrets.join(', ')}</code>
-				</p>
-			{/if}
-			<p>{m.deployment_staged_body()}</p>
-		</Callout>
-	{/if}
 	{#if detail.error}
 		<Callout tone="warn" title={m.deployment_stale_title()} live>
 			{m.deployments_stale_body({ detail: detail.error.message })}
 		</Callout>
 	{/if}
 
-	<div class="layout">
-		<div class="column">
-			<Card
-				title={m.deployment_status_title()}
-				description={m.deployment_status_description()}
-				flush
-			>
-				<StatusHops
-					input={{
-						...detailStatusInput(deployment),
-						communicationEvidence: deployment.communicationEvidence
-					}}
-				/>
-			</Card>
+	<details class="diagnostics">
+		<summary>{m.deployment_diagnostics_summary()}</summary>
+		<div class="layout">
+			<div class="column">
+				<Card
+					title={m.deployment_status_title()}
+					description={m.deployment_status_description()}
+					flush
+				>
+					<StatusHops
+						input={{
+							...detailStatusInput(deployment),
+							communicationEvidence: deployment.communicationEvidence
+						}}
+					/>
+				</Card>
 
-			<Card flush>
-				<Tabs
-					bind:value={tab}
-					label={m.deployment_diagnostics_label()}
-					tabs={[
-						{
-							value: 'allocations',
-							label: m.deployment_tab_allocations(),
-							count: deployment.allocations.length,
-							panel: allocationsPanel
-						},
-						{
-							value: 'history',
-							label: m.deployment_tab_history(),
-							count: history.data?.length,
-							panel: historyPanel
-						},
-						{
-							value: 'evaluations',
-							label: m.deployment_tab_evaluations(),
-							count: evaluations.data?.length,
-							panel: evaluationsPanel
-						}
-					]}
-				/>
-			</Card>
+				<Card flush>
+					<Tabs
+						bind:value={tab}
+						label={m.deployment_diagnostics_label()}
+						tabs={[
+							{
+								value: 'allocations',
+								label: m.deployment_tab_allocations(),
+								count: deployment.allocations.length,
+								panel: allocationsPanel
+							},
+							{
+								value: 'history',
+								label: m.deployment_tab_history(),
+								count: history.data?.length,
+								panel: historyPanel
+							},
+							{
+								value: 'evaluations',
+								label: m.deployment_tab_evaluations(),
+								count: evaluations.data?.length,
+								panel: evaluationsPanel
+							}
+						]}
+					/>
+				</Card>
+			</div>
+
+			<div class="column">
+				<Card title={m.deployment_device_title()}>
+					<DeviceFacts {deployment} />
+				</Card>
+				<Card title={m.deployment_configuration_title()}>
+					<ConfigurationList settings={deployment.settings} />
+					<p class="footnote settings-note">
+						{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
+					</p>
+				</Card>
+			</div>
 		</div>
-
-		<div class="column">
-			<Card title={m.deployment_device_title()}>
-				<DeviceFacts {deployment} />
-			</Card>
-			<Card title={m.deployment_configuration_title()}>
-				<ConfigurationList settings={deployment.settings} />
-				<p class="footnote settings-note">
-					{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
-				</p>
-			</Card>
-		</div>
-	</div>
-
+	</details>
 	<LifecycleDialog
 		bind:open={actionOpen}
 		{action}
@@ -385,6 +415,22 @@
 {/if}
 
 <style>
+	.result {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+	.result p {
+		margin-top: var(--space-2);
+		color: var(--text-2);
+	}
+	.diagnostics > summary {
+		cursor: pointer;
+		padding: var(--space-3) 0;
+		font-weight: var(--weight-semibold);
+	}
 	.back {
 		display: inline-flex;
 		align-items: center;

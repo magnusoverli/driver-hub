@@ -4,7 +4,7 @@
 import { readFile } from 'node:fs/promises';
 import { distributionServer } from './distribution.js';
 import { ImageCopies, parseWanted } from './image-copies.js';
-import { prunePackages } from './image-distribution.js';
+import { copyReceipt, prunePackages } from './image-distribution.js';
 import { Images } from './images.js';
 
 const root = process.env.DRIVER_HUB_IMAGES_DIR;
@@ -22,6 +22,7 @@ await prunePackages(process.env.NOMAD_TASK_DIR, process.env.DRIVER_HUB_PACKAGE_F
 // Null until Hub's list has been read: without one, nothing is fetched or removed.
 let wanted = null;
 let missing = wantedFile ? null : 0;
+let receipt = null;
 
 async function refresh() {
   if (!wantedFile) return;
@@ -32,8 +33,12 @@ async function refresh() {
 async function round() {
   try {
     await refresh();
-    if (wanted) ({ missing } = await copies.sync(wanted));
+    if (wanted) {
+      ({ missing } = await copies.sync(wanted));
+      receipt = missing === 0 ? copyReceipt(wanted.images) : null;
+    }
   } catch (error) {
+    missing = receipt = null;
     console.error('Image copy round failed:', error?.code ?? error?.message ?? 'unknown');
   } finally {
     setTimeout(round, 10000).unref();
@@ -47,8 +52,10 @@ distributionServer(images, {
   extra: (req, res) => {
     if (req.url !== '/_hub/health') return false;
     const ready = missing === 0;
-    res.writeHead(ready ? 200 : 503, { 'Content-Type': 'text/plain' });
-    res.end(ready ? `${wanted?.images.length ?? 0} images copied` : `${missing ?? 'unknown'} images still to copy`);
+    // Nomad replaces a 200 response body with "nomad: http ok". On 203 it
+    // records success and retains the receipt from the local image cache.
+    res.writeHead(ready ? (receipt ? 203 : 200) : 503, { 'Content-Type': 'text/plain' });
+    res.end(ready ? receipt ?? '0 images copied' : `${missing ?? 'unknown'} images still to copy`);
     return true;
   }
 }).listen(port, '0.0.0.0', () => console.log(`Driver Hub image service on port ${port}`));

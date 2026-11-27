@@ -47,7 +47,7 @@ function bindings(configuration, settings, nodeId, jobId, profile) {
 // there, so its machine has a copy of the image to pull. Empty or unset places it on any
 // architecture the image has, for installations without image distribution.
 export function createJob({ spec, previous, running, migrated, image, release, namespace, datacenters,
-  architectures }) {
+  architectures, label }) {
   const id = `driverhub-${spec.nodeId}`;
   const { templates, volumes } = bindings(release.configuration, spec.settings, spec.nodeId, id, spec.videoIPath);
   const offered = release.record.image.platforms.filter(p => p.startsWith('linux/')).map(p => p.split('/')[1]);
@@ -72,7 +72,8 @@ export function createJob({ spec, previous, running, migrated, image, release, n
     }];
   }
   return {
-    ID: id, Name: id, Namespace: namespace, Type: 'service', Datacenters: datacenters,
+    ID: id, Name: label ? `${label} (${spec.driverId})` : `${spec.driverId} (${spec.nodeId.slice(0, 8)})`,
+    Namespace: namespace, Type: 'service', Datacenters: datacenters,
     Meta: {
       managed_by: 'driver-hub', hub_schema: '1', spec: JSON.stringify(spec), previous: JSON.stringify(previous),
       migrated: String(migrated)

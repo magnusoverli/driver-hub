@@ -256,7 +256,8 @@ test('new-device staging with a request key survives retries without triggering 
   assert.equal(submissions, 1);
   assert.equal(job.Meta.migrated, 'false');
   assert.equal(labels.get(nodeId), 'Meter A');
-  assert.ok(!JSON.stringify(job).includes('Meter A'));
+  assert.equal(job.ID, `driverhub-${nodeId}`);
+  assert.equal(job.Name, 'Meter A (meter)');
   await deployments.change(nodeId, 'update', { revision: 1, version: '2.0.0' });
   const replay = await (await stage({ ...input, label: 'Meter B' })).json();
   assert.equal(replay.replayed, true);
@@ -264,6 +265,11 @@ test('new-device staging with a request key survives retries without triggering 
   assert.equal(labels.get(nodeId), 'Meter B');
   assert.equal((await stage({ ...input, version: '2.0.0' })).status, 409);
   assert.equal(submissions, 2);
+  assert.equal(job.Name, 'Meter A (meter)');
+  await deployments.change(nodeId, 'start', { revision: 2 });
+  assert.equal(job.Name, 'Meter B (meter)');
+  assert.equal(job.ID, `driverhub-${nodeId}`);
+  assert.equal(job.TaskGroups[0].Count, 1);
 });
 
 test('migration, guarded start, update, rollback and stop use one stable Nomad job', async t => {

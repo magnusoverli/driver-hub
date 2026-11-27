@@ -85,7 +85,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 			await page
 				.getByRole('row')
 				.filter({ hasText: '1.4.0' })
-				.getByRole('button', { name: 'Stage new device' })
+				.getByRole('button', { name: 'Set up driver' })
 				.click();
 			const stage = page.getByRole('dialog');
 			await stage.getByRole('button', { name: 'Preview', exact: true }).click();

@@ -18,11 +18,23 @@
 		showProblems: boolean;
 		/** The Nomad Variable that secret references name keys in. */
 		variable: string;
+		group?: 'all' | 'required' | 'optional';
 	};
 
-	let { form, values = $bindable(), problems, showProblems, variable }: Props = $props();
+	let {
+		form,
+		values = $bindable(),
+		problems,
+		showProblems,
+		variable,
+		group = 'all'
+	}: Props = $props();
 
-	const fields = $derived(operatorFields(form));
+	const fields = $derived(
+		operatorFields(form).filter(
+			(f) => group === 'all' || (group === 'required') === (f.required && f.default === undefined)
+		)
+	);
 	const supplied = $derived(form.fields.filter((field) => field.source !== 'operator'));
 
 	function label(field: FormField): string {
@@ -80,10 +92,12 @@
 			/>
 		{/if}
 	{:else}
-		<p class="none">{m.configuration_form_none()}</p>
+		{#if group !== 'optional'}<p class="none">
+				{group === 'required' ? m.stage_no_required() : m.configuration_form_none()}
+			</p>{/if}
 	{/each}
 
-	{#if supplied.length}
+	{#if group !== 'required' && supplied.length}
 		<div class="supplied">
 			<p class="title">{m.configuration_supplied_title()}</p>
 			<ul>

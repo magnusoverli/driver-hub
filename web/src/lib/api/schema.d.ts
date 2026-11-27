@@ -1025,6 +1025,7 @@ export interface components {
                 lastEvent?: string;
                 logsUrl?: string;
             }[];
+            backupImageClient?: string;
         };
         DeploymentSummary: {
             driverId: string;

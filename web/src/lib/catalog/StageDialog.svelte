@@ -22,8 +22,14 @@
 		type StageBody,
 		type StageProblem
 	} from '#lib/deployments/stage.js';
-	import { imageDigest, labelProblem, shortDigest } from '#lib/deployments/view.js';
-	import type { Preview } from '#lib/deployments/lifecycle.js';
+	import { imageDigest, labelProblem } from '#lib/deployments/view.js';
+	import {
+		actionProblem,
+		applyAction,
+		previewAction,
+		type Preview
+	} from '#lib/deployments/lifecycle.js';
+	import { getNotices } from '#lib/shell/notices.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { capabilitiesQuery, systemKeys } from '#lib/system/queries.js';
@@ -42,6 +48,9 @@
 
 	const api = getApi();
 	const session = getSession();
+	const notices = getNotices();
+	let optionsOpen = $state(false);
+	let startNow = $state(true);
 	const client = useQueryClient();
 	const formId = $props.id();
 	const capabilities = createQuery(() => capabilitiesQuery(api));
@@ -111,7 +120,14 @@
 		) {
 			return;
 		}
-		if (fieldProblems(form.data, values).size) return;
+		const issues = fieldProblems(form.data, values);
+		if (issues.size) {
+			if (
+				form.data.fields.some((f) => issues.has(f.name) && (!f.required || f.default !== undefined))
+			)
+				optionsOpen = true;
+			return;
+		}
 		busy = true;
 		try {
 			const request = body();
@@ -154,6 +170,25 @@
 		try {
 			const submission = await stageDeployment(api, review.body, key, false);
 			if (!('nodeId' in submission)) return;
+			if (deployNow) {
+				const target = { nodeId: submission.nodeId, revision: submission.revision };
+				let applying = false;
+				try {
+					const plan = await previewAction(api, 'start', target);
+					if (!plan.schedulable) throw new Error('placement');
+					applying = true;
+					await applyAction(api, 'start', target);
+				} catch (error) {
+					notices.leave(`/deployments/${submission.nodeId}`, {
+						tone: 'warn',
+						title: m.stage_start_attention(),
+						body:
+							error instanceof Error && error.message === 'placement'
+								? m.stage_no_placement()
+								: actionProblem(error, applying ? 'apply' : 'preview').message
+					});
+				}
+			}
 			open = false;
 			void client.invalidateQueries({ queryKey: deploymentKeys.all });
 			void client.invalidateQueries({ queryKey: systemKeys.all });
@@ -202,46 +237,66 @@
 		}
 	]);
 	const secrets = $derived(review ? secretReferences(review.body.settings ?? {}) : []);
+	const deployNow = $derived(startNow && !review?.body.nodeId && !secrets.length);
 </script>
 
 <Dialog
 	bind:open
-	title={m.stage_title({ name: release.displayName ?? release.driverId })}
-	description={m.stage_description({ driver: release.driverId, version: release.version })}
+	title={review
+		? m.stage_review_title()
+		: m.stage_title({ name: release.displayName ?? release.driverId })}
+	description={review
+		? deployNow
+			? m.stage_run_description()
+			: m.stage_review_description()
+		: m.stage_description({ driver: release.driverId, version: release.version })}
 	width="lg"
 	dismissible={!busy}
 >
 	{#if review}
 		<div class="stack">
 			<Facts>
-				<dt>{m.stage_review_release()}</dt>
-				<dd class="mono">{release.driverId} {release.version}</dd>
 				<dt>{m.stage_review_name()}</dt>
 				<dd>{review.body.label ?? m.deployment_unnamed()}</dd>
-				<dt>{m.facts_node_id()}</dt>
-				<dd><code>{review.nodeId}</code></dd>
+				<dt>{m.stage_review_release()}</dt>
+				<dd>{release.displayName ?? release.driverId} · {release.version}</dd>
+				{#if review.body.nodeId}
+					<dt>{m.stage_node_id()}</dt>
+					<dd><code>{review.nodeId}</code></dd>
+				{/if}
 				<dt>{m.stage_review_connection()}</dt>
 				<dd>
-					{review.body.inheritSite ? m.stage_connection_site() : m.stage_connection_manual_review()}
+					{review.body.inheritSite ? m.stage_review_site() : m.stage_connection_manual_review()}
 				</dd>
-				<dt>{m.preview_image()}</dt>
-				<dd><code>{shortDigest(imageDigest(review.plan.image))}</code></dd>
-				<dt>{m.preview_requested()}</dt>
-				<dd>{m.requested_stopped()}</dd>
 			</Facts>
-			<Callout title={m.stage_next_title()}>
-				<ol class="steps">
-					{#if secrets.length}
-						<li>
-							{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${review.nodeId}` })}
-							<code>{secrets.join(', ')}</code>
-						</li>
+			{#if deployNow}
+				<Callout title={m.stage_result_title()}>{m.stage_result_body()}</Callout>
+			{:else}
+				<Callout title={m.stage_next_title()}>
+					<ol class="steps">
+						{#if secrets.length}
+							<li>
+								{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${review.nodeId}` })}
+								<code>{secrets.join(', ')}</code>
+							</li>
+						{/if}
+						{#if review.body.nodeId}<li>{m.stage_next_original()}</li>{/if}
+						<li>{m.stage_next_start()}</li>
+						{#if !review.body.nodeId}<li>{m.stage_next_approve()}</li>{/if}
+					</ol>
+				</Callout>
+			{/if}
+			<details>
+				<summary>{m.stage_technical_details()}</summary>
+				<Facts>
+					{#if !review.body.nodeId}
+						<dt>{m.facts_node_id()}</dt>
+						<dd><code>{review.nodeId}</code></dd>
 					{/if}
-					{#if review.body.nodeId}<li>{m.stage_next_original()}</li>{/if}
-					<li>{m.stage_next_start()}</li>
-					{#if !review.body.nodeId}<li>{m.stage_next_approve()}</li>{/if}
-				</ol>
-			</Callout>
+					<dt>{m.preview_image()}</dt>
+					<dd><code>{imageDigest(review.plan.image)}</code></dd>
+				</Facts>
+			</details>
 			{#if problem}
 				<Callout tone={problem.kind === 'uncertain' ? 'warn' : 'fail'} title={problem.message} live>
 					{#if problem.kind === 'pool'}
@@ -272,44 +327,64 @@
 					{/if}
 				</Callout>
 			{/if}
-			<TextField
-				label={m.stage_name()}
-				bind:value={label}
-				autocomplete="off"
-				hint={m.stage_name_hint()}
-				error={nameError}
-			/>
-			<RadioGroup legend={m.stage_identity()} options={identityOptions} bind:value={identity} />
-			{#if identity === 'replace'}
-				<TextField
-					label={m.stage_node_id()}
-					bind:value={existingId}
-					autocomplete="off"
-					spellcheck={false}
-					placeholder="00000000-0000-4000-8000-000000000000"
-					hint={m.stage_node_id_hint()}
-					error={idError}
-				/>
-			{/if}
-			{#if siteAvailable}
-				<RadioGroup
-					legend={m.stage_connection()}
-					options={connectionOptions}
-					bind:value={connection}
-				/>
-			{:else}
-				<p class="note">{m.stage_connection_unavailable()}</p>
-			{/if}
 			<fieldset class="settings">
-				<legend>{m.stage_configuration()}</legend>
+				<legend>{m.stage_required()}</legend>
 				<ConfigurationFields
 					form={form.data}
 					bind:values
 					{problems}
 					showProblems={attempted}
 					{variable}
+					group="required"
 				/>
 			</fieldset>
+			<details bind:open={optionsOpen}>
+				<summary>{m.stage_options()}</summary>
+				<div class="stack">
+					<TextField
+						label={m.stage_name()}
+						bind:value={label}
+						autocomplete="off"
+						hint={m.stage_name_hint()}
+						error={nameError}
+					/>
+					<RadioGroup legend={m.stage_identity()} options={identityOptions} bind:value={identity} />
+					{#if identity === 'replace'}
+						<TextField
+							label={m.stage_node_id()}
+							bind:value={existingId}
+							autocomplete="off"
+							spellcheck={false}
+							placeholder="00000000-0000-4000-8000-000000000000"
+							hint={m.stage_node_id_hint()}
+							error={idError}
+						/>
+					{/if}
+					{#if siteAvailable}
+						<RadioGroup
+							legend={m.stage_connection()}
+							options={connectionOptions}
+							bind:value={connection}
+						/>
+					{:else}
+						<p class="note">{m.stage_connection_unavailable()}</p>
+					{/if}
+					<fieldset class="settings">
+						<legend>{m.stage_configuration()}</legend>
+						<ConfigurationFields
+							form={form.data}
+							bind:values
+							{problems}
+							showProblems={attempted}
+							{variable}
+							group="optional"
+						/>
+					</fieldset>
+					{#if identity === 'new'}
+						<label><input type="checkbox" bind:checked={startNow} /> {m.stage_start_now()}</label>
+					{/if}
+				</div>
+			</details>
 		</form>
 	{/if}
 
@@ -321,7 +396,11 @@
 			</Button>
 			{#if session.isAdmin}
 				<Button variant="primary" {busy} onclick={stage}>
-					{problem?.kind === 'uncertain' ? m.stage_retry() : m.stage_apply()}
+					{problem?.kind === 'uncertain'
+						? m.stage_retry()
+						: deployNow
+							? m.stage_deploy()
+							: m.stage_apply()}
 				</Button>
 			{/if}
 		{:else}
@@ -362,6 +441,18 @@
 
 	.steps li + li {
 		margin-top: var(--space-1);
+	}
+
+	summary {
+		cursor: pointer;
+	}
+
+	details[open] summary {
+		margin-bottom: var(--space-3);
+	}
+
+	dd code {
+		overflow-wrap: anywhere;
 	}
 
 	.note {

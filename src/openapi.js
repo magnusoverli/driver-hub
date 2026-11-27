@@ -124,8 +124,9 @@ const schemas = {
     inheritsSite: { type: 'boolean',
       description: 'Whether the deployment takes its VideoIPath target and token from the site, as saved at staging.' },
     previousVersion: { type: ['string', 'null'] }, ...observation, requested: values('stopped', 'running'),
-    allocations: array(allocation)
-  }),
+    allocations: array(allocation), backupImageClient: str
+  }, [...Object.keys(identity), 'nodeId', 'label', 'settings', 'revision', 'image', 'requiresOriginalStopped',
+    'inheritsSite', 'previousVersion', ...Object.keys(observation), 'requested', 'allocations']),
   DeploymentSummary: object({
     ...identity, nodeId: uuid, label: deviceLabel, status: str, revision: integer, requiresOriginalStopped: bool, ...observation,
     requested: { type: ['string', 'null'], enum: ['stopped', 'running', null],

@@ -8,7 +8,7 @@ import { placementIssues, requireSecureNomad } from './nomad.js';
 import { fingerprint, uuidPattern } from './request-key.js';
 import { selectProfile, validateNodeId } from './deployment-inputs.js';
 import { normalizeLabel } from './labels.js';
-import { IMAGE_HOST } from './image-distribution.js';
+import { backupImageClient, IMAGE_HOST } from './image-distribution.js';
 
 const managed = job => job?.Meta?.managed_by === 'driver-hub';
 const running = job => !job.Stop && job.TaskGroups[0].Count === 1;
@@ -186,13 +186,19 @@ export class Deployments {
     const job = await this.current(nodeId);
     const allocations = await this.nomad.allocations(job.ID);
     const spec = JSON.parse(job.Meta.spec);
+    const live = allocations.filter(a => !terminal(a));
+    const active = running(job) && live.length === 1 && live[0].DesiredStatus === 'run' &&
+      live[0].ClientStatus === 'running' && live[0].TaskStates?.driver?.State === 'running' &&
+      Number.isSafeInteger(job.Version) && live[0].JobVersion === job.Version && live[0];
+    const [observation, backup] = await Promise.all([this.observe(job, allocations),
+      active ? backupImageClient(this.nomad, job, active).catch(() => null) : null]);
     return {
       ...spec, label: this.label(nodeId), revision: job.JobModifyIndex,
       // Updates keep the target saved at staging; clients need this to render the settings form.
       inheritsSite: Boolean(spec.videoIPath),
       image: job.TaskGroups[0].Tasks[0].Config.image,
       previousVersion: JSON.parse(job.Meta.previous ?? 'null')?.version ?? null,
-      ...await this.observe(job, allocations),
+      ...observation, ...(backup && { backupImageClient: backup }),
       allocations: allocations.sort((a, b) => (b.CreateIndex ?? 0) - (a.CreateIndex ?? 0)).map(a => ({
         ...allocationView(a), ...(this.nomadUi && uuidPattern.test(a.ID) && {
           logsUrl: `${this.nomadUi}/ui/allocations/${a.ID}/driver/logs?namespace=${encodeURIComponent(this.nomad.namespace)}`
@@ -316,7 +322,7 @@ export class Deployments {
     };
   }
 
-  async submit(spec, previous, running, migrated, revision, preview, stageFingerprint, registrationIndex) {
+  async submit(spec, previous, running, migrated, revision, preview, stageFingerprint, registrationIndex, label = this.label(spec.nodeId)) {
     expect(typeof spec.driverId === 'string' && typeof spec.version === 'string' &&
       parseTag(`drivers/${spec.driverId}/v${spec.version}`), 'Invalid driver identity or version');
     expect(this.registry, 'Image distribution is not configured', 503, 'image_host_missing');
@@ -324,7 +330,7 @@ export class Deployments {
     expect(release, 'Release must be retained before deployment', 404);
     const key = imageKey(release.record);
     const image = `${this.registry}/driverhub/${key}@${release.record.image.digest}`;
-    const job = createJob({ spec, previous, running, migrated, image, release,
+    const job = createJob({ spec, previous, running, migrated, image, release, label,
       namespace: this.nomad.namespace, datacenters: this.datacenters, architectures: this.imageArchitectures });
     if (stageFingerprint) job.Meta.stage_request = stageFingerprint;
     const journal = this.site?.journal, identity = this.identity(spec.nodeId);
@@ -354,13 +360,13 @@ export class Deployments {
   async stage(input, preview = false, key) {
     const label = normalizeLabel(input.label);
     expect(label === undefined || this.labels, 'Deployment labels are not configured', 503);
-    const result = await this.register(input, preview, key);
-    // The label is not part of the job, so a replayed stage may still name the device.
+    const result = await this.register(input, preview, key, label);
+    // A replay may update the Hub label without submitting the job again.
     if (!preview && label !== undefined) await this.labels.set(result.nodeId, label);
     return result;
   }
 
-  async register(input, preview, key) {
+  async register(input, preview, key, label) {
     const migrated = input.nodeId !== undefined;
     // For a new device a client-selected random UUID can also be its stable node ID.
     // Unlike an explicitly supplied migration nodeId this never implies an original driver.
@@ -395,7 +401,7 @@ export class Deployments {
       spec.videoIPath = profile;
     }
     try {
-      return await this.submit(spec, null, false, migrated, 0, preview, signature);
+      return await this.submit(spec, null, false, migrated, 0, preview, signature, undefined, label);
     } catch (error) {
       if (!signature || error.code !== 'revision_conflict' || preview) throw error;
       const winner = await this.nomad.get(id);

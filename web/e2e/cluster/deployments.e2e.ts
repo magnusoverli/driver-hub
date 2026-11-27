@@ -78,6 +78,7 @@ test('a device explains each step to control and shows its Nomad history', async
 	await expect(page.getByRole('heading', { level: 1, name: 'Rack B gateway' })).toBeVisible();
 
 	const status = statusOf(page);
+	await page.getByText('Diagnostics, configuration and device details').click();
 	await expect(status).toContainText(/Placed on nomad-client-\d, but not running yet \(pending\)/);
 	await expect(status).toContainText('This release declares no control check');
 	await expect(status).toContainText('Approval happens in VideoIPath');
@@ -116,6 +117,7 @@ test('an administrator stops and starts a driver, reviewing Nomad’s plan first
 	await dialog.getByRole('button', { name: 'Stop driver' }).click();
 	await expect(dialog).toBeHidden();
 	await expect(page.getByText(/^Stop submitted \(revision \d+\)$/)).toBeVisible();
+	await page.getByText('Diagnostics, configuration and device details').click();
 	await expect(statusOf(page)).toContainText(
 		'No allocation is wanted while the deployment is stopped.'
 	);
@@ -138,6 +140,7 @@ test('an update keeps the previous version and configuration for rollback', asyn
 	await dialog.getByRole('button', { name: 'Update to 1.4.0' }).click();
 	await expect(page.getByText(/^Update to 1\.4\.0 submitted/)).toBeVisible();
 	const device = page.getByRole('region', { name: 'Device' });
+	await page.getByText('Diagnostics, configuration and device details').click();
 	await expect(device).toContainText('Previous: 1.3.0');
 
 	await page.getByRole('button', { name: 'More actions' }).click();
@@ -172,6 +175,7 @@ test('an update that needs new configuration is refused with the missing fields'
 	await dialog.getByRole('button', { name: 'Update to 2.1.0' }).click();
 	await expect(page.getByText(/^Update to 2\.1\.0 submitted/)).toBeVisible();
 	const configuration = page.getByRole('region', { name: 'Configuration' });
+	await page.getByText('Diagnostics, configuration and device details').click();
 	await expect(configuration).toContainText('eu-north');
 	await expect(configuration).toContainText('9001');
 });
@@ -204,6 +208,7 @@ test('a change made elsewhere meanwhile is reported instead of overwritten', asy
 test('naming a device changes neither the driver nor its revision', async ({ page }) => {
 	await signIn(page, ADMIN, detail(studio.nodeId));
 	const revision = page.getByRole('region', { name: 'Device' }).getByRole('definition').last();
+	await page.getByText('Diagnostics, configuration and device details').click();
 	const before = await revision.textContent();
 
 	await page.getByRole('button', { name: 'More actions' }).click();
@@ -230,6 +235,7 @@ test('viewers can preview changes, but not apply them or rename devices', async 
 }) => {
 	const viewer = await createAccount(request, 'viewer');
 	await signIn(page, viewer, detail(control.nodeId));
+	await page.getByText('Diagnostics, configuration and device details').click();
 	await expect(statusOf(page)).toContainText('reported a failure');
 	const dialog = await openAction(page, 'Preview stop');
 	await expect(dialog).toContainText('You can preview changes; an administrator applies them.');
@@ -270,6 +276,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 			expect(await audit()).toEqual([]);
 
 			await page.goto(detail(gateway.nodeId));
+			await page.getByText('Diagnostics, configuration and device details').click();
 			await page.getByRole('tab', { name: /Scheduler evaluations/ }).click();
 			await expect(page.getByRole('table', { name: 'Scheduler evaluations' })).toBeVisible();
 			expect(await audit()).toEqual([]);

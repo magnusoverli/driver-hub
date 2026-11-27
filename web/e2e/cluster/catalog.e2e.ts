@@ -23,16 +23,23 @@ test('a retained release works without GitHub and stages a new stopped device af
 	await expect(page).toHaveURL('/catalog/exampleco-meter/1.4.0');
 	await expect(page.getByRole('table', { name: 'Inputs' })).toContainText('deviceCredential');
 	await page.goBack();
-	await row.getByRole('button', { name: 'Stage new device' }).click();
+	await row.getByRole('button', { name: 'Set up driver' }).click();
 	const form = page.getByRole('dialog');
+	await expect(form.getByLabel('deviceHost')).toBeVisible();
+	await expect(form.getByLabel('pollSeconds')).toBeHidden();
+	await form.getByText('Optional settings and advanced setup').click();
 	await form.getByLabel('Device name').fill('Catalog test meter');
 	await form.getByLabel('deviceHost').fill('meter.example');
 	await form.getByLabel('deviceCredential').fill('meter_token');
 	await form.getByLabel('pollSeconds').fill('13');
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
-	await expect(form).toContainText('Requested state');
+	await expect(form).toHaveAccessibleName('Review device setup');
+	await expect(form).toContainText('The driver stays stopped until you choose Start.');
+	await expect(form.getByText('Node ID', { exact: true })).toBeHidden();
+	await form.getByText('Technical details').click();
+	await expect(form.getByText('Node ID', { exact: true })).toBeVisible();
 	await expect(form).toContainText('meter_token');
-	await form.getByRole('button', { name: 'Stage stopped deployment' }).click();
+	await form.getByRole('button', { name: 'Create deployment' }).click();
 	await expect(page).toHaveURL(/\/deployments\/[0-9a-f-]{36}$/);
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Catalog test meter');
 	await expect(page.getByText('Staged, not started yet')).toBeVisible();
@@ -54,9 +61,10 @@ test('an external driver is replaced under its existing node ID, after its input
 		.getByRole('row')
 		.filter({ hasText: 'exampleco-meter' })
 		.filter({ hasText: '1.4.0' })
-		.getByRole('button', { name: 'Stage new device' })
+		.getByRole('button', { name: 'Set up driver' })
 		.click();
 	const form = page.getByRole('dialog');
+	await form.getByText('Optional settings and advanced setup').click();
 	await form.getByLabel('Replace an external driver').check();
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
 	await expect(form.getByText('Enter the node ID.')).toBeVisible();
@@ -78,7 +86,31 @@ test('an external driver is replaced under its existing node ID, after its input
 	await form.getByRole('button', { name: 'Preview', exact: true }).click();
 	await expect(form).toContainText(nodeId);
 	await expect(form).toContainText('Stop the original external driver.');
-	await form.getByRole('button', { name: 'Stage stopped deployment' }).click();
+	await form.getByRole('button', { name: 'Create deployment' }).click();
 	await expect(page).toHaveURL(`/deployments/${nodeId}`);
 	await expect(page.getByText('Replaces an external driver')).toBeVisible();
+});
+
+test('a downloaded driver goes from the published catalog to a live deployment result', async ({
+	page
+}) => {
+	await resetCluster();
+	await page.route('**/api/v1/releases?*', (route) =>
+		route.fulfill({
+			json: { releases: [{ driverId: 'acme-gateway', version: '2.0.1', prerelease: false }] }
+		})
+	);
+	await signIn(page, ADMIN, '/catalog');
+	await page
+		.getByRole('table', { name: 'Published releases' })
+		.getByRole('button', { name: 'Set up driver' })
+		.click();
+	const form = page.getByRole('dialog');
+	await expect(form.getByLabel('port (optional)')).toBeHidden();
+	await form.getByLabel('deviceHost').fill('gateway.site.example');
+	await form.getByRole('button', { name: 'Preview' }).click();
+	await form.getByRole('button', { name: 'Deploy driver' }).click();
+	const result = page.getByRole('region', { name: 'Deployment result' });
+	await expect(result.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
+	await expect(page.getByRole('table', { name: 'Allocations' })).toBeHidden();
 });
