@@ -1,175 +1,152 @@
-# Driver Hub
+# <img src="web/static/favicon.svg" width="32" height="32" alt=""> Driver Hub
 
-Driver Hub is a self-hosted web application for customer operators and administrators to browse, download, deploy, monitor and update VideoIPath external drivers. It takes releases from the [public driver repository](https://github.com/VideoIPath/VideoIPath_External_Drivers), runs one driver instance per physical device on a customer-operated Nomad cluster, and reports only what it can verify about each device. This project is independent of the upstream repository.
+**Deploy and monitor VideoIPath external drivers on your own Nomad cluster.** Download a release once, reuse it across devices, and see which drivers are running and which report a working connection.
 
-![The overview: devices that need attention, updates waiting, background work and site readiness](docs/screenshots/overview.png)
+[Try it locally](#try-it-locally) · [Product tour](#product-tour) · [Device status](#how-status-is-reported) · [Operations guide](OPERATIONS.md) · [Development](#development)
 
-**Project state:** The manager and its web app cover the first-release scope. That scope is:
+![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
 
-- release discovery, download, local import and source builds;
-- verified OCI image distribution;
-- per-device staging, migration, start, stop, update, rollback and deletion through Nomad;
-- site setup and local operator accounts.
-
-Site commissioning against VideoIPath and a physical device is still required, and the upstream release convention remains a proposal. See [installation and operation](OPERATIONS.md) for the API, permissions and the HA acceptance procedure.
-
-## What it does
-
-### Deployments: one per physical device
-
-- **Device list.** Every device appears with its four-step status and a plain-language condition, such as _Driver reports connected_, _Control check failed_ or _Waiting for allocation_. Filter by _Needs attention_, _Running_ or _Stopped_, and search by name, node ID, driver or Nomad client.
-- **Device page.** Each status step is explained in a sentence. The page shows the device's allocations, its Nomad version history, and the scheduler evaluations, including why Nomad could not place a driver.
-- **Preview before apply.** Start, stop, update (optionally with changed settings) and roll back are each planned by Nomad as a dry run first. The change is applied at the revision you reviewed, so a concurrent change is reported rather than overwritten. If Hub gets no definite answer, it says the change may have been applied and asks you to check before retrying.
-- **Migration.** Replace an external driver under its existing node ID. The first start asks you to confirm that the original driver is stopped.
-- **Names and deletion.** Name devices (renaming never restarts a driver), and delete stopped deployments after typing the device's name.
-
-| Deployments | Device page |
-| --- | --- |
-| ![Deployment list with status paths, filters and update hints](docs/screenshots/deployments.png) | ![Device page with the status steps, scheduler evaluations and settings](docs/screenshots/deployment.png) |
-
-![Updating a device: Nomad's plan shows the version, requested state, image and placement before anything changes](docs/screenshots/update-preview.png)
-
-### Catalog
-
-- **Releases.** See releases published upstream, releases on this Hub (downloaded, imported or built), and newer versions for deployed devices.
-- **Release page.** Each release has a page with its inputs, how the driver receives each one, its control check, image digest and platforms, and the devices on that version.
-- **Getting releases (administrators).** Download releases in the background, import a prebuilt OCI image archive, or build a pinned source revision on a build-enabled manager. Releases no device needs can be removed.
-- **Staging.** Stage a new device, or a replacement, from the inputs the release declares. Secrets are entered as references to keys in a Nomad Variable; Hub never handles secret values. With a site VideoIPath target, Hub supplies the endpoint and reserves a driver token for the device.
-
-| Catalog | Release |
-| --- | --- |
-| ![Published releases and recent downloads and builds](docs/screenshots/catalog.png) | ![A release with its inputs, control check and devices on this version](docs/screenshots/release.png) |
-
-![Staging a device from a release's declared inputs](docs/screenshots/stage.png)
-
-### Activity
-
-Downloads and builds run on the manager in the background. Activity lists them with their outcome, duration and failure reason, and flags operations a manager restart interrupted. While work runs, a count appears beside _Activity_ in the navigation.
-
-![Activity with a running download, a failed and a completed build](docs/screenshots/activity.png)
-
-### Settings
-
-Administrators set up the site under **Settings**. Everything that can be changed while Hub runs is changed there; `compose.yaml` keeps only what the manager needs to start.
-
-- **Nomad.** Set the cluster address, namespace, datacenters and ACL token. Hub checks for a leader and job-list access before saving. Use HTTPS in production; for a trusted development network, **Send the token over plain HTTP** is an explicit opt-in, off by default. This page also shows image distribution status, the Nomad UI link and whether other processes edit Hub's jobs.
-- **VideoIPath.** The driver endpoint and the pool of pre-issued driver tokens, one per device or shared. Tokens show as SHA-256 fingerprints to match your issuance records. Unused tokens, and tokens of deleted devices, can be removed.
-- **Users.** Local accounts with an _Administrator_ or _Viewer_ role. Accounts can be disabled, given a new password or deleted; the last administrator is protected.
-- **API tokens.** Named bearer tokens for scripts, each an _Administrator_ or _Viewer_, shown once and revocable.
-- **Manager.** Source builds and request timings, plus a read-only list of the startup settings from the manager's environment, with where each comes from.
-
-A device's own values, entered at staging, are its **Configuration**, shown on its page.
-
-![VideoIPath target and token pool](docs/screenshots/videoipath.png)
-
-### Throughout
-
-- **Roles.** Viewers can browse releases, monitor deployments and preview changes. Administrators apply changes and manage site settings, accounts and API tokens. The API enforces the same rules.
-- **Command palette.** <kbd>Ctrl</kbd> <kbd>K</kbd> jumps to pages, devices and releases.
-- **Themes, layout and accessibility.** Light and dark themes and narrow screens are supported, and every page is checked against WCAG 2.2 AA in the automated tests.
-
-| Dark theme | Narrow screen |
-| --- | --- |
-| ![A device with a failing control check, in the dark theme](docs/screenshots/deployment-dark.png) | ![The deployment list on a phone-sized screen](docs/screenshots/mobile.png) |
-
-## How status is reported
-
-Each device shows four steps between "Hub asked for it" and "the device is in service":
-
-| Step | Verified when |
-| --- | --- |
-| Requested | Hub asked Nomad to run one instance. |
-| Allocation | Nomad runs the driver on a client. |
-| Control | A recent control check of the current allocation reports that the driver reaches VideoIPath and the device. Only drivers that declare a control check can show this; a running container alone never counts. |
-| Approval | Never. Approval happens in VideoIPath, which Hub cannot observe. |
-
-A step Hub has no evidence for is shown as _not observable_, never as success. Accepting a change only means Nomad has the new desired state; the status shows when the driver actually runs.
+*The overview brings device health, available updates and site readiness into one view. Screenshots use six demo devices and illustrative release, activity and image-status data.*
 
 ## Try it locally
 
-With Docker, start the manager and web app on `http://localhost:8080`:
+### Explore six example devices
 
-1. Next to `compose.yaml`, create a file named `.env` containing `DRIVER_HUB_INITIAL_PASSWORD=` followed by a password of at least 12 characters. It is only used to create the first account, `admin`, while the data volume is empty. The file is ignored by Git.
-2. If connecting a real cluster, set `DRIVER_HUB_DISTRIBUTION_ADDRESS` under `manager.environment` in `compose.yaml` to the Docker host's name or IP as seen by the Nomad clients. They need to reach that host on TCP `5481` and one another on TCP `5480`. Skip this step for a UI-only trial.
-3. Run `docker compose up --build -d`, then open `http://localhost:8080` and sign in as `admin`. After saving a cluster under **Settings → Nomad**, check **Image distribution** there. A connected Nomad API alone does not mean clients can pull images.
+No cluster is required. With **Node.js 22.17+ and npm 11+**, run these commands from the repository root:
 
-Use `localhost` for the HTTP web app: its session cookie is `Secure`. Without a Nomad cluster, the overview reports what the site still needs. `docker compose down` stops the manager and keeps its data. Adding `-v` deletes the trial volume, including accounts, site settings, retained releases and published images; it does not remove jobs in Nomad.
+```sh
+npm ci
+npm --prefix web ci
+npm --prefix web run demo
+```
 
-**Explore the deployment screens without a cluster:** with Node.js 22.17+ and npm 11+, run `npm ci` in this directory and in `web/`, then `npm run demo` in `web/`. This starts the manager with a stand-in Nomad cluster and six example devices on `http://localhost:4182`, and prints the sign-in details. The screenshots use those demo devices and illustrative catalog, activity and image-status data.
+Open **[localhost:4182](http://localhost:4182)** and sign in with the details printed in the terminal. Under **Deployments → Studio 3 meter**, choose **Update…** to preview a version change against the stand-in Nomad cluster.
 
-## Running the backend
+### Start your own Hub with Docker
 
-For a container installation, follow [site setup after startup](OPERATIONS.md#site-setup-after-container-startup). Administrators then configure the Nomad connection and the VideoIPath target under Settings in the web app, or through the site API. By default each logical device receives its own pre-issued VideoIPath token and keeps it across allocation replacements.
+1. Create a `.env` file beside [`compose.yaml`](compose.yaml). Set `DRIVER_HUB_INITIAL_PASSWORD` to a password of at least 12 characters. It creates the first `admin` account only while the volume is empty.
+2. For a real cluster, set `DRIVER_HUB_DISTRIBUTION_ADDRESS` under `manager.environment` to the Docker host name or IP that Nomad clients can reach. Clients need TCP `5481` to the manager and TCP `5480` to each other. Skip this step for a UI-only trial.
+3. Run `docker compose up --build -d`, open **[localhost:8080](http://localhost:8080)** and sign in as `admin`. Use `localhost` for the HTTP trial because the browser session cookie is `Secure`.
 
-Install Node.js 22 or newer and run `npm ci`. For a new installation, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected file containing the first administrator's password, then run `npm start`. See [operator sign-in](OPERATIONS.md#operator-sign-in) for the login API, account management and API tokens. The manager listens on `127.0.0.1:8080`; set `PORT` to change the port. It serves the built web app from `web/build` (`npm run web:build`) on the same origin as the API.
+Under **Settings → Nomad**, save the cluster connection, then check **Image distribution**. A successful API connection does not tell you whether clients can pull an image. Use HTTPS for production; sending credentials over remote HTTP requires an [explicit trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
-| Area | Endpoints under `/api/v1` |
+`docker compose down` stops Hub and keeps its data. Adding `-v` deletes the local volume, including accounts, settings, releases and images; it does not remove Nomad jobs.
+
+## Product tour
+
+| In Hub | What you can do |
 | --- | --- |
-| Releases | `GET /releases`, `GET /releases/{driverId}/{version}`, `GET /retained`, `GET`/`PUT`/`DELETE /retained/{driverId}/{version}`, `PUT /imports/{driverId}/{version}`, `POST /builds`, `GET /updates`, `POST …/deploy-form` |
-| Deployments | `GET`/`POST /deployments`, `GET /deployments/directory`, `GET`/`DELETE /deployments/{nodeId}`, `POST /deployments/{nodeId}/{start,stop,update,rollback}` (with `?dryRun=true` to plan), `PUT …/label`, `GET …/history`, `GET …/evaluations`, `GET …/rollout` |
-| Background work | `GET /operations`, `GET /operations/{id}` |
-| Site | `GET /site`, `PUT /site/{nomad,deployment,manager,videoipath}`, `DELETE /site/videoipath/tokens/{fingerprint}`, `GET /site/environment`, `GET /integrations/nomad`, `GET /integrations/images`, `GET /capabilities` |
-| Accounts | `POST /auth/login`, `GET /auth/session`, `POST /auth/logout`, `POST /auth/password`, `GET`/`POST /users`, `PATCH`/`DELETE /users/{username}`, `GET`/`POST /api-tokens`, `DELETE /api-tokens/{id}` |
+| **Catalog** | Download an upstream release, import an OCI archive or build a pinned source revision. Inspect the release's inputs, platforms, image digest and control check before staging. |
+| **Deployments** | Stage a stopped driver for a device. Preview placement, start it, then monitor or update it independently. When replacing an external driver, keep its node ID and stop the original before starting the replacement. |
+| **Activity** | Follow downloads and builds. See whether work completed, failed or was interrupted by a manager restart. |
+| **Settings** | Connect Nomad and VideoIPath, reserve driver tokens, manage accounts and script access, or enable source builds on a build-capable manager. Device-specific inputs stay on the device's **Configuration** panel. |
 
-The [client API contract](OPERATIONS.md#client-api-contract) describes requests, errors and revisions in detail; the running manager also serves it as OpenAPI 3.1 at `/api/v1/openapi.json`, from which the web app's types are generated.
+**Review before applying.** Hub asks Nomad to plan a start, stop, update or rollback. The preview shows the image, version, requested state and placement. Hub applies the revision you reviewed; if another operator has changed it, you get a conflict instead of overwriting their work. Viewers can inspect these plans; administrators apply them.
 
-Set `DRIVER_HUB_DATA_DIR` to select the data directory (default: `.driver-hub` in the user's home). Downloading or importing a release retains it; staging publishes its verified OCI image for the clients. Each eligible Nomad client runs an image service and drivers pull from `127.0.0.1:5480`. An existing service can serve its local copy, or fetch from a peer that has the image, while the manager is down. The Hub container includes the package needed to start the image service; a plain `npm ci` checkout does not. See [image distribution](OPERATIONS.md#image-distribution).
+![Update preview for Studio 3 meter showing the change from version 1.3.0 to 1.4.0, the pinned image and Nomad's placement result](docs/screenshots/update-preview.png)
 
-`src/catalog.js` coordinates discovery and retention, `src/imports.js` verifies uploaded images, `src/builds.js` produces site-local releases, and `src/retention.js` removes unused ones. `src/deployments.js` orchestrates lifecycle operations; `src/job.js` translates a validated deployment to a job, and `src/nomad.js` implements the cluster API. Job definitions and revision checks live in Nomad, so recovery does not depend on a running management API.
+<details>
+<summary><strong>See more of the interface</strong> — catalog, staging, monitoring and settings</summary>
+
+| Find a release | Inspect its inputs |
+| --- | --- |
+| ![Catalog of published and retained driver releases](docs/screenshots/catalog.png) | ![Release page with configuration inputs, image digest and platforms](docs/screenshots/release.png) |
+
+| Stage a device | Monitor the fleet |
+| --- | --- |
+| ![Staging a stopped device with its declared inputs](docs/screenshots/stage.png) | ![Deployments list with device conditions, filters and update hints](docs/screenshots/deployments.png) |
+
+| Investigate placement | Review background work |
+| --- | --- |
+| ![Device page with status steps and scheduler evaluations](docs/screenshots/deployment.png) | ![Activity showing downloads and a failed build](docs/screenshots/activity.png) |
+
+Also pictured: [VideoIPath target and token pool](docs/screenshots/videoipath.png) · [Device status in dark mode](docs/screenshots/deployment-dark.png) · [Deployments on a narrow screen](docs/screenshots/mobile.png). Use <kbd>Ctrl</kbd> + <kbd>K</kbd> to jump to a page, release or device.
+
+</details>
+
+## How status is reported
+
+**“Running” and “connected” answer different questions.** If a device stops responding, read its status from the request through to the control check:
+
+| Step | What Hub can verify |
+| --- | --- |
+| **Requested** | Hub asked Nomad to run one instance. |
+| **Allocation** | Nomad reports the driver running on a client. Scheduler evaluations explain when it cannot place one. |
+| **Control** | A recent successful check on the current allocation reports communication with VideoIPath and the device. Without a declared check, this is not observable. |
+| **Approval** | Approval happens in VideoIPath. Hub never marks it as verified. |
+
+**Image availability** is a separate site-level check. Staging publishes the verified OCI image. Each eligible client runs an image service, and its drivers pull from `127.0.0.1:5480`. With the manager offline, an existing service can serve its own copy or fetch from a peer that has the image. See [image distribution and readiness](OPERATIONS.md#image-distribution) for package upgrades, port requirements and troubleshooting.
+
+## Installation and operations
+
+| I want to… | Start here |
+| --- | --- |
+| Install Hub and connect a site | [Installation](OPERATIONS.md#installation) · [Nomad and VideoIPath setup](OPERATIONS.md#site-setup-after-container-startup) |
+| Give an operator or script access | [Operator sign-in](OPERATIONS.md#operator-sign-in) · [API tokens](OPERATIONS.md#api-tokens) |
+| Bring my own driver | [Import a local image](OPERATIONS.md#import-a-local-image) · [Build from source](OPERATIONS.md#customer-builds) |
+| Replace an existing driver or automate changes | [Deploy and migrate](OPERATIONS.md#deploy-and-migrate) · [Client API contract](OPERATIONS.md#client-api-contract) |
+| Qualify a site for failover | [Monitoring and failover](OPERATIONS.md#monitoring-and-failover) · [Site acceptance](OPERATIONS.md#verification) |
 
 ## Development
 
-| Command | Purpose |
+The Node.js manager serves the SvelteKit web app and `/api/v1` on the same origin. The running manager exposes its OpenAPI 3.1 contract at `/api/v1/openapi.json`. The [frontend guide](web/README.md) covers the dev server, generated types and browser tests.
+
+| From the repository root | Purpose |
 | --- | --- |
-| `npm test` | Backend API, integrity, retention and lifecycle tests. Opt-in real Docker and Nomad tests are described in [OPERATIONS.md](OPERATIONS.md#verification). |
-| `npm run web:verify` | The web app's contract check, formatting, linting, type checking, unit and component tests, and end-to-end tests against a real manager. |
-| `npm --prefix web run demo` | The demo installation described above. |
+| `npm test` | Run backend API, integrity, distribution and lifecycle tests. [Docker and Nomad tests](OPERATIONS.md#verification) are opt-in. |
+| `npm run web:build` | Build the frontend into `web/build` for the manager to serve. Install web dependencies first with `npm --prefix web ci`. |
+| `npm run web:verify` | Check the API contract, formatting, lint, types, unit and component tests, and end-to-end behavior. |
 
-The web app is a SvelteKit single-page application; [`web/README.md`](web/README.md) describes its structure, design system and test setup.
+<details>
+<summary><strong>Running the backend from source</strong></summary>
 
-## Application definitions
+With Node.js 22+, run `npm ci`. On a new installation, point `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` at a protected file containing the first administrator's password, then run `npm start`. The API defaults to `127.0.0.1:8080`; `PORT` changes the port and `DRIVER_HUB_DATA_DIR` changes the data directory (default `~/.driver-hub`). A source checkout does not include the packaged image service; use the Hub container to exercise real image distribution.
 
-| Term | Meaning in Driver Hub |
+For a release's path through the backend, start with [`src/catalog.js`](src/catalog.js) and [`src/images.js`](src/images.js). For a device change, follow [`src/deployments.js`](src/deployments.js) through the [job definition](src/job.js) to the [Nomad client](src/nomad.js).
+
+</details>
+
+## Project status
+
+The manager and web app support release acquisition, verified image distribution, per-device lifecycle operations and site administration. This project is independent of the [public VideoIPath external driver repository](https://github.com/VideoIPath/VideoIPath_External_Drivers). The proposed upstream packaging convention has not been adopted.
+
+**Verified in development:** A three-client Nomad trial rolled out smaller replacement image-service packages, verified the probe manifest on every client, and rescheduled a synthetic driver with the manager stopped. Its HTTP check passed.
+
+**Still to qualify on site:** With the management host unavailable, fail the active driver host and verify that a cold replacement pulls the pinned image, keeps its configuration and `node_id`, and restores actual device communication. Separately test a network partition: under the [external driver protocol](https://github.com/VideoIPath/VideoIPath_External_Drivers/blob/main/examples/rust_example/docs/PROTOCOL.md), two processes with the same node ID can displace each other. A desired count of one does not prove safe takeover. No recovery-time target has been agreed.
+
+<details>
+<summary><strong>Application definitions</strong></summary>
+
+| Term | Meaning |
 | --- | --- |
-| Driver | Software that connects VideoIPath to a device through the external driver API. Its catalog identity identifies the software, not a particular device. |
-| Release | A maintainer-published version of one driver, distributed as a ready-to-run OCI image. A version is meaningful within that driver; the image digest identifies the exact content to run. |
-| Customer build | A deployable image built from source for one customer's use. Keep its source revision and image digest distinct from maintainer releases, even when built from the same tag. |
-| Deployment | The persistent association between a physical device, its stable VideoIPath `node_id`, its customer configuration and the selected driver image. It survives process replacement. |
-| Running instance | The process Nomad runs for a deployment. One active instance per device is the goal; a replacement uses the existing deployment identity. |
-| Recovery | Communication between VideoIPath and the device through its driver has returned. A running container alone does not establish recovery. |
+| Driver | Software that connects VideoIPath to a device. Its catalog identity identifies the software, not a particular device. |
+| Release | A maintainer-published version of one driver. Its OCI digest identifies the exact image. |
+| Customer build | A locally deployable image with its own source revision and digest, even when built from the same tag as a maintainer release. |
+| Deployment | The persistent association between a device, its stable VideoIPath `node_id`, its configuration and the selected image. |
+| Running instance | The process Nomad runs for a deployment. A replacement uses the same deployment identity. |
+| Recovery | Communication between VideoIPath and the device has returned. A running container alone does not establish recovery. |
 
-## Decision record
+</details>
+
+<details>
+<summary><strong>Decision record and upstream proposal</strong> — interview items 1–15</summary>
 
 | Interview item | Decision and consequence |
 | --- | --- |
-| 1. Deployment unit | Download a release once and reuse it across devices. Each physical device gets an independently configured instance; updating one need not interrupt the others. |
-| 2. Availability | Recover control automatically after a process or host failure. Driver loss interrupts device control and may leave monitoring or alarms stale. Media that the device continues processing with its last configuration is outside the driver recovery path. No recovery-time target has been agreed. |
-| 3. Nomad boundary | Customer operates the cluster and provides a stable API address. Driver Hub submits and updates jobs and observes their status. Nomad schedules and recovers workloads without requiring Driver Hub to be online for each restart. |
-| 4. Ownership | The project repository is private: [magnusoverli/driver-hub](https://github.com/magnusoverli/driver-hub). It is not a fork or an official component of the upstream project. |
-| 5–7. Distribution | Prefer versioned, maintainer-published OCI images. Also support downloading source and building in a connected Driver Hub environment. Customer admins may test or run their own builds, including in production; these actions never publish upstream. |
-| 8–10. Connectivity and distribution (revised) | Assume the running Driver Hub has internet access for release discovery and download. The earlier requirement to support a disconnected installation is superseded. Driver Hub owns image distribution to eligible Nomad clients; no integration with customer-private registries. |
-| 11. Release discovery | Discover updates per driver, independently of unrelated changes in the public repository. Propose a machine-readable per-driver release convention to upstream maintainers. Its adoption is pending. |
-| 12. Approval | Device approval stays in VideoIPath. Distinguish Nomad process status from driver communication; report only states that can be verified. |
-| 13. Migration | Support moving an already-running external driver to Driver Hub in the first release. Preserve the existing `node_id`. Stage the replacement, stop the original, start the replacement, then verify control. To revert, stop the replacement before restarting the original. |
-| 14. Configuration | Each deployable release declares its inputs: names, types, requirements, defaults where applicable, secret fields and how the image receives them. Customer values stay local. Validate against the target release before deployment or cutover. |
-| 15. Image distribution | Hub manages the image service on eligible Nomad clients; drivers pull from their own machine. No separate registry or per-driver image host is required. If clients cannot reach the manager at its detected address, configure the advertised distribution address. This supersedes the separate image host. |
+| 1. Deployment unit | Download a release once and reuse it across devices. Each device gets its own configured instance and can be updated independently. |
+| 2. Availability | Recover control automatically after process or host failure. Driver loss interrupts control and can leave monitoring or alarms stale. Media still processed by the device under its last configuration is outside the driver recovery path. |
+| 3. Nomad boundary | The customer operates Nomad and supplies a stable API address. Hub submits and observes jobs; Nomad schedules and recovers workloads without Hub being online for each restart. |
+| 4. Ownership | [Driver Hub](https://github.com/magnusoverli/driver-hub) is a private, independent project, not an official upstream component or fork. |
+| 5–7. Distribution | Prefer versioned maintainer images. Administrators may also build pinned source and run those builds in production; nothing is published upstream. |
+| 8–10. Connectivity and distribution (revised) | Hub needs internet access for upstream discovery and download. The earlier disconnected-installation requirement is superseded. Hub distributes images to eligible clients without integrating a customer registry. |
+| 11. Release discovery | Discover updates per driver, independently of unrelated repository changes. Propose a machine-readable convention to upstream maintainers. |
+| 12. Approval | Approval stays in VideoIPath. Report Nomad process state separately from driver communication. |
+| 13. Migration | Keep the existing `node_id`. Stage the replacement, stop the original, start the replacement, then verify control. To revert, stop the replacement before restarting the original. |
+| 14. Configuration | Releases declare input types, requirements, defaults, secret fields and delivery bindings. Customer values stay local and are validated against the target release before cutover. |
+| 15. Image distribution | Hub manages a service on each eligible client. Drivers pull locally; no separate registry or per-driver image host is required. Configure the advertised manager address if clients cannot reach its detected address. |
 
-The lifecycle and status meanings above are shared product behavior. The web frontend follows them: it shows process status and driver communication separately and never reports approval as verified.
+**Upstream proposal (items 11 and 14).** The maintainer-facing draft, `VideoIPath-Driver-Release-Proposal.md`, is held outside this repository on the project owner's Desktop. It proposes a per-driver Git tag and GitHub Release containing `driver-release.json`, `driver-config.json` and an OCI archive with verifiable digests. Source-only contributions would remain valid. The release pilot still needs two versions of one driver, a changed required setting, and an update and rollback.
 
-**HA acceptance criterion:** With the Driver Hub management host unavailable, fail the host running a driver. Given a functioning Nomad cluster and an eligible replacement client with no cached image, Nomad must be able to start the pinned image with the existing configuration, credentials and `node_id`, and restore device communication. Recovery must not depend on the management host returning. The connectivity assumption applies to the running Hub; it does not require every Nomad client to have internet access.
+Preserve the interview numbers when revising a decision; add subsequent decisions with the next available number.
 
-## Upstream proposal (items 11 and 14)
-
-The maintainer-facing draft is deliberately kept outside this repository: `VideoIPath-Driver-Release-Proposal.md` on the project owner's Desktop. It proposes a per-driver Git tag and GitHub Release with three offline-transferable assets: `driver-release.json`, `driver-config.json`, and an OCI image archive. Consumers would verify the referenced digests before deployment. Source-only contributions would remain valid. These filenames and formats are proposals, not a prerequisite the public repository already satisfies.
-
-## Resume here
-
-The first unresolved design question is **safe failover during a network partition**. Under the documented external driver protocol, a second connection with the same `node_id` takes over the session. If a Nomad client loses contact with its servers but its driver can still reach VideoIPath, the original and replacement could repeatedly displace each other. A desired instance count of one does not settle that case. See the upstream [protocol walkthrough](https://github.com/VideoIPath/VideoIPath_External_Drivers/blob/main/examples/rust_example/docs/PROTOCOL.md).
-
-| Open design item | What to establish |
-| --- | --- |
-| Failover and health | How to prevent competing instances, what evidence confirms device communication, and how quickly control needs to return. Verify takeover and recovery with the intended VideoIPath release. |
-| Image distribution | A three-client development trial verified package upgrades, the probe manifest on all three clients and probe rescheduling with the manager stopped. Still to qualify: a confirmed cold pull after hard host loss and recovery of real device communication. See [verification](OPERATIONS.md#verification). |
-| Release pilot | Whether upstream maintainers accept the convention. Exercise discovery and download of two releases of one driver, a changed required setting, update and rollback. |
-
-When resuming work, read this file first. Preserve the interview numbers when revising a decision, distinguish proposals from agreements, and add subsequent decisions with the next available number.
+</details>
