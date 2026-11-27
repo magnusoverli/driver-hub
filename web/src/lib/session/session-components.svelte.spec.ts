@@ -60,10 +60,10 @@ describe('ChangePasswordDialog', () => {
 		await userEvent.fill(page.getByLabelText('Current password'), 'old-password');
 		await userEvent.fill(page.getByLabelText('New password', { exact: true }), 'short');
 		await userEvent.click(page.getByRole('button', { name: 'Change password' }));
-		await expect.element(page.getByText('Use at least 12 characters.')).toBeVisible();
+		await expect.element(page.getByText('Use at least 10 characters.')).toBeVisible();
 		await userEvent.fill(
 			page.getByLabelText('New password', { exact: true }),
-			'a-long-new-password'
+			'A-long-new-password1'
 		);
 		await userEvent.fill(page.getByLabelText('Confirm new password'), 'a-long-new-passwort');
 		await expect.element(page.getByText('The passwords do not match.')).toBeVisible();
@@ -81,9 +81,9 @@ describe('ChangePasswordDialog', () => {
 		await userEvent.fill(page.getByLabelText('Current password'), 'not-it');
 		await userEvent.fill(
 			page.getByLabelText('New password', { exact: true }),
-			'a-long-new-password'
+			'A-long-new-password1'
 		);
-		await userEvent.fill(page.getByLabelText('Confirm new password'), 'a-long-new-password');
+		await userEvent.fill(page.getByLabelText('Confirm new password'), 'A-long-new-password1');
 		await userEvent.click(page.getByRole('button', { name: 'Change password' }));
 		await expect.element(page.getByText('The current password is incorrect.')).toBeVisible();
 		await userEvent.fill(page.getByLabelText('Current password'), 'old-password');

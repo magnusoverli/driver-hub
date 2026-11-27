@@ -37,11 +37,12 @@
 	"password_current": "Current password",
 	"password_new": "New password",
 	"password_confirm": "Confirm new password",
-	"password_rule": "At least {count} characters.",
+	"password_rule": "At least {count} characters, including an uppercase letter and a digit.",
 	"password_submit": "Change password",
 	"password_error_current": "The current password is incorrect.",
 	"password_error_current_required": "Enter your current password.",
 	"password_error_short": "Use at least {count} characters.",
+	"password_error_composition": "Include at least one uppercase letter and one digit.",
 	"password_error_mismatch": "The passwords do not match.",
 
 	"role_admin": "Administrator",
@@ -83,8 +84,6 @@
 	"palette_group_theme": "Theme",
 	"palette_group_account": "Account",
 	"palette_theme_item": "Use theme: {mode}",
-
-	"freshness_updated": "Updated {age}",
 
 	"overview_title": "Overview",
 	"overview_description": "The site's devices, updates and background work, and what it still needs.",

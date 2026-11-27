@@ -7,7 +7,7 @@ test('an administrator adds an account, and the new operator signs in with its r
 	browser
 }) => {
 	const username = `Operator-${Date.now().toString(36)}`;
-	const password = 'a-long-enough-password';
+	const password = 'A-long-enough-password1';
 	await signIn(page, ADMIN, '/settings/users');
 	await page.getByRole('button', { name: 'Add account' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Add an account' });
@@ -15,7 +15,7 @@ test('an administrator adds an account, and the new operator signs in with its r
 	await dialog.getByLabel('Password', { exact: true }).fill('too short');
 	await dialog.getByLabel('Confirm password').fill('too short');
 	await dialog.getByRole('button', { name: 'Add account' }).click();
-	await expect(dialog.getByText('Use at least 12 characters.')).toBeVisible();
+	await expect(dialog.getByText('Use at least 10 characters.')).toBeVisible();
 	await dialog.getByLabel('Password', { exact: true }).fill(password);
 	await dialog.getByLabel('Confirm password').fill(password);
 	await dialog.getByRole('button', { name: 'Add account' }).click();
@@ -49,7 +49,7 @@ test('changing an account ends its sessions, and disabled accounts cannot sign i
 	browser
 }) => {
 	const username = `disable-${Date.now().toString(36)}`;
-	const password = 'another-long-password';
+	const password = 'Another-long-password1';
 	await signIn(page, ADMIN, '/settings/users');
 	await page.getByRole('button', { name: 'Add account' }).click();
 	const create = page.getByRole('dialog', { name: 'Add an account' });

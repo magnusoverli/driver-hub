@@ -23,7 +23,7 @@ test('a first-login session can only change the default password or sign out', a
 	await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
 	await dialog.getByRole('button', { name: 'Sign out' }).click();
 	await fillSignIn(page, account);
-	const newPassword = `${account.username}-new-password`;
+	const newPassword = `${account.username}-New1`;
 	await expect(dialog.getByLabel('Current password')).toHaveCount(0);
 	await dialog.getByLabel('New password', { exact: true }).fill(newPassword);
 	await dialog.getByLabel('Confirm new password').fill(newPassword);

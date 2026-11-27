@@ -115,7 +115,7 @@ Back up retained releases, `DRIVER_HUB_DATA_DIR/images` and `DRIVER_HUB_DATA_DIR
 
 ## Operator sign-in
 
-**First administrator:** on a fresh installation, sign in locally as `admin` with `LicenseToDeploy!`. A session using this default can only check its identity, change the password or sign out. Choose a different password of at least 12 characters to continue. This browser stays signed in with a fresh session; all previous sessions for the account become invalid. Restarting or upgrading with the existing data volume never resets the password.
+**First administrator:** on a fresh installation, sign in locally as `admin` with `LicenseToDeploy!`. A session using this default can only check its identity, change the password or sign out. Choose a different password with at least 10 characters, including an uppercase letter and a digit, to continue. This browser stays signed in with a fresh session; all previous sessions for the account become invalid. Restarting or upgrading with the existing data volume never resets the password.
 
 For unattended provisioning, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected UTF-8 file containing a private initial password (one trailing line ending is ignored). In Docker, mount the file read-only, readable by UID 1000. A distinct private password bypasses the default-password prompt. Set `DRIVER_HUB_BOOTSTRAP_USERNAME` to choose another username. Alternatively, setting only `DRIVER_HUB_ADMIN_TOKEN` preserves token-only bootstrap: create the first admin via `POST /api/v1/users` with the bearer token.
 
@@ -137,7 +137,7 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 | `GET /auth/session` | Returns the current operator; use `role` (`admin` or `viewer`) to choose which controls to display. The API also enforces permissions. |
 | `POST /auth/logout` | Revokes the current session and clears the cookie. Restarting the manager signs everyone out. |
 | `POST /auth/password` | On first login, send `newPassword`; the response returns the operator and a fresh session cookie. Otherwise send both `currentPassword` and `newPassword`, then sign in again. In both cases all previous sessions become invalid. |
-| `GET /users`, `POST /users` | Admin only. List local accounts or create one with `username`, `password`, and `role`. Usernames are case-insensitive; passwords require at least 12 characters (up to 1024 UTF-8 bytes). |
+| `GET /users`, `POST /users` | Admin only. List local accounts or create one with `username`, `password`, and `role`. Usernames are case-insensitive; new passwords require at least 10 characters, including an uppercase letter and a digit (up to 1024 UTF-8 bytes). |
 | `PATCH /users/{username}` | Admin only. Supply `role`, `enabled`, and/or a replacement `password`. Changes invalidate the user's sessions. The last enabled local admin cannot be disabled or demoted. |
 | `DELETE /users/{username}` | Admin only. Deletes a local account and ends its sessions. Refuses the last enabled admin (`409 last_admin`) and the signed-in operator's own account (`409 own_account`). Recreating the username starts a new account; sessions of the deleted one never become valid again. |
 

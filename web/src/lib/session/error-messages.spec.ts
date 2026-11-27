@@ -21,16 +21,21 @@ describe('sign-in errors', () => {
 
 describe('password changes', () => {
 	it('counts characters like the manager, not UTF-16 code units', () => {
-		const elevenEmoji = '🔑'.repeat(11);
-		expect(elevenEmoji.length).toBe(22);
-		expect(newPasswordProblem(elevenEmoji, elevenEmoji)).toBe(
-			m.password_error_short({ count: 12 })
-		);
-		expect(newPasswordProblem('🔑'.repeat(12), '🔑'.repeat(12))).toBeNull();
+		const nine = 'Å1' + '🔑'.repeat(7);
+		expect(newPasswordProblem(nine, nine)).toBe(m.password_error_short({ count: 10 }));
+		const ten = nine + '🔑';
+		expect(newPasswordProblem(ten, ten)).toBeNull();
 	});
 
+	it.each(['abcdefgh12', 'Abcdefghij', '1234567890'])(
+		'rejects %s without a capital or digit',
+		(password) => {
+			expect(newPasswordProblem(password, password)).toBe(m.password_error_composition());
+		}
+	);
+
 	it('requires the confirmation to match', () => {
-		expect(newPasswordProblem('long-enough-pass', 'long-enough-pas')).toBe(
+		expect(newPasswordProblem('Long-enough-pass1', 'Long-enough-pas1')).toBe(
 			m.password_error_mismatch()
 		);
 	});

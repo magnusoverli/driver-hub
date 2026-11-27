@@ -14,7 +14,7 @@ On a fresh installation, open [http://localhost:8080](http://localhost:8080) on 
 | --- | --- |
 | `admin` | `LicenseToDeploy!` |
 
-**You must change the password on first login.** Enter the default password once, then choose and confirm a new password of at least 12 characters. Hub confirms the change and keeps you signed in. Restarting or upgrading an existing installation does not reset its password.
+**You must change the password on first login.** Enter the default password once, then choose and confirm a new password with at least 10 characters, including an uppercase letter and a digit. Hub confirms the change and keeps you signed in. Restarting or upgrading an existing installation does not reset its password.
 
 ## Deploy with Docker Compose
 

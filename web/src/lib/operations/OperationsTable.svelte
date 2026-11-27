@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { shortDigest } from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
-	import { getClock, relativeTime } from '#lib/time/clock.svelte.js';
 	import { formatDuration, formatTimestamp } from '#lib/time/format.js';
 	import Badge from '#lib/ui/Badge.svelte';
 	import Spinner from '#lib/ui/Spinner.svelte';
@@ -15,10 +14,9 @@
 		type Operation
 	} from './operations';
 
-	type Props = { operations: Operation[]; label: string };
+	type Props = { operations: Operation[]; asOf: number; label: string };
 
-	let { operations, label }: Props = $props();
-	const clock = getClock();
+	let { operations, asOf, label }: Props = $props();
 </script>
 
 <Table {label}>
@@ -64,14 +62,14 @@
 						{/if}
 					</span>
 				</td>
-				<td class="time" title={formatTimestamp(operation.startedAt)}>
-					{relativeTime(Date.parse(operation.startedAt), clock.now)}
+				<td class="time">
+					<time datetime={operation.startedAt}>{formatTimestamp(operation.startedAt)}</time>
 				</td>
 				<td class="time">
 					{#if operation.state === 'interrupted'}
 						<span class="secondary">{m.operation_no_duration()}</span>
 					{:else}
-						{formatDuration(operationDuration(operation, clock.now))}
+						{formatDuration(operationDuration(operation, asOf))}
 					{/if}
 				</td>
 			</tr>

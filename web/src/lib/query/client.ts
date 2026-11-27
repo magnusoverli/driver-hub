@@ -2,8 +2,7 @@ import { QueryClient } from '@tanstack/svelte-query';
 import { ApiError } from '#lib/api/errors.js';
 
 /**
- * How often live status is polled. The manager has no push channel, so freshness is shown next
- * to the data instead. Polling stops while the tab is hidden (TanStack's default).
+ * How often live status is polled. Polling pauses while the tab is hidden (TanStack's default).
  */
 export const POLL_INTERVAL_MS = 10_000;
 

@@ -20,7 +20,6 @@
 	import Card from '#lib/ui/Card.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
 	import FilterTabs from '#lib/ui/FilterTabs.svelte';
-	import Freshness from '#lib/ui/Freshness.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 
@@ -64,13 +63,7 @@
 	});
 </script>
 
-<PageHeader title={m.nav_activity()} description={m.activity_description()}>
-	{#snippet meta()}
-		{#if available}
-			<Freshness updatedAt={operations.dataUpdatedAt} fetching={operations.isFetching} />
-		{/if}
-	{/snippet}
-</PageHeader>
+<PageHeader title={m.nav_activity()} description={m.activity_description()} />
 
 {#if capabilities.error}
 	<Callout tone="fail" title={m.activity_error_title()} live>{capabilities.error.message}</Callout>
@@ -116,7 +109,11 @@
 			<FilterTabs label={m.activity_filter_label()} items={filterItems} bind:value={filter} />
 		</div>
 		{#if visible.length}
-			<OperationsTable operations={visible} label={m.activity_table_label()} />
+			<OperationsTable
+				operations={visible}
+				asOf={operations.dataUpdatedAt}
+				label={m.activity_table_label()}
+			/>
 		{:else}
 			<EmptyState icon={SearchX} title={m.activity_no_match_title()}>
 				{#snippet actions()}

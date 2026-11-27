@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '#lib/api/errors.js';
-import { relativeTime } from '#lib/time/clock.svelte.js';
 import { shouldRetry } from './client.js';
 
 describe('query retries', () => {
@@ -15,15 +14,5 @@ describe('query retries', () => {
 		for (const status of [400, 401, 403, 404, 409, 422]) {
 			expect(shouldRetry(0, new ApiError(status, 'refused', 'x'))).toBe(false);
 		}
-	});
-});
-
-describe('relative time', () => {
-	const now = Date.UTC(2026, 10, 26, 12, 0, 0);
-	it('describes ages in the largest fitting unit', () => {
-		expect(relativeTime(now, now, 'en')).toBe('now');
-		expect(relativeTime(now - 4_000, now, 'en')).toBe('4s ago');
-		expect(relativeTime(now - 125_000, now, 'en')).toBe('2m ago');
-		expect(relativeTime(now - 3 * 3_600_000, now, 'en')).toBe('3h ago');
 	});
 });

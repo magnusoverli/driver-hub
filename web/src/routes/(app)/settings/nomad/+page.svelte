@@ -26,7 +26,6 @@
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import Facts from '#lib/ui/Facts.svelte';
-	import Freshness from '#lib/ui/Freshness.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import JobsForm from '#lib/site/JobsForm.svelte';
@@ -164,11 +163,7 @@
 	}
 </script>
 
-<PageHeader title={m.nav_nomad()} description={m.nomad_description()}>
-	{#snippet meta()}
-		<Freshness updatedAt={connection.dataUpdatedAt} fetching={connection.isFetching} />
-	{/snippet}
-</PageHeader>
+<PageHeader title={m.nav_nomad()} description={m.nomad_description()} />
 
 {#if site.error}
 	<Callout tone="fail" title={m.site_error_title()} live>{site.error.message}</Callout>

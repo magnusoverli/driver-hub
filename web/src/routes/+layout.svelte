@@ -18,7 +18,6 @@
 	import { safeNextPath, signInPath } from '#lib/session/redirect.js';
 	import { Session, setSession } from '#lib/session/session.svelte.js';
 	import { documentTarget, setTheme, ThemePreference } from '#lib/theme/theme.svelte.js';
-	import { Clock, setClock } from '#lib/time/clock.svelte.js';
 	import StartupScreen from '#lib/shell/StartupScreen.svelte';
 	import { Notices, setNotices } from '#lib/shell/notices.js';
 	import type { LayoutProps } from './$types';
@@ -31,11 +30,9 @@
 	const session = new Session(httpAuthService(api), {
 		onOperatorChanged: () => queryClient.clear()
 	});
-	const clock = new Clock();
 
 	setApi(api);
 	setSession(session);
-	setClock(clock);
 	setNotices(new Notices());
 	setTheme(new ThemePreference(documentTarget(), browserStorage()));
 
@@ -50,7 +47,6 @@
 	onMount(() => {
 		document.documentElement.lang = getLocale();
 		void session.restore();
-		return clock.start();
 	});
 
 	// Signed-out operators go to the sign-in page and return to where they were afterwards.

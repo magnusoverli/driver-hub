@@ -13,7 +13,7 @@ let sequence = 0;
 /** Creates an operator account through the service token, independent of any browser session. */
 export async function createAccount(request: APIRequestContext, role: Role): Promise<Account> {
 	const username = `${role}-${Date.now().toString(36)}-${sequence++}`;
-	const account = { username, password: `${username}-password` };
+	const account = { username, password: `${username}-Password1` };
 	const response = await request.post('/api/v1/users', {
 		headers: service,
 		data: { ...account, role }

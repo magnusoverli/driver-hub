@@ -20,13 +20,14 @@ export type HopState =
 export type StatusPath = Record<Hop, HopState>;
 
 /** A cached observation expires even when a subsequent poll fails. */
+export const OBSERVATION_TTL_MS = 30_000;
 export function freshStatus<T extends Pick<Deployment, 'communication' | 'communicationEvidence'>>(
 	input: T,
 	now: number
 ): T {
 	if (input.communication === 'unknown') return input;
 	const age = now - Date.parse(input.communicationEvidence.observedAt ?? '');
-	if (age >= 0 && age < 30_000) return input;
+	if (age >= 0 && age < OBSERVATION_TTL_MS) return input;
 	return {
 		...input,
 		communication: 'unknown',

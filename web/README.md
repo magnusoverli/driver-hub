@@ -43,7 +43,7 @@ Run `npx playwright install chromium` once before browser tests. On Windows, run
 | `src/lib/site/`, `src/lib/users/` | Nomad and VideoIPath settings (mirroring the manager's address rules) and local accounts.                                                                                                         |
 | `src/lib/shell/`                  | Top bar, navigation (route IDs, role filtering, a sheet on narrow screens), command palette (`Ctrl K`, also devices and releases), theme and account menus, and notices carried to the next page. |
 | `src/lib/ui/`                     | Design system: tokens (`styles/tokens.css`), base styles and components built on Bits UI primitives.                                                                                              |
-| `src/lib/theme/`, `src/lib/time/` | Theme preference and the shared clock behind "Updated 4 s ago".                                                                                                                                   |
+| `src/lib/theme/`, `src/lib/time/` | Theme preference and localized formatting for event timestamps and durations.                                                                                                                     |
 | `src/routes/`                     | Pages only; the root layout is the composition root that creates and provides every service.                                                                                                      |
 | `messages/en.json`                | Every user-facing string (Paraglide). Add a locale file and list it in `project.inlang/settings.json` to translate.                                                                               |
 

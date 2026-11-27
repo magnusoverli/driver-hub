@@ -5,8 +5,7 @@
 	import { errorMessage } from '#lib/api/messages.js';
 	import { retainedQuery } from '#lib/catalog/queries.js';
 	import ConditionLabel from '#lib/deployments/ConditionLabel.svelte';
-	import { freshStatus } from '#lib/deployments/status-path.js';
-	import { getClock } from '#lib/time/clock.svelte.js';
+	import { freshObservations } from '#lib/deployments/observations.svelte.js';
 	import { deploymentsQuery, updatesQuery } from '#lib/deployments/queries.js';
 	import {
 		condition,
@@ -29,7 +28,6 @@
 	import ReadinessList from '#lib/system/ReadinessList.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
-	import Freshness from '#lib/ui/Freshness.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 
@@ -58,17 +56,9 @@
 	);
 	const attention = $derived(items.filter((item) => item.state === 'attention').length);
 	const settled = $derived(items.every((item) => item.state !== 'checking'));
-	const updatedAt = $derived(
-		Math.min(
-			capabilities.dataUpdatedAt,
-			nomad.dataUpdatedAt,
-			...(cluster ? [deployments.dataUpdatedAt] : [])
-		)
-	);
-
-	const clock = getClock();
 	const sorted = $derived(sortByName(deployments.data ?? []));
-	const rows = $derived(sorted.map((row) => freshStatus(row, clock.now)));
+	const readRows = freshObservations(() => sorted);
+	const rows = $derived(readRows());
 	const troubled = $derived(rows.filter((row) => needsAttention(condition(row))));
 	const counts = $derived({
 		all: rows.length,
@@ -91,11 +81,7 @@
 	const list = resolve('/(app)/deployments');
 </script>
 
-<PageHeader title={m.overview_title()} description={m.overview_description()}>
-	{#snippet meta()}
-		<Freshness {updatedAt} fetching={capabilities.isFetching || deployments.isFetching} />
-	{/snippet}
-</PageHeader>
+<PageHeader title={m.overview_title()} description={m.overview_description()} />
 
 {#if capabilities.error}
 	<Callout tone="fail" title={m.overview_error_title()} live>{capabilities.error.message}</Callout>
@@ -208,7 +194,11 @@
 					<a class="more" href={resolve('/(app)/activity')}>{m.catalog_all_activity()}</a>
 				{/snippet}
 				{#if recent.length}
-					<OperationsTable operations={recent} label={m.overview_work_title()} />
+					<OperationsTable
+						operations={recent}
+						asOf={operations.dataUpdatedAt}
+						label={m.overview_work_title()}
+					/>
 				{:else if operations.data}
 					<p class="muted padded">{m.overview_no_work()}</p>
 				{:else}

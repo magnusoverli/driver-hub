@@ -402,7 +402,11 @@
 		{#snippet actions()}
 			<a class="all-activity" href={resolve('/(app)/activity')}>{m.catalog_all_activity()}</a>
 		{/snippet}
-		<OperationsTable operations={recent} label={m.catalog_recent()} />
+		<OperationsTable
+			operations={recent}
+			asOf={operations.dataUpdatedAt}
+			label={m.catalog_recent()}
+		/>
 	</Card>
 {/if}
 

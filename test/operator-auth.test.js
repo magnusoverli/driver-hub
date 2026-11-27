@@ -12,10 +12,12 @@ import { createApi } from '../src/http.js';
 import { LocalUsers } from '../src/local-users.js';
 import { OperatorSessions } from '../src/operator-sessions.js';
 
+const testPassword = () => `A1-${randomUUID()}`;
+
 test('manager bootstraps once from a file and still requires sign-in on loopback after restart', async () => {
   const root = await mkdtemp(join(tmpdir(), 'driverhub-bootstrap-'));
   const passwordFile = join(root, 'bootstrap');
-  const password = randomUUID();
+  const password = testPassword();
   let manager, closed;
   try {
     await writeFile(passwordFile, password + '\n', { mode: 0o600 });
@@ -79,7 +81,10 @@ test('the default password stays restricted across restarts and cannot be reused
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'password_change_required');
   }
-  const newPassword = randomUUID();
+  for (const invalid of ['Å1' + '🔑'.repeat(7), 'abcdefgh12', 'Abcdefghij', '1234567890']) {
+    assert.equal((await send('/auth/password', cookie, { newPassword: invalid })).status, 400);
+  }
+  const newPassword = 'Å1' + '🔑'.repeat(8);
   const changed = await send('/auth/password', cookie, { newPassword });
   assert.equal(changed.status, 200);
   assert.deepEqual(await changed.json(), { username: 'admin', role: 'admin', provider: 'local' });
@@ -108,8 +113,8 @@ test('local accounts, browser sessions, service tokens and role changes through 
     headers: { 'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1', ...headers },
     body: input === undefined ? undefined : JSON.stringify(input) });
   const machine = { Authorization: `Bearer ${token}` };
-  const admin = { username: 'Operator', role: 'admin', password: randomUUID() };
-  const viewer = { username: 'reader', role: 'viewer', password: randomUUID() };
+  const admin = { username: 'Operator', role: 'admin', password: testPassword() };
+  const viewer = { username: 'reader', role: 'viewer', password: testPassword() };
   const login = async user => {
     const res = await send('/auth/login', 'POST', { username: user.username, password: user.password });
     assert.equal(res.status, 200);
@@ -134,7 +139,7 @@ test('local accounts, browser sessions, service tokens and role changes through 
   assert.equal((await send('/builds', 'POST', {}, userCookie)).status, 403);
   assert.equal((await send('/auth/password', 'POST', { newPassword: randomUUID() }, userCookie)).status, 401);
   assert.equal((await send('/auth/password', 'POST', { currentPassword: 'wrong', newPassword: randomUUID() }, userCookie)).status, 401);
-  const replacement = randomUUID();
+  const replacement = testPassword();
   assert.equal((await send('/auth/password', 'POST', { currentPassword: viewer.password, newPassword: replacement }, userCookie)).status, 200);
   assert.equal((await send('/auth/session', 'GET', undefined, userCookie)).status, 401);
   assert.equal((await send('/auth/login', 'POST', viewer)).status, 401);
@@ -195,8 +200,8 @@ test('deleting an account ends its sessions, keeps an administrator and never re
     assert.equal(res.status, 200);
     return { Cookie: res.headers.get('set-cookie').split(';')[0] };
   };
-  const first = { username: 'first', role: 'admin', password: randomUUID() };
-  const other = { username: 'other', role: 'viewer', password: randomUUID() };
+  const first = { username: 'first', role: 'admin', password: testPassword() };
+  const other = { username: 'other', role: 'viewer', password: testPassword() };
   for (const account of [first, other]) assert.equal((await send('/users', 'POST', account, machine)).status, 200);
 
   // The only administrator cannot be deleted, and an operator cannot delete their own account.
@@ -232,12 +237,12 @@ test('an account named after a built-in object property keeps a whole-number rev
   const directory = await mkdtemp(join(tmpdir(), 'driverhub-property-users-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const users = await LocalUsers.open(directory);
-  await users.create({ username: 'first', role: 'admin', password: randomUUID() });
-  await users.create({ username: 'constructor', role: 'viewer', password: randomUUID() });
+  await users.create({ username: 'first', role: 'admin', password: testPassword() });
+  await users.create({ username: 'constructor', role: 'viewer', password: testPassword() });
   assert.equal(users.resolve('constructor').revision, 1);
   assert.equal((await LocalUsers.open(directory)).resolve('constructor').revision, 1);
   await users.remove('constructor');
-  await users.create({ username: 'constructor', role: 'viewer', password: randomUUID() });
+  await users.create({ username: 'constructor', role: 'viewer', password: testPassword() });
   assert.equal((await LocalUsers.open(directory)).resolve('constructor').revision, 2);
 });
 
@@ -245,7 +250,7 @@ test('sign-in works over plain HTTP from another host only when the manager allo
   const directory = await mkdtemp(join(tmpdir(), 'driverhub-plain-http-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const users = await LocalUsers.open(directory);
-  const password = randomUUID();
+  const password = testPassword();
   await users.create({ username: 'operator', role: 'admin', password });
   // A browser on another machine, visiting the manager by its network address over HTTP. Node's
   // fetch would replace the Host header, so requests go through node:http.

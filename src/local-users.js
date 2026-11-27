@@ -114,10 +114,13 @@ export class LocalUsers {
       revision: (current?.revision ?? this.retired.get(username) ?? 0) + 1 };
     if (create || changes.password !== undefined) {
       const password = changes.password;
-      expect(typeof password === 'string' && [...password].length >= 12 && Buffer.byteLength(password) <= 1024,
-        'Passwords must contain at least 12 characters and at most 1024 UTF-8 bytes');
+      expect(typeof password === 'string' && [...password].length >= 10 && Buffer.byteLength(password) <= 1024,
+        'Passwords must contain at least 10 characters and at most 1024 UTF-8 bytes');
       expect(create || password !== initialAdminPassword, 'Choose a password different from the default password');
       next.mustChangePassword = password === initialAdminPassword;
+      // The factory credential only grants a restricted session to choose a real password.
+      if (!next.mustChangePassword) expect(/\p{Lu}/u.test(password) && /\p{Nd}/u.test(password),
+        'Passwords must include at least one uppercase letter and one digit');
       next.salt = randomBytes(16).toString('hex');
       next.hash = (await hash(password, next.salt)).toString('hex');
     }

@@ -22,12 +22,13 @@ export function passwordChangeProblem(error: unknown): PasswordChangeProblem {
 	return { field: 'form', message: m.error_unexpected() };
 }
 
-export const MIN_PASSWORD_LENGTH = 12;
+export const MIN_PASSWORD_LENGTH = 10;
 
 /** Mirrors the manager's rule, which counts characters rather than UTF-16 code units. */
 export function newPasswordProblem(password: string, confirmation: string): string | null {
 	if ([...password].length < MIN_PASSWORD_LENGTH)
 		return m.password_error_short({ count: MIN_PASSWORD_LENGTH });
+	if (!/\p{Lu}/u.test(password) || !/\p{Nd}/u.test(password)) return m.password_error_composition();
 	if (password !== confirmation) return m.password_error_mismatch();
 	return null;
 }

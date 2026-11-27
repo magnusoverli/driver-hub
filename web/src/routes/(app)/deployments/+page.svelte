@@ -10,8 +10,7 @@
 	import { getApi } from '#lib/api/context.js';
 	import { retainedQuery } from '#lib/catalog/queries.js';
 	import DeploymentTable from '#lib/deployments/DeploymentTable.svelte';
-	import { freshStatus } from '#lib/deployments/status-path.js';
-	import { getClock } from '#lib/time/clock.svelte.js';
+	import { freshObservations } from '#lib/deployments/observations.svelte.js';
 	import { deploymentsQuery, updatesQuery } from '#lib/deployments/queries.js';
 	import {
 		DEPLOYMENT_FILTERS,
@@ -31,7 +30,6 @@
 	import Card from '#lib/ui/Card.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
 	import FilterTabs from '#lib/ui/FilterTabs.svelte';
-	import Freshness from '#lib/ui/Freshness.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import SearchField from '#lib/ui/SearchField.svelte';
@@ -69,9 +67,9 @@
 		});
 	});
 
-	const clock = getClock();
 	const sorted = $derived(sortByName(deployments.data ?? []));
-	const rows = $derived(sorted.map((row) => freshStatus(row, clock.now)));
+	const readRows = freshObservations(() => sorted);
+	const rows = $derived(readRows());
 	const visible = $derived(
 		rows.filter((row) => matchesFilter(row, filter) && matchesSearch(row, search))
 	);
@@ -96,13 +94,7 @@
 	}
 </script>
 
-<PageHeader title={m.nav_deployments()} description={m.deployments_description()}>
-	{#snippet meta()}
-		{#if clusterConfigured}
-			<Freshness updatedAt={deployments.dataUpdatedAt} fetching={deployments.isFetching} />
-		{/if}
-	{/snippet}
-</PageHeader>
+<PageHeader title={m.nav_deployments()} description={m.deployments_description()} />
 
 {#each notices as notice, index (index)}
 	<Callout tone={notice.tone} title={notice.title} live>{notice.body}</Callout>

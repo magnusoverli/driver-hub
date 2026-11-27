@@ -35,8 +35,8 @@
 	import ConfigurationList from '#lib/deployments/ConfigurationList.svelte';
 	import StatusHops from '#lib/deployments/StatusHops.svelte';
 	import { secretReferences } from '#lib/deployments/configuration-form.js';
-	import { detailStatusInput, freshStatus } from '#lib/deployments/status-path.js';
-	import { getClock } from '#lib/time/clock.svelte.js';
+	import { detailStatusInput } from '#lib/deployments/status-path.js';
+	import { freshObservations } from '#lib/deployments/observations.svelte.js';
 	import { deviceName, updateTargets } from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
@@ -46,7 +46,6 @@
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
-	import Freshness from '#lib/ui/Freshness.svelte';
 	import IconButton from '#lib/ui/IconButton.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -83,8 +82,8 @@
 	const retained = createQuery(() => ({ ...retainedQuery(api), enabled: loaded }));
 	const updates = createQuery(() => ({ ...updatesQuery(api), enabled: loaded }));
 
-	const clock = getClock();
-	const deployment = $derived(detail.data && freshStatus(detail.data, clock.now));
+	const readRows = freshObservations(() => (detail.data ? [detail.data] : []));
+	const deployment = $derived(readRows()[0]);
 	const notFound = $derived(!validId || (isApiError(detail.error) && detail.error.status === 404));
 	const targets = $derived(deployment ? updateTargets(deployment, retained.data ?? []) : []);
 	// A newer upstream version worth mentioning only while it still has to be downloaded.
@@ -192,9 +191,6 @@
 			version: deployment.version
 		})}
 	>
-		{#snippet meta()}
-			<Freshness updatedAt={detail.dataUpdatedAt} fetching={detail.isFetching} />
-		{/snippet}
 		{#snippet actions()}
 			{#if deployment.requested === 'stopped'}
 				<Button variant="primary" icon={Play} onclick={() => openAction('start')}>

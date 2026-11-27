@@ -40,7 +40,7 @@ async function signIn(password) {
 const currentPassword = 'LicenseToDeploy!';
 assert.equal((await signIn(currentPassword)).mustChangePassword, true);
 assert.equal((await fetch(`${api}/site`, { headers })).status, 403);
-const newPassword = randomUUID();
+const newPassword = `A1-${randomUUID()}`;
 const changed = await fetch(`${api}/auth/password`, { method: 'POST', headers,
   body: JSON.stringify({ newPassword }) });
 assert.equal(changed.status, 200);
