@@ -28,7 +28,7 @@ DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z
 # DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
 ```
 
-3. For a private image, [sign Docker in to GHCR](OPERATIONS.md#registry-access) with an account that can read the package. From the installation directory:
+3. For a private image, [sign Docker in to GHCR](OPERATIONS.md#registry-access) with an account that can read the package. Alternatively, [load the manager image from the release assets](OPERATIONS.md#installing-the-manager-from-a-release-asset). For the registry install, run:
 
 ```sh
 docker compose pull

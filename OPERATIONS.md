@@ -12,6 +12,18 @@ Compose binds the management UI/API to `127.0.0.1:8080` on the host. For remote 
 
 For a private GHCR package, run `docker login ghcr.io --username YOUR_GITHUB_USERNAME` on the deployment host. At the password prompt, use a GitHub personal access token (classic) with `read:packages`; the account must have read access to the package. Public packages can be pulled anonymously. Registry credentials belong in Docker's credential store, not the Hub `.env`. Nomad clients fetch their image-service package from Hub and do not need a GHCR login.
 
+### Installing the manager from a release asset
+
+Download `driver-hub-<tag>-linux-amd64.tar.gz` or `driver-hub-<tag>-linux-arm64.tar.gz` from the GitHub Release to match your Docker host. `docker load` restores the same versioned image tag used by Compose. For example, for `v0.0.1` on AMD64, set `DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:v0.0.1` in `.env` beside the matching `compose.yaml`, then run:
+
+```sh
+docker load -i driver-hub-v0.0.1-linux-amd64.tar.gz
+docker compose pull buildkit
+docker compose up -d --pull never
+```
+
+Only the manager is in the archive. Skip the BuildKit pull if the exact worker image in `compose.yaml` is already available locally.
+
 ### Upgrading a Compose installation
 
 Back up the manager data, keep the Compose project name and data volume, and take the `compose.yaml` from the new release. Set `DRIVER_HUB_IMAGE` in `.env` to the new versioned image (or its `tag@sha256:…` reference), then run `docker compose pull` and `docker compose up -d`. This recreates the manager and signs operators out. Reconciliation rolls out a changed image-service package to Nomad; check **Settings → Nomad → Image distribution** and the expected client count. Keep the previous image reference and backup for rollback. Do not use `down -v` during an upgrade.
@@ -23,6 +35,8 @@ The supplied project name remains `driver-hub-trial` for compatibility. For an i
 Publish a **GitHub Release** from a commit containing [the image workflow](.github/workflows/release-image.yml), using a tag such as `v1.2.3` or `v1.2.3-rc.1` (`alpha.N` and `beta.N` are also accepted). A branch push, a bare Git tag, or saving a draft does not publish an image. A published prerelease gets its own exact tag.
 
 The workflow tests the backend and starts the runtime image with the installation Compose file. It verifies the UI, embedded package checksum and an OCI export with the bundled builder after administrator opt-in. Pull requests run verification without publishing. On a published release, a separate job uses GitHub's workflow token with `packages: write` to push the multi-platform image to `ghcr.io/<owner>/driver-hub:<release-tag>`. The job summary gives the digest-pinned reference for `.env`. No `latest` tag is published. Use a new version for changed content and check that the first package's visibility and read access match the intended deployment audience.
+
+After the push, CI pulls each platform from that digest and attaches its Docker image archive to the same GitHub Release. Only the attachment job needs `contents: write`.
 
 ### Manager settings
 
