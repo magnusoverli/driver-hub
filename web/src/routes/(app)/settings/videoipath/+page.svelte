@@ -4,6 +4,8 @@
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { resolve } from '$app/paths';
 	import { getApi } from '#lib/api/context.js';
+	import { unwrap } from '#lib/api/client.js';
+	import type { ResponseBody } from '#lib/api/types.js';
 	import { ApiError } from '#lib/api/errors.js';
 	import { deploymentsQuery } from '#lib/deployments/queries.js';
 	import { deviceName, shortId } from '#lib/deployments/view.js';
@@ -57,6 +59,33 @@
 	let busy = $state(false);
 	let problem = $state<SiteProblem | null>(null);
 	let saved = $state<string | null>(null);
+	type Check = ResponseBody<'/site/videoipath/check', 'post'>;
+	let check = $state<
+		Check | { endpoint: string; state: 'checking' | 'unknown'; httpStatus: null } | null
+	>(null);
+	let checkSequence = 0;
+	const checkMessage = {
+		checking: m.videoipath_check_pending,
+		auth_required: m.videoipath_check_auth,
+		upgrade_required: m.videoipath_check_upgrade,
+		not_found: m.videoipath_check_missing,
+		unexpected: m.videoipath_check_unexpected,
+		unreachable: m.videoipath_check_unreachable,
+		tls_failed: m.videoipath_check_tls,
+		timeout: m.videoipath_check_timeout,
+		unknown: m.videoipath_check_unknown
+	};
+
+	async function checkSavedTarget(endpoint: string) {
+		const sequence = ++checkSequence;
+		check = { endpoint, state: 'checking', httpStatus: null };
+		try {
+			const result = await unwrap(api.POST('/site/videoipath/check'));
+			if (sequence === checkSequence) check = result;
+		} catch {
+			if (sequence === checkSequence) check = { endpoint, state: 'unknown', httpStatus: null };
+		}
+	}
 
 	type PoolToken = Site['videoipath']['pool'][number];
 	let removing = $state<PoolToken | null>(null);
@@ -103,6 +132,16 @@
 	});
 
 	const current = $derived(site.data?.videoipath);
+	$effect(() => {
+		const url = current?.url;
+		if (url)
+			untrack(() => {
+				if (check?.endpoint !== url) void checkSavedTarget(url);
+			});
+	});
+	const endpointResponded = $derived(
+		check?.state === 'auth_required' || check?.state === 'upgrade_required'
+	);
 	const endpoint = $derived(videoIPathEndpoint(address));
 	/** The manager keeps the pool only for the same endpoint and mode; otherwise it starts anew. */
 	const samePool = $derived(
@@ -156,12 +195,14 @@
 		if (mode === 'per-device' && !samePool && newTokens.length === 0) return;
 		busy = true;
 		try {
-			const added = mode === 'per-device' ? newTokens.length : 0;
+			const previousCount = samePool ? (current?.pool.length ?? 0) : 0;
 			const result = await configureVideoIPath(api, input());
 			queryClient.setQueryData(siteKeys.settings(), result);
 			fill(result);
-			saved = added ? m.videoipath_saved_tokens({ count: added }) : m.videoipath_saved();
+			const added = result.videoipath.pool.length - previousCount;
+			saved = added > 0 ? m.videoipath_saved_tokens({ count: added }) : m.videoipath_saved();
 			void queryClient.invalidateQueries({ queryKey: systemKeys.all });
+			if (result.videoipath.url) await checkSavedTarget(result.videoipath.url);
 		} catch (error) {
 			problem = siteProblem(error);
 			if (problem.kind === 'conflict') {
@@ -187,6 +228,19 @@
 					{m.videoipath_token_revoke()}
 				</Callout>{/if}
 			<Card title={m.videoipath_current_title()}>
+				{#if current.url && check && check.endpoint === current.url}
+					<Callout
+						tone={check.state === 'checking' ? 'info' : endpointResponded ? 'ok' : 'warn'}
+						title={check.state === 'checking'
+							? m.videoipath_status_checking()
+							: endpointResponded
+								? m.videoipath_status_reachable()
+								: m.videoipath_status_problem()}
+						live
+					>
+						{checkMessage[check.state]({ endpoint: check.endpoint, code: check.httpStatus ?? '—' })}
+					</Callout>
+				{/if}
 				<Facts>
 					<dt>{m.videoipath_endpoint()}</dt>
 					<dd>
@@ -219,7 +273,16 @@
 						</Callout>
 					</div>
 				{/if}
-				<p class="footnote">{m.videoipath_current_note()}</p>
+				{#if current.url}
+					<div class="footnote">
+						<Button
+							disabled={busy || check?.state === 'checking'}
+							onclick={() => current?.url && checkSavedTarget(current.url)}
+						>
+							{m.videoipath_check_again()}
+						</Button>
+					</div>
+				{/if}
 			</Card>
 
 			{#if current.tokenMode === 'per-device' && current.pool.length}
@@ -291,7 +354,6 @@
 
 		<Card title={m.videoipath_form_title()} description={m.videoipath_form_description()}>
 			<form class="form" onsubmit={submit} novalidate>
-				{#if saved}<Callout tone="ok" title={saved} live />{/if}
 				{#if problem}
 					<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
 						{problem.message}
@@ -342,6 +404,9 @@
 					</Button>
 					<span class="note">{m.videoipath_submit_note()}</span>
 				</div>
+				{#if saved}
+					<Callout tone="ok" title={saved} live />
+				{/if}
 			</form>
 		</Card>
 	</div>

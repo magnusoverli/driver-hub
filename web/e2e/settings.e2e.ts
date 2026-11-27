@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { Site } from '../src/lib/site/settings';
 import { ADMIN, BASE_URL, SERVICE_TOKEN } from './environment.mjs';
 import { createAccount, signIn } from './support';
 
@@ -55,6 +56,44 @@ test('Nomad settings distinguish the Hub download address from the optional Noma
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(saved).toBeVisible();
 	await expect(current).not.toContainText('http://nomad.site.example:4646');
+});
+
+test('a saved VideoIPath endpoint can be checked without a Nomad cluster or drivers', async ({
+	page
+}) => {
+	const endpoint = 'wss://vip.site.example/x-driver/v1';
+	await page.route('**/api/v1/site', async (route) => {
+		const response = await route.fetch();
+		const site = (await response.json()) as Site;
+		await route.fulfill({
+			json: {
+				...site,
+				videoipath: {
+					...site.videoipath,
+					url: endpoint,
+					tokenMode: 'shared',
+					tokenConfigured: true
+				}
+			}
+		});
+	});
+	let missing = false;
+	await page.route('**/api/v1/site/videoipath/check', (route) =>
+		route.fulfill({
+			json: {
+				endpoint,
+				state: missing ? 'not_found' : 'auth_required',
+				httpStatus: missing ? 404 : 401
+			}
+		})
+	);
+	await signIn(page, ADMIN, '/settings/videoipath');
+	const current = page.getByRole('region', { name: 'Current target' });
+	await expect(current).toContainText('Driver endpoint reachable');
+	await expect(current).toContainText('The saved driver token was not tested.');
+	missing = true;
+	await current.getByRole('button', { name: 'Check again' }).click();
+	await expect(current).toContainText('not found (HTTP 404)');
 });
 
 test('an API token is shown once, acts with its role, and stops working when revoked', async ({

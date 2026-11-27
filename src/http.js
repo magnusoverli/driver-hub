@@ -9,6 +9,7 @@ import { browserWrite } from './operator-sessions.js';
 import { removeRelease } from './retention.js';
 import { nomadTiming } from './nomad.js';
 import { setupDownloadHost } from './image-distribution.js';
+import { checkVideoIPathEndpoint } from './videoipath-reachability.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -107,6 +108,13 @@ async function route(request, catalog, store, services, access, coordinator) {
     expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
     expect(request.method === 'GET', 'Expected GET', 405);
     return { settings: services.environment ?? [] };
+  }
+  if (pathname === '/api/v1/site/videoipath/check') {
+    expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
+    expect(request.method === 'POST', 'Expected POST', 405);
+    const endpoint = site?.state.videoipath?.url;
+    expect(endpoint, 'Configure the VideoIPath target first', 409);
+    return checkVideoIPathEndpoint(endpoint);
   }
   const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath|deployment|manager))?$/.exec(pathname);
   if (sitePath) {

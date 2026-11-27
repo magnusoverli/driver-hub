@@ -150,6 +150,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/site/videoipath/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Check the saved external-driver route over HTTPS without credentials or a driver session. */
+        post: operations["checkVideoIPathEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/site/deployment": {
         parameters: {
             query?: never;
@@ -1456,6 +1473,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Site"];
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    checkVideoIPathEndpoint: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        endpoint: string;
+                        /** @enum {string} */
+                        state: "auth_required" | "upgrade_required" | "not_found" | "unexpected" | "unreachable" | "tls_failed" | "timeout";
+                        httpStatus: number | null;
+                    };
                 };
             };
             /** @description Request failed */

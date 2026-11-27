@@ -158,6 +158,10 @@ const paths = {
   '/site/videoipath': { put: endpoint('configureVideoIPath', ref('Site'), { body: object({
     revision: integer, address: str, tokenMode, token: secret, tokens: array(secret)
   }, ['revision', 'address']) }) },
+  '/site/videoipath/check': { post: { ...endpoint('checkVideoIPathEndpoint', object({
+    endpoint: str, state: values('auth_required', 'upgrade_required', 'not_found', 'unexpected', 'unreachable', 'tls_failed', 'timeout'),
+    httpStatus: { type: ['integer', 'null'] }
+  })), description: 'Check the saved external-driver route over HTTPS without credentials or a driver session.' } },
   '/site/deployment': { put: endpoint('configureDeployment', ref('Site'), { body: object({ revision: integer,
     nomadUiOrigin: { type: ['string', 'null'] }, sharedWriters: bool
   }, ['revision']) }) },

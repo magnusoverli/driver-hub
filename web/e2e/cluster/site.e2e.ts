@@ -46,14 +46,23 @@ test('per-device tokens are added to a pool, and assignments show which device h
 	const tokens = Array.from({ length: 3 }, (_, i) => `e2e-token-${Date.now()}-${i}`);
 	await form.getByLabel(/^Tokens/).fill(`${tokens.join('\n')}\n${tokens[0]}`);
 	await expect(form.getByText('3 token(s) to add.')).toBeVisible();
-	await form.getByRole('button', { name: 'Save target' }).click();
-	await expect(form.getByText(/^Saved\. 3 token\(s\) added to the pool\.$/)).toBeVisible();
-
+	await page.route('**/api/v1/site/videoipath/check', (route) =>
+		route.fulfill({
+			json: {
+				endpoint: 'wss://vip.site.example/x-driver/v1',
+				state: 'unreachable',
+				httpStatus: null
+			}
+		})
+	);
+	await form.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect(form.getByText('VideoIPath settings saved. Tokens added: 3.')).toBeVisible();
 	const current = page.getByRole('region', { name: 'Current target' });
+	await expect(current.getByRole('status')).toContainText(/could not reach|timed out/);
 	await expect(current).toContainText('wss://vip.site.example/x-driver/v1');
 	await expect(current).toContainText(/\d+ unused, \d+ assigned/);
 	// Saving again with nothing new is not offered.
-	await expect(form.getByRole('button', { name: 'Save target' })).toBeDisabled();
+	await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 
 	// Staging a device that uses the site reserves a token for it.
 	const nodeId = await stageWithSite('VideoIPath pool meter');
