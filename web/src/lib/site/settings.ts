@@ -184,6 +184,7 @@ export function nomadInput(
 	revision: number,
 	form: {
 		address: string;
+		distributionAddress?: string;
 		namespace: string;
 		datacenters: string;
 		tokenChoice: NomadTokenChoice;
@@ -199,6 +200,8 @@ export function nomadInput(
 		plainHttp: form.plainHttp
 	};
 	if (form.tokenChoice === 'replace') input.token = form.token.trim();
+	if (form.distributionAddress !== undefined)
+		input.distributionAddress = form.distributionAddress.trim() || null;
 	if (form.tokenChoice === 'none') input.token = null;
 	return input;
 }

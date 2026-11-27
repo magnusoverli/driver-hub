@@ -9,6 +9,7 @@
 		canKeepNomadToken,
 		configureNomad,
 		datacentersProblem,
+		environmentQuery,
 		namespaceProblem,
 		nomadInput,
 		isRemotePlainHttp,
@@ -37,9 +38,14 @@
 	const api = getApi();
 	const queryClient = useQueryClient();
 	const site = createQuery(() => siteQuery(api));
+	const environment = createQuery(() => environmentQuery(api));
+	const downloadOverride = $derived(
+		environment.data?.find((entry) => entry.name === 'DRIVER_HUB_DISTRIBUTION_ADDRESS')?.value
+	);
 	const connection = createQuery(() => nomadConnectionQuery(api));
 
 	let address = $state('');
+	let distributionAddress = $state('');
 	let namespace = $state('default');
 	let datacenters = $state('dc1');
 	let tokenChoice = $state<NomadTokenChoice>('replace');
@@ -54,6 +60,7 @@
 
 	function fill(settings: Site) {
 		address = settings.nomad.address ?? '';
+		distributionAddress = settings.nomad.distributionAddress ?? '';
 		namespace = settings.nomad.namespace;
 		datacenters = settings.nomad.datacenters.join(', ');
 		tokenChoice = settings.nomad.tokenConfigured
@@ -131,6 +138,7 @@
 				api,
 				nomadInput(revisionFor(basis, site.data, 'nomad'), {
 					address,
+					distributionAddress: downloadOverride ? undefined : distributionAddress,
 					namespace,
 					datacenters,
 					tokenChoice,
@@ -238,6 +246,23 @@
 						hint={origin ? m.nomad_address_resolved({ origin }) : m.nomad_address_hint()}
 						error={addressError}
 					/>
+					{#if downloadOverride}
+						<TextField
+							label={m.nomad_download_address()}
+							value={downloadOverride}
+							readonly
+							hint={m.nomad_download_override()}
+						/>
+					{:else}
+						<TextField
+							label={m.nomad_download_address()}
+							bind:value={distributionAddress}
+							placeholder="hub.site.example"
+							autocomplete="off"
+							spellcheck={false}
+							hint={m.nomad_download_hint()}
+						/>
+					{/if}
 					<div class="pair">
 						<TextField
 							label={m.nomad_namespace()}

@@ -36,7 +36,7 @@ export function readEnvironment(env = process.env) {
     siteDir,
     imagesDir: join(dataDir, 'images'),
     distributionPort: Number(effective.DRIVER_HUB_DISTRIBUTION_PORT),
-    // Unset, the address is detected from the manager's connection to Nomad.
+    // Overrides the client-facing address set in Settings > Nomad cluster.
     distributionAddress: value('DRIVER_HUB_DISTRIBUTION_ADDRESS'),
     webDir: effective.DRIVER_HUB_WEB_DIR,
     siteKeyFile: value('DRIVER_HUB_SITE_KEY_FILE'),

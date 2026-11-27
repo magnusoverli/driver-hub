@@ -20,10 +20,13 @@ test('the Nomad page reports the connection and saves only after reaching the le
 	await expect(form.getByText('Enter a host name, IP address or http(s) URL')).toBeVisible();
 
 	await form.getByLabel('Address', { exact: true }).fill(FAKE_NOMAD_URL);
+	await form.getByLabel('Hub download address').fill('hub.site.example');
 	await form.getByLabel('Datacenters').fill('dc1, dc2');
 	await form.getByRole('button', { name: 'Check and save' }).click();
 	await expect(form.getByText('Saved. Hub reached the Nomad leader.')).toBeVisible();
 	await expect(current).toContainText('dc1, dc2');
+	await page.reload();
+	await expect(form.getByLabel('Hub download address')).toHaveValue('hub.site.example');
 
 	await form.getByLabel('Datacenters').fill('dc1');
 	await form.getByRole('button', { name: 'Check and save' }).click();

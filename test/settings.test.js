@@ -125,6 +125,20 @@ test('a token goes to a remote Nomad over plain HTTP only once an administrator 
   assert.equal((await call('PUT', '/site/nomad', { revision: 2, address: cluster.address, plainHttp: false })).status, 422);
 });
 
+test('the Hub download address is validated, saved across restarts and preserved when omitted', async t => {
+  const root = await temporary(t);
+  const open = () => Site.open(root, {}, { client: () => ({ connection: async () => ({ state: 'connected' }) }) });
+  let site = await open();
+  const call = await serve(t, { get site() { return site; } });
+  const configure = (revision, fields) => call('PUT', '/site/nomad', { revision, address: 'nomad.lan', ...fields });
+  for (const distributionAddress of ['http://hub.lan', 'user@hub.lan', 'hub.lan/path', 'hub.lan:65536'])
+    assert.equal((await configure(0, { distributionAddress })).status, 400);
+  assert.equal((await configure(0, { distributionAddress: 'hub.lan:15481' })).status, 200);
+  site = await open();
+  assert.equal((await configure(1, {})).body.nomad.distributionAddress, 'hub.lan:15481');
+  assert.equal((await configure(2, { distributionAddress: null })).body.nomad.distributionAddress, null);
+});
+
 test('a manager that can build lets administrators turn builds on', async t => {
   const site = await Site.open(await temporary(t), {}, { buildsAvailable: true });
   const call = await serve(t, { site });

@@ -178,10 +178,10 @@ test('setting up Nomad starts the image service on the clients, with its list wr
   const root = await temporary(t);
   const source = await published(root, '1.0.0');
   const nomad = fakeNomad({ services: [{ Address: '10.0.0.7', Port: 5480 }, { Address: '10.0.0.8', Port: 5480 }] });
-  const site = { state: { nomad: { address: nomad.address, namespace: 'driverhub', datacenters: ['dc1', 'dc2'] } },
+  const site = { state: { nomad: { address: nomad.address, namespace: 'driverhub', datacenters: ['dc1', 'dc2'],
+    distributionAddress: '10.0.0.5' } },
     client: () => nomad };
-  const distribution = new ImageDistribution({ images: source.images, site, packages: [pkg], port: 5481,
-    detect: async () => '10.0.0.5' });
+  const distribution = new ImageDistribution({ images: source.images, site, packages: [pkg], port: 5481 });
   await distribution.reconcile();
 
   assert.deepEqual(nomad.calls.map(c => c[0]).filter(c => ['putVariable', 'register'].includes(c)), ['putVariable', 'register']);
@@ -211,6 +211,29 @@ test('setting up Nomad starts the image service on the clients, with its list wr
   assert.deepEqual(nomad.calls.filter(c => ['putVariable', 'register'].includes(c[0])), []);
 });
 
+test('no inferred address is published; configuring a host updates both Nomad download locations', async () => {
+  const nomad = fakeNomad();
+  const site = { state: { nomad: { address: 'http://127.0.0.1:4646', namespace: 'default', datacenters: ['dc1'] } },
+    client: () => nomad };
+  const options = { images: { list: async () => [] }, site, packages: [pkg], port: 5481 };
+  const distribution = new ImageDistribution(options);
+  await distribution.reconcile();
+  assert.deepEqual(nomad.calls, []);
+  const status = await distribution.status();
+  assert.equal(status.reason, 'distribution_address_required');
+  assert.equal(status.source, null);
+
+  site.state.nomad.distributionAddress = 'hub.lan';
+  await distribution.reconcile();
+  for (const [hub, expected] of [[distribution, 'http://hub.lan:5481'],
+    [new ImageDistribution({ ...options, address: '[fd00::5]:80' }), 'http://[fd00::5]:80']]) {
+    await hub.reconcile();
+    const artifact = nomad.job.TaskGroups[0].Tasks[0].Artifacts[0];
+    assert.equal(artifact.GetterSource, `${expected}/_hub/image-service-${pkg.sha256}.tar.gz`);
+    assert.deepEqual(JSON.parse((await nomad.variable(IMAGE_VARIABLE)).Items.wanted).sources, [expected]);
+  }
+});
+
 test('the status reports where the copies run and whether they hold every image', async t => {
   const root = await temporary(t);
   const source = await published(root, '1.0.0');
@@ -227,7 +250,7 @@ test('the status reports where the copies run and whether they hold every image'
   });
   const site = { state: { nomad: { address: nomad.address, namespace: 'driverhub', datacenters: ['dc1'] } },
     client: () => nomad };
-  const distribution = new ImageDistribution({ images: source.images, site, packages: [pkg], port: 5481, detect: async () => '10.0.0.5' });
+  const distribution = new ImageDistribution({ images: source.images, site, packages: [pkg], port: 5481, address: '10.0.0.5' });
   assert.equal((await distribution.status()).state, 'starting');
   await distribution.reconcile();
   const status = await distribution.status();

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { expect } from './errors.js';
 import { Nomad, requireSecureNomad } from './nomad.js';
 import { DeploymentJournal } from './deployment-journal.js';
+import { parseAddress } from './image-distribution.js';
 
 function endpoint(value, service) {
   expect(typeof value === 'string' && value.length > 0 && value.length <= 2048 &&
@@ -39,7 +40,7 @@ const initialState = () => ({
 
 // The fields each part of the site settings accepts, besides the revision.
 const fields = {
-  nomad: ['address', 'token', 'namespace', 'datacenters', 'plainHttp'],
+  nomad: ['address', 'token', 'namespace', 'datacenters', 'plainHttp', 'distributionAddress'],
   videoipath: ['address', 'token', 'tokenMode', 'tokens'],
   deployment: ['nomadUiOrigin', 'sharedWriters'],
   manager: ['buildsEnabled', 'timings']
@@ -137,6 +138,7 @@ export class Site {
     const { revision, nomad, videoipath, used, deployment, manager } = this.state;
     const tokens = videoipath?.tokens;
     return { revision, nomad: { address: nomad.address ?? null, namespace: nomad.namespace,
+      distributionAddress: nomad.distributionAddress ?? null,
       datacenters: nomad.datacenters, tokenConfigured: Boolean(nomad.token), plainHttp: Boolean(nomad.plainHttp) },
     deployment: { nomadUiOrigin: deployment.nomadUiOrigin, sharedWriters: deployment.sharedWriters },
     manager: { ...manager, buildsAvailable: this.buildsAvailable },
@@ -225,7 +227,9 @@ export class Site {
       const same = address === old.nomad.address && namespace === old.nomad.namespace;
       const token = input.token === undefined && same ? old.nomad.token : input.token == null ? null : credential(input.token);
       const plainHttp = choose(input, { plainHttp: Boolean(old.nomad.plainHttp) }, 'plainHttp', flag);
-      next.nomad = { address, namespace, datacenters, token, plainHttp };
+      const { distributionAddress = old.nomad.distributionAddress ?? null } = input;
+      if (distributionAddress !== null) parseAddress(distributionAddress);
+      next.nomad = { address, namespace, datacenters, token, plainHttp, distributionAddress };
       if (token) requireSecureNomad(address, plainHttp);
       const status = await this.client(next.nomad).connection();
       expect(status.state === 'connected', 'Nomad has no elected leader', 409, 'nomad_not_ready');

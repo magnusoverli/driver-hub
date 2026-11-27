@@ -36,8 +36,8 @@ The standard installation is **Docker Compose**. The release image includes the 
 # HTTP. Behind an HTTPS reverse proxy on this machine, keep it local and the cookie Secure:
 # DRIVER_HUB_LISTEN_ADDRESS=127.0.0.1
 # DRIVER_HUB_ALLOW_PLAIN_HTTP=false
-# For a real cluster: the host name or IP the Nomad clients use to reach this machine.
-DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
+# To configure the Hub download address here instead of in Settings > Nomad cluster:
+# DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
 # Stay on one release instead of the latest.
 # DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z
 ```
@@ -51,7 +51,7 @@ docker compose up -d
 
 4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup.
 
-By default Hub is reachable at `http://<host>:8080` from the network and accepts sign-in over plain HTTP, which suits a trusted development network. For anything else, put an HTTPS reverse proxy in front and set the two lines above (see [remote access](OPERATIONS.md#installation)). Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
+By default Hub is reachable at `http://<host>:8080` from the network and accepts sign-in over plain HTTP, which suits a trusted development network. For anything else, put an HTTPS reverse proxy in front and set the two lines above (see [remote access](OPERATIONS.md#installation)). Under **Settings → Nomad cluster**, enter the Nomad API address and the **Hub download address** (the Docker host name or IP reachable from the clients). Save and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
 To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), repeat the pull and start commands with the same volume. With the `compose.yaml` from `main` that moves to the latest release; with a release's own copy, download the new release's `compose.yaml` first. `docker compose down` stops Hub and keeps its data. Adding `-v` deletes accounts, settings, releases and images in the local volume; it does not remove Nomad jobs.
 
@@ -194,7 +194,7 @@ The manager and web app support release acquisition, verified image distribution
 | 12. Approval | Approval stays in VideoIPath. Report Nomad process state separately from driver communication. |
 | 13. Migration | Keep the existing `node_id`. Stage the replacement, stop the original, start the replacement, then verify control. To revert, stop the replacement before restarting the original. |
 | 14. Configuration | Releases declare input types, requirements, defaults, secret fields and delivery bindings. Customer values stay local and are validated against the target release before cutover. |
-| 15. Image distribution | Hub manages a service on each eligible client. Drivers pull locally; no separate registry or per-driver image host is required. Configure the advertised manager address if clients cannot reach its detected address. |
+| 15. Image distribution | Hub manages a service on each eligible client. Drivers pull locally; no separate registry or per-driver image host is required. Clients fetch from the configured Hub download address. |
 
 **Upstream convention (items 11 and 14).** The VideoIPath External Drivers repository has adopted the per-driver release convention: `Drivers/RELEASING.md`, JSON Schemas for `driver-release.json` and `driver-config.json` under `Drivers/schemas/`, and `drivers/rust-example/v0.3.0` as the first release. Hub accepts every input property those schemas define. The work order in [docs/workorders/external-drivers-driverhub-compatibility.md](docs/workorders/external-drivers-driverhub-compatibility.md) states Hub's full driver contract and the remaining upstream work: schema support for `controlHealth`, `nodeIdInput` and `videoIPathInputs`, a control-health endpoint and a shorter shutdown in the Rust example, and validation for every driver. The release pilot still needs two versions of one driver, a changed required setting, and an update and rollback.
 

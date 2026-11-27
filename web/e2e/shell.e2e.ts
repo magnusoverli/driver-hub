@@ -61,7 +61,7 @@ test('the overview reports what the site still needs', async ({ page }) => {
 	const readiness = page.getByRole('region', { name: 'Site readiness' });
 	await expect(readiness.getByText('No cluster address is configured yet.')).toBeVisible();
 	await expect(
-		readiness.getByText('Starts by itself once the Nomad cluster is set up.')
+		readiness.getByText('Starts once the Nomad connection and Hub download address are set.')
 	).toBeVisible();
 	await expect(page.getByText('Setup needs attention (3)')).toBeVisible();
 	await readiness.getByRole('link', { name: 'Open settings' }).first().click();

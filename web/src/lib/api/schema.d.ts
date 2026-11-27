@@ -766,6 +766,8 @@ export interface components {
             revision: number;
             nomad: {
                 address: string | null;
+                /** @description Hub hostname or IP (optionally with port) that Nomad clients fetch images from. Overridden by DRIVER_HUB_DISTRIBUTION_ADDRESS. */
+                distributionAddress: string | null;
                 namespace: string;
                 datacenters: string[];
                 tokenConfigured: boolean;
@@ -1392,6 +1394,8 @@ export interface operations {
                 "application/json": {
                     revision: number;
                     address: string;
+                    /** @description Hub hostname or IP (optionally with port) that Nomad clients fetch images from. Overridden by DRIVER_HUB_DISTRIBUTION_ADDRESS. */
+                    distributionAddress?: string | null;
                     token?: string | null;
                     namespace?: string;
                     datacenters?: string[];

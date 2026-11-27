@@ -47,8 +47,8 @@ services:
       # under Settings. The clients fetch images from the manager on this port. If you change it,
       # change the last port under "ports" above to match.
       DRIVER_HUB_DISTRIBUTION_PORT: '5481'
-      # The address at which Nomad clients reach this machine. Needed here because inside the
-      # container Hub only sees its own container address. Without a Nomad cluster it is unused.
+      # Optional override for "Hub download address" in Settings > Nomad cluster. Use the host
+      # name or IP that clients can reach, not the container's bridge address.
       DRIVER_HUB_DISTRIBUTION_ADDRESS: ${DRIVER_HUB_DISTRIBUTION_ADDRESS:-}
 
       # --- Storage -------------------------------------------------------------------------------

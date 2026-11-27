@@ -5,6 +5,8 @@ const integer = { type: 'integer' };
 const uuid = { type: 'string', format: 'uuid' };
 const tokenMode = { enum: ['per-device', 'shared'], type: 'string' };
 const secret = { type: 'string', writeOnly: true };
+const distributionAddress = { type: ['string', 'null'],
+  description: 'Hub hostname or IP (optionally with port) that Nomad clients fetch images from. Overridden by DRIVER_HUB_DISTRIBUTION_ADDRESS.' };
 const date = { type: 'string', format: 'date-time' };
 const anyObject = { type: 'object', additionalProperties: true };
 const ref = name => ({ $ref: `#/components/schemas/${name}` });
@@ -73,7 +75,7 @@ const schemas = {
       description: 'Set in the manager\'s environment, using the built-in default, or unset without a default.' },
     value: { type: ['string', 'null'], description: 'The value in effect. Always null for a secret.' } }),
   Site: object({ revision: integer,
-    nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool,
+    nomad: object({ address: { type: ['string', 'null'] }, distributionAddress, namespace: str, datacenters: array(str), tokenConfigured: bool,
       plainHttp: { type: 'boolean', description: 'Credentials may go to this Nomad over plain HTTP: a trusted network.' } }),
     deployment: object({
       nomadUiOrigin: { type: ['string', 'null'], description: 'HTTPS origin of the Nomad web interface, for log links.' },
@@ -148,7 +150,7 @@ const paths = {
     'administrator (409 last_admin) and for the signed-in operator\'s own account (409 own_account).' } },
   '/site': { get: endpoint('getSiteSettings', ref('Site')) },
   '/site/nomad': { put: endpoint('configureNomad', ref('Site'), { body: object({ revision: integer,
-    address: str, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str),
+    address: str, distributionAddress, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str),
     plainHttp: { type: 'boolean', description: 'Allow sending the token over plain HTTP. Only for trusted networks.' }
   }, ['revision', 'address']) }) },
   '/site/videoipath': { put: endpoint('configureVideoIPath', ref('Site'), { body: object({

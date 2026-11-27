@@ -19,6 +19,7 @@ const site: Site = {
 	revision: 4,
 	nomad: {
 		address: 'https://nomad.site.example:4646',
+		distributionAddress: null,
 		namespace: 'driverhub',
 		datacenters: ['dc1'],
 		tokenConfigured: true,
@@ -93,6 +94,9 @@ describe('Nomad connection form', () => {
 		});
 		expect(nomadInput(4, { ...form, tokenChoice: 'none' }).token).toBeNull();
 		expect(nomadInput(4, { ...form, tokenChoice: 'replace' }).token).toBe('secret');
+		expect(
+			nomadInput(4, { ...form, tokenChoice: 'keep', distributionAddress: ' hub.site ' })
+		).toHaveProperty('distributionAddress', 'hub.site');
 	});
 
 	it('asks for permission only to send a token to another machine over plain HTTP', () => {

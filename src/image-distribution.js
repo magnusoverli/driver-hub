@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
-import { createSocket } from 'node:dgram';
-import { lookup } from 'node:dns/promises';
 import { createReadStream } from 'node:fs';
 import { readFile, readdir, stat, unlink } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { expect } from './errors.js';
 
 // Driver Hub distributes driver images itself. It runs an image service on every eligible Nomad
 // client (a system job), and driver jobs pull from the copy on their own machine. Docker accepts
@@ -87,31 +86,22 @@ export function packageRoute(packages) {
   };
 }
 
-// The local address this machine uses to reach Nomad. Nomad clients are on the same network,
-// so they reach the manager there too. Nothing is sent: connecting a UDP socket only picks a route.
-export async function localAddressToward(nomadAddress) {
-  const { hostname, port } = new URL(nomadAddress);
-  const host = hostname.replace(/^\[|\]$/g, '');
-  const { address, family } = isIP(host) ? { address: host, family: isIP(host) } : await lookup(host);
-  const socket = createSocket(family === 6 ? 'udp6' : 'udp4');
-  try {
-    await new Promise((resolve, reject) => {
-      socket.once('error', reject);
-      socket.connect(Number(port) || 4646, address, resolve);
-    });
-    return socket.address().address;
-  } finally { socket.close(); }
-}
-
 export function sourceUrl(host, port) {
   return `http://${isIP(host) === 6 ? `[${host}]` : host}:${port}`;
 }
 
-// An administrator's override: a host name or IP address, optionally with a port.
-export function parseAddress(value, port) {
-  const url = new URL(`http://${value}`);
-  if (url.pathname !== '/' || url.username || url.search) throw new Error('Expected a host, optionally with a port');
-  return { host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port) || port };
+// The manager address as seen by Nomad clients. A port on an IPv6 literal requires brackets.
+export function parseAddress(value, defaultPort) {
+  const message = 'Enter the Driver Hub hostname or IP, optionally with a port, without a URL scheme or path.';
+  expect(typeof value === 'string' && value.length <= 255, message);
+  if (isIP(value) === 6) return { host: value, port: defaultPort };
+  const match = /^(\[[\da-f:.]+\]|[\w.-]+)(?::(\d+))?\/?$/i.exec(value);
+  expect(match, message);
+  let url;
+  try { url = new URL(`http://${value}`); } catch { expect(false, message); }
+  const port = match[2] === undefined ? defaultPort : Number(match[2]);
+  if (match[2]) expect(port > 0 && port <= 65535, message);
+  return { host: url.hostname.replace(/^\[|\]$/g, ''), port };
 }
 
 // One task group per client architecture, each running the image service built for it.
@@ -162,10 +152,10 @@ function imageServiceGroup(source, pkg) {
 const fingerprintOf = value => createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32);
 
 export class ImageDistribution {
-  // `site` gives the Nomad settings; `address` overrides the detected manager address.
+  // `address` is the installation override for the client-facing address saved with the site.
   // `packages` are the image service archives, one per client architecture.
-  constructor({ images, site, packages = [], port, address, detect = localAddressToward, interval = 60000 }) {
-    Object.assign(this, { images, site, packages, port, address, detect, interval });
+  constructor({ images, site, packages = [], port, address, interval = 60000 }) {
+    Object.assign(this, { images, site, packages, port, address, interval });
     this.pending = Promise.resolve();
     this.last = null;
     this.queued = false;
@@ -193,20 +183,19 @@ export class ImageDistribution {
     return nomad.address ? this.site.client(nomad) : null;
   }
 
-  async source(nomadAddress) {
-    if (this.address) {
-      const { host, port } = parseAddress(this.address, this.port);
-      return sourceUrl(host, port);
-    }
-    return sourceUrl(await this.detect(nomadAddress), this.port);
-  }
-
   async reconcile() {
     const client = this.nomad();
     if (!client || !this.packages.length) return;
+    let source = null;
     try {
       const { nomad } = this.site.state;
-      const source = await this.source(nomad.address);
+      // Never infer a download URL from the outgoing Nomad connection: behind NAT its local
+      // interface can be private to this container. Resolve this before making any Nomad writes.
+      const address = this.address || nomad.distributionAddress;
+      expect(address, 'Set the Hub download address in Settings > Nomad cluster, or set DRIVER_HUB_DISTRIBUTION_ADDRESS.',
+        409, 'distribution_address_required');
+      const { host, port } = parseAddress(address, this.port);
+      source = sourceUrl(host, port);
       const peers = (await client.services(IMAGE_JOB))
         .filter(s => typeof s?.Address === 'string' && Number.isSafeInteger(s.Port))
         .map(s => sourceUrl(s.Address, s.Port)).sort();
@@ -220,7 +209,7 @@ export class ImageDistribution {
       if (existing?.Meta?.spec !== job.Meta.spec || existing.Stop) await client.register(job);
       this.last = { at: new Date().toISOString(), source, error: null };
     } catch (error) {
-      this.last = { at: new Date().toISOString(), source: this.last?.source ?? null,
+      this.last = { at: new Date().toISOString(), source,
         error: { code: error.code ?? 'image_distribution_failed', message: error.message } };
     }
   }

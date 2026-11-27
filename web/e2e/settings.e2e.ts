@@ -23,14 +23,16 @@ test('the settings pages are listed under Settings, for administrators only', as
 	await context.close();
 });
 
-test('image distribution needs no settings, and starts once the Nomad cluster is set up', async ({
+test('Nomad settings distinguish the Hub download address from the optional Nomad web link', async ({
 	page
 }) => {
 	await signIn(page, ADMIN, '/settings/nomad');
-	await expect(page.getByLabel('Image host')).toHaveCount(0);
+	await expect(page.getByLabel('Hub download address')).toBeEmpty();
 	const images = page.getByRole('region', { name: 'Image distribution' });
 	await expect(images).toContainText('Not set up');
-	await expect(images).toContainText('Starts by itself once the Nomad cluster is set up.');
+	await expect(images).toContainText(
+		'Starts once the Nomad connection and Hub download address are set.'
+	);
 
 	const jobs = page.getByRole('region', { name: 'Jobs', exact: true });
 	const ui = jobs.getByLabel('Nomad web interface');

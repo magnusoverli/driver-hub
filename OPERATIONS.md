@@ -58,7 +58,7 @@ The environment holds only what the manager needs before its web interface runs,
 | `HOST`, `PORT` | Manager | Bind address and port of the API and web interface. Defaults to `127.0.0.1:8080` natively; the container binds `0.0.0.0`. |
 | `DRIVER_HUB_DATA_DIR` | Manager | Durable archive and release metadata, verified images (`images/`), accounts and site settings; default `~/.driver-hub`. |
 | `DRIVER_HUB_DISTRIBUTION_PORT` | Manager | Port of the read-only listener the Nomad clients fetch images from (see [image distribution](#image-distribution)); default `5481`, on every interface. |
-| `DRIVER_HUB_DISTRIBUTION_ADDRESS` | Manager | Optional. The host, optionally with a port, at which Nomad clients reach that listener. Unset, Hub uses the address it reaches Nomad from. Set it when that address is not reachable from the clients, as in a container with bridge networking. |
+| `DRIVER_HUB_DISTRIBUTION_ADDRESS` | Manager | Overrides **Hub download address** in Settings → Nomad cluster. Use the host, optionally with a port, at which Nomad clients reach the distribution listener. |
 | `DRIVER_HUB_WEB_DIR` | Manager | Built frontend to serve; default `web/build` beside `src/`. Without an `index.html` there, the manager serves only the API. |
 | `DRIVER_HUB_SITE_KEY_FILE` | Manager | Key for the saved site settings; see the end of [site setup](#site-setup-after-container-startup). |
 | `DRIVER_HUB_BOOTSTRAP_USERNAME`, `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` | Manager | The first administrator; see [operator sign-in](#operator-sign-in). |
@@ -79,7 +79,9 @@ Saved in the site settings instead:
 
 ### Image distribution
 
-After the Nomad connection is saved, the manager writes the desired image list to `nomad/jobs/driverhub-images`, then registers the `driverhub-images` system job in that namespace and its configured datacenters. No customer registry is needed. Use the Hub container for this workflow: a source checkout without the packaged image service reports `unavailable` with `reason: "no_package"`.
+With a saved Nomad connection and Hub download address, the manager writes the desired image list to `nomad/jobs/driverhub-images`, then registers the `driverhub-images` system job in that namespace and its configured datacenters. No customer registry is needed. Use the Hub container for this workflow: a source checkout without the packaged image service reports `unavailable` with `reason: "no_package"`.
+
+If upgrading from a version that guessed the manager address, set **Settings → Nomad cluster → Hub download address** to the Docker host name or IP reachable from the clients. Installations with `DRIVER_HUB_DISTRIBUTION_ADDRESS` already set need no change. With neither address set, Hub reports `distribution_address_required` and leaves the existing job and Variable alone. Saving the address updates both; there is no need to delete the job or replace the Nomad token.
 
 - **Pulls stay on the machine.** Driver jobs pull from `127.0.0.1:5480`, the copy on their own client. Docker accepts plain HTTP from a registry in `127.0.0.0/8` without configuration. Docker documents this, but advises against relying on it; a daemon configured otherwise needs `127.0.0.1:5480` in its `insecure-registries`.
 - **Every client keeps a copy.** The service copies the published images on Hub's list from the manager or a peer. If Docker asks for a pinned root manifest before a newly staged image appears on the local list, the service can fetch it on demand and keeps the fresh copy through a one-hour grace period. With the manager down, a replacement driver needs a running local image service and either a local copy or a reachable peer with the complete image.
@@ -143,14 +145,14 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 
 ## Site setup after container startup
 
-The supplied Compose file mounts the named data volume at `/data`. Set `DRIVER_HUB_DISTRIBUTION_ADDRESS` in `.env` to the Docker host address the clients can reach; inside the bridge network Hub may see only a container address. After first login, enter the Nomad cluster and VideoIPath target under **Settings**.
+The supplied Compose file mounts the named data volume at `/data`. After first login, enter the Nomad cluster, Hub download address and VideoIPath target under **Settings**.
 
 The site endpoints below are admin-only; integration status is also readable by viewers. Paths are relative to `/api/v1`. Supply the latest site `revision` on each PUT; it covers all site settings. Tokens are write-only.
 
 | Request | Input and result |
 | --- | --- |
 | `GET /site` | Returns revision, addresses, namespace, datacenters, `nomad.plainHttp`, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
-| `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. |
+| `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","distributionAddress":"hub.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare Nomad IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. `distributionAddress` is the client-facing Hub host, optionally with a port; omit to retain it, or send `null` to clear it. |
 | `PUT /site/deployment` | `{"revision":1,"nomadUiOrigin":"https://nomad.site.example","sharedWriters":false}`. Each field is optional: an omitted one keeps its value, `null` clears the Nomad web interface. |
 | `GET /integrations/images` | [Image distribution state and counts](#image-distribution), number of published `images`, manager `source` address and `problems` per client. |
 | `PUT /site/manager` | `{"revision":2,"buildsEnabled":true,"timings":false}`. Turning builds on returns `409 builds_unavailable` when the manager cannot build. `GET /site` reports that as `manager.buildsAvailable`. |
