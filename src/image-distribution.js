@@ -36,27 +36,45 @@ export async function prunePackages(directory, current) {
   }
 }
 
-// The image service ships as a gzipped `docker save` archive built with Hub's container image.
-// Native installations without one cannot distribute images.
-export async function readPackage(directory = fileURLToPath(new URL('../image-service/', import.meta.url))) {
+async function readPackageAt(directory) {
   try {
     const meta = JSON.parse(await readFile(join(directory, 'image-service.json'), 'utf8'));
     if (!/^[0-9a-f]{64}$/.test(meta.sha256) || !/^driverhub\/image-service:[\w.-]+$/.test(meta.tag) ||
       !/^[a-z0-9]+$/.test(meta.arch)) return null;
     return { ...meta, file: join(directory, 'image-service.tar.gz') };
   } catch (error) {
-    if (error.code === 'ENOENT') return null;
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
     throw error;
   }
 }
 
-// Serves the package to the Nomad clients, which fetch it once as the image job's artifact and
-// check it against the SHA-256 in the job.
-export function packageRoute(pkg) {
-  const path = pkg && `/_hub/${packageFilename(pkg)}`;
+// The image service ships as gzipped `docker save` archives built with Hub's container image,
+// one per client architecture, in `<directory>/<arch>/`. An image from before that keeps one
+// archive directly in `<directory>`. Native installations without one cannot distribute images.
+export async function readPackages(directory = fileURLToPath(new URL('../image-service/', import.meta.url))) {
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  const found = [await readPackageAt(directory)];
+  for (const entry of entries.filter(e => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    found.push(await readPackageAt(join(directory, entry.name)));
+  }
+  const byArch = new Map();
+  for (const pkg of found) if (pkg && !byArch.has(pkg.arch)) byArch.set(pkg.arch, pkg);
+  return [...byArch.values()];
+}
+
+// Serves the packages to the Nomad clients, which fetch theirs once as the image job's artifact
+// and check it against the SHA-256 in the job.
+export function packageRoute(packages) {
+  const byPath = new Map(packages.map(pkg => [`/_hub/${packageFilename(pkg)}`, pkg]));
+  // The unversioned URL remains available to jobs created before package URLs were pinned.
+  if (packages.length === 1) byPath.set('/_hub/image-service.tar.gz', packages[0]);
   return async (req, res) => {
-    // The unversioned URL remains available to jobs created before package URLs were pinned.
-    if (!pkg || (req.url !== path && req.url !== '/_hub/image-service.tar.gz')) return false;
+    const pkg = byPath.get(req.url);
+    if (!pkg) return false;
     if (!['GET', 'HEAD'].includes(req.method)) {
       res.writeHead(405).end();
       return true;
@@ -96,40 +114,47 @@ export function parseAddress(value, port) {
   return { host: url.hostname.replace(/^\[|\]$/g, ''), port: Number(url.port) || port };
 }
 
-export function imageServiceJob({ namespace, datacenters, source, pkg }) {
+// One task group per client architecture, each running the image service built for it.
+export function imageServiceJob({ namespace, datacenters, source, packages }) {
+  return {
+    ID: IMAGE_JOB, Name: IMAGE_JOB, Namespace: namespace, Type: 'system', Datacenters: datacenters,
+    Meta: { managed_by: 'driver-hub-images', package: packages.map(pkg => pkg.tag).join(' ') },
+    TaskGroups: packages.map(pkg => imageServiceGroup(source, pkg))
+  };
+}
+
+function imageServiceGroup(source, pkg) {
   // Nomad can overwrite a retained download without truncating it. Different archives must
   // never share a download destination, even if the new archive is shorter by just one byte.
   const filename = packageFilename(pkg);
   return {
-    ID: IMAGE_JOB, Name: IMAGE_JOB, Namespace: namespace, Type: 'system', Datacenters: datacenters,
-    Meta: { managed_by: 'driver-hub-images', package: pkg.tag },
-    TaskGroups: [{
-      Name: 'images', Count: 1,
-      Constraints: [
-        { LTarget: '${attr.kernel.name}', Operand: '=', RTarget: 'linux' },
-        { LTarget: '${attr.cpu.arch}', Operand: '=', RTarget: pkg.arch }
-      ],
-      // Keep the copies when Nomad replaces the allocation on the same client.
-      EphemeralDisk: { Sticky: true, Migrate: true, SizeMB: 2048 },
-      Networks: [{ Mode: 'host', ReservedPorts: [{ Label: 'http', Value: IMAGE_PORT }] }],
-      Tasks: [{
-        Name: 'images', Driver: 'docker',
-        Artifacts: [{ GetterSource: `${source}/_hub/${filename}`, GetterOptions: { checksum: `sha256:${pkg.sha256}`, archive: 'false' },
-          RelativeDest: 'local/' }],
-        Config: { image: pkg.tag, load: filename, network_mode: 'host', force_pull: false,
-          cap_drop: ['all'], readonly_rootfs: true },
-        Env: { DRIVER_HUB_IMAGES_DIR: '/alloc/data/images', PORT: String(IMAGE_PORT),
-          DRIVER_HUB_WANTED_FILE: '/local/wanted.json', DRIVER_HUB_PACKAGE_FILE: filename },
-        // Tasks may read their own job's Variable without an ACL policy. Hub writes it first,
-        // because rendering waits until it exists.
-        Templates: [{ DestPath: 'local/wanted.json', ChangeMode: 'noop', Perms: '0444',
-          EmbeddedTmpl: `{{ with nomadVar "${IMAGE_VARIABLE}" }}{{ .wanted }}{{ end }}` }],
-        Services: [{ Name: IMAGE_JOB, Provider: 'nomad', PortLabel: 'http', Checks: [{
-          Name: CHECK, Type: 'http', Path: '/_hub/health', Interval: 10 * second, Timeout: 2 * second
-        }] }],
-        // Deregistered first, so other copies stop fetching from it before it stops.
-        Resources: { CPU: 100, MemoryMB: 128 }, KillTimeout: 5 * second, ShutdownDelay: 2 * second
-      }]
+    Name: `images-${pkg.arch}`, Count: 1,
+    Constraints: [
+      { LTarget: '${attr.kernel.name}', Operand: '=', RTarget: 'linux' },
+      { LTarget: '${attr.cpu.arch}', Operand: '=', RTarget: pkg.arch }
+    ],
+    // Keep the copies when Nomad replaces the allocation on the same client.
+    EphemeralDisk: { Sticky: true, Migrate: true, SizeMB: 2048 },
+    Networks: [{ Mode: 'host', ReservedPorts: [{ Label: 'http', Value: IMAGE_PORT }] }],
+    Tasks: [{
+      Name: 'images', Driver: 'docker',
+      Artifacts: [{ GetterSource: `${source}/_hub/${filename}`,
+        GetterOptions: { checksum: `sha256:${pkg.sha256}`, archive: 'false' }, RelativeDest: 'local/' }],
+      Config: { image: pkg.tag, load: filename, network_mode: 'host', force_pull: false,
+        cap_drop: ['all'], readonly_rootfs: true },
+      Env: { DRIVER_HUB_IMAGES_DIR: '/alloc/data/images', PORT: String(IMAGE_PORT),
+        DRIVER_HUB_WANTED_FILE: '/local/wanted.json', DRIVER_HUB_PACKAGE_FILE: filename },
+      // Tasks may read their own job's Variable without an ACL policy. Hub writes it first,
+      // because rendering waits until it exists.
+      Templates: [{ DestPath: 'local/wanted.json', ChangeMode: 'noop', Perms: '0444',
+        EmbeddedTmpl: `{{ with nomadVar "${IMAGE_VARIABLE}" }}{{ .wanted }}{{ end }}` }],
+      // All copies, whatever their architecture, register as one service so they can copy from
+      // one another: the images they hold are the same.
+      Services: [{ Name: IMAGE_JOB, Provider: 'nomad', PortLabel: 'http', Checks: [{
+        Name: CHECK, Type: 'http', Path: '/_hub/health', Interval: 10 * second, Timeout: 2 * second
+      }] }],
+      // Deregistered first, so other copies stop fetching from it before it stops.
+      Resources: { CPU: 100, MemoryMB: 128 }, KillTimeout: 5 * second, ShutdownDelay: 2 * second
     }]
   };
 }
@@ -138,8 +163,9 @@ const fingerprintOf = value => createHash('sha256').update(JSON.stringify(value)
 
 export class ImageDistribution {
   // `site` gives the Nomad settings; `address` overrides the detected manager address.
-  constructor({ images, site, pkg, port, address, detect = localAddressToward, interval = 60000 }) {
-    Object.assign(this, { images, site, pkg, port, address, detect, interval });
+  // `packages` are the image service archives, one per client architecture.
+  constructor({ images, site, packages = [], port, address, detect = localAddressToward, interval = 60000 }) {
+    Object.assign(this, { images, site, packages, port, address, detect, interval });
     this.pending = Promise.resolve();
     this.last = null;
     this.queued = false;
@@ -177,7 +203,7 @@ export class ImageDistribution {
 
   async reconcile() {
     const client = this.nomad();
-    if (!client || !this.pkg) return;
+    if (!client || !this.packages.length) return;
     try {
       const { nomad } = this.site.state;
       const source = await this.source(nomad.address);
@@ -187,7 +213,8 @@ export class ImageDistribution {
       const wanted = JSON.stringify({ images: await this.images.list(), sources: [source, ...new Set(peers)] });
       const current = await client.variable(IMAGE_VARIABLE);
       if (current?.Items?.wanted !== wanted) await client.putVariable(IMAGE_VARIABLE, { wanted });
-      const job = imageServiceJob({ namespace: nomad.namespace, datacenters: nomad.datacenters, source, pkg: this.pkg });
+      const job = imageServiceJob({ namespace: nomad.namespace, datacenters: nomad.datacenters, source,
+        packages: this.packages });
       job.Meta.spec = fingerprintOf(job);
       const existing = await client.get(IMAGE_JOB);
       if (existing?.Meta?.spec !== job.Meta.spec || existing.Stop) await client.register(job);
@@ -204,7 +231,7 @@ export class ImageDistribution {
     if (!client) return { state: 'not_configured', running: 0, upToDate: 0, images: 0, source: null, problems: [] };
     const images = (await this.images.list()).length;
     const base = { images, source: this.last?.source ?? null, running: 0, upToDate: 0, problems: [] };
-    if (!this.pkg) return { ...base, state: 'unavailable', reason: 'no_package' };
+    if (!this.packages.length) return { ...base, state: 'unavailable', reason: 'no_package' };
     if (this.last?.error) return { ...base, state: 'failing', reason: this.last.error.code, detail: this.last.error.message };
     // Nomad retains failed allocations with desired status "run" even after replacing them.
     const allocations = (await client.allocations(IMAGE_JOB).catch(error => {

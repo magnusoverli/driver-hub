@@ -839,8 +839,11 @@ export interface components {
                 file?: string;
                 secret?: boolean;
                 minLength?: number;
+                maxLength?: number;
                 minimum?: number;
                 maximum?: number;
+                /** @description What the input is for, shown to operators. */
+                description?: string;
             }[];
         };
         DeployForm: {
@@ -855,8 +858,11 @@ export interface components {
                 file?: string;
                 secret?: boolean;
                 minLength?: number;
+                maxLength?: number;
                 minimum?: number;
                 maximum?: number;
+                /** @description What the input is for, shown to operators. */
+                description?: string;
                 /** @enum {string} */
                 source: "operator" | "site" | "identity";
                 secretRefPattern?: string;

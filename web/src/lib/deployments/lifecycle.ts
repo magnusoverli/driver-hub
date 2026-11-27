@@ -163,6 +163,7 @@ const settingsCodes: Record<string, () => string> = {
 	required: m.configuration_error_required,
 	wrong_type: m.configuration_error_wrong_type,
 	too_short: m.configuration_error_too_short,
+	too_long: m.configuration_error_too_long,
 	out_of_range: m.configuration_error_out_of_range,
 	secret_reference_required: m.configuration_error_secret_reference,
 	unknown_input: m.configuration_error_unknown_input,

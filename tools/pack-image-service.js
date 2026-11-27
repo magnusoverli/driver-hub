@@ -1,6 +1,7 @@
 // Packs a file system as a gzipped `docker save` archive: the image service that Driver Hub runs
 // on every Nomad client. It runs during the container build, which has no Docker daemon, so the
-// archive is written directly. Usage: node pack-image-service.js <rootfs> <output directory>
+// archive is written directly. The file system may be for another architecture than the build's.
+// Usage: node pack-image-service.js <rootfs> <output directory> <amd64|arm64>
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { lstat, mkdir, readdir, readlink, rm, stat, writeFile } from 'node:fs/promises';
@@ -10,10 +11,10 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import tar from 'tar-stream';
 
-const [root, out] = process.argv.slice(2);
-if (!root || !out) throw new Error('Usage: node pack-image-service.js <rootfs> <output directory>');
-const arch = { x64: 'amd64', arm64: 'arm64' }[process.arch];
-if (!arch) throw new Error(`Unsupported build architecture ${process.arch}`);
+const [root, out, arch] = process.argv.slice(2);
+if (!root || !out || !['amd64', 'arm64'].includes(arch)) {
+  throw new Error('Usage: node pack-image-service.js <rootfs> <output directory> <amd64|arm64>');
+}
 // A fixed time, so an unchanged file system packs to the same layer.
 const mtime = new Date(0);
 

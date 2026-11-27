@@ -93,6 +93,40 @@ describe('settings form', () => {
 		expect(fieldHint(verbose, '')).toBe('Mounted at /run/verbose.');
 	});
 
+	it("leads with the driver's description and checks length bounds, never on a secret", () => {
+		const device = field({
+			name: 'deviceHost',
+			minLength: 3,
+			maxLength: 12,
+			env: 'DEVICE_HOST',
+			description: 'Host name of the device.'
+		});
+		expect(fieldHint(device, '')).toBe(
+			'Host name of the device. 3 to 12 characters. Passed as DEVICE_HOST.'
+		);
+		expect(fieldHint(field({ maxLength: 8, env: 'LEVEL' }), '')).toBe(
+			'At most 8 characters. Passed as LEVEL.'
+		);
+		expect(localProblem(device, 'ab')).toBe('Too short.');
+		expect(localProblem(device, 'a'.repeat(13))).toBe('Too long.');
+		expect(localProblem(device, 'meter-1')).toBeNull();
+
+		// A secret's bounds describe its value; the operator enters only the name of its key.
+		const token = field({
+			name: 'token',
+			secret: true,
+			minLength: 20,
+			maxLength: 8192,
+			env: 'TOKEN',
+			description: 'Bearer token created in the VideoIPath CLI.'
+		});
+		expect(fieldHint(token, 'nomad/jobs/x')).not.toMatch(/characters/);
+		expect(fieldHint(token, 'nomad/jobs/x')).toMatch(
+			/^Bearer token created in the VideoIPath CLI\./
+		);
+		expect(localProblem(token, 'vip_token')).toBeNull();
+	});
+
 	it('lists the secret references a deployment needs', () => {
 		expect(
 			secretReferences({ a: { secretRef: 'one' }, b: 'plain', c: { secretRef: 'two' } })

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -10,11 +10,13 @@ import tar from 'tar-stream';
 import { distributionServer, imageHandler } from '../src/distribution.js';
 import { ImageCopies, parseWanted } from '../src/image-copies.js';
 import {
-  IMAGE_HOST, IMAGE_JOB, IMAGE_VARIABLE, ImageDistribution, imageServiceJob, packageRoute, prunePackages, sourceUrl
+  IMAGE_HOST, IMAGE_JOB, IMAGE_VARIABLE, ImageDistribution, imageServiceJob, packageRoute, prunePackages, readPackages,
+  sourceUrl
 } from '../src/image-distribution.js';
 import { Images } from '../src/images.js';
 import { Deployments } from '../src/deployments.js';
 import { Site } from '../src/site.js';
+import { createJob } from '../src/job.js';
 import { createServer } from 'node:http';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -178,7 +180,7 @@ test('setting up Nomad starts the image service on the clients, with its list wr
   const nomad = fakeNomad({ services: [{ Address: '10.0.0.7', Port: 5480 }, { Address: '10.0.0.8', Port: 5480 }] });
   const site = { state: { nomad: { address: nomad.address, namespace: 'driverhub', datacenters: ['dc1', 'dc2'] } },
     client: () => nomad };
-  const distribution = new ImageDistribution({ images: source.images, site, pkg, port: 5481,
+  const distribution = new ImageDistribution({ images: source.images, site, packages: [pkg], port: 5481,
     detect: async () => '10.0.0.5' });
   await distribution.reconcile();
 
@@ -225,7 +227,7 @@ test('the status reports where the copies run and whether they hold every image'
   });
   const site = { state: { nomad: { address: nomad.address, namespace: 'driverhub', datacenters: ['dc1'] } },
     client: () => nomad };
-  const distribution = new ImageDistribution({ images: source.images, site, pkg, port: 5481, detect: async () => '10.0.0.5' });
+  const distribution = new ImageDistribution({ images: source.images, site, packages: [pkg], port: 5481, detect: async () => '10.0.0.5' });
   assert.equal((await distribution.status()).state, 'starting');
   await distribution.reconcile();
   const status = await distribution.status();
@@ -236,9 +238,9 @@ test('the status reports where the copies run and whether they hold every image'
   assert.equal(status.source, 'http://10.0.0.5:5481');
   assert.deepEqual(status.problems, [{ host: 'client-3', status: 'pending', event: 'Failed Artifact Download' }]);
 
-  const unpackaged = new ImageDistribution({ images: source.images, site, pkg: null, port: 5481 });
+  const unpackaged = new ImageDistribution({ images: source.images, site, packages: [], port: 5481 });
   assert.equal((await unpackaged.status()).state, 'unavailable');
-  const unconfigured = new ImageDistribution({ images: source.images, site: { state: { nomad: { address: null } } }, pkg });
+  const unconfigured = new ImageDistribution({ images: source.images, site: { state: { nomad: { address: null } } }, packages: [pkg] });
   assert.equal((await unconfigured.status()).state, 'not_configured');
 });
 
@@ -254,8 +256,9 @@ test('driver jobs pull from the copy on their own machine, and the clients fetch
   await writeFile(file, bytes);
   const current = { ...pkg, file, sha256: hash(bytes) };
   const listener = await listen(t, distributionServer(new Images(join(root, 'store')),
-    { extra: packageRoute(current) }));
-  const taskFor = pkg => imageServiceJob({ namespace: 'n', datacenters: ['dc1'], source: listener, pkg }).TaskGroups[0].Tasks[0];
+    { extra: packageRoute([current]) }));
+  const taskFor = pkg => imageServiceJob({ namespace: 'n', datacenters: ['dc1'], source: listener, packages: [pkg] })
+    .TaskGroups[0].Tasks[0];
   const task = taskFor(current);
   const previous = taskFor({ ...current, sha256: hash(`${bytes} with a longer tail`) });
   assert.notEqual(previous.Config.load, task.Config.load);
@@ -286,7 +289,7 @@ test('healthy running clients cannot mask a third client that is still starting'
     TaskStates: { images: { Events: [{ Type: 'Not Restarting' }] } } });
   const nomad = fakeNomad({ allocations, checks: { a: check, b: check, c: check } });
   const site = { state: { nomad }, client: () => nomad };
-  const distribution = new ImageDistribution({ site, pkg, images: { list: async () => [] }, port: 5481,
+  const distribution = new ImageDistribution({ site, packages: [pkg], images: { list: async () => [] }, port: 5481,
     address: '127.0.0.1' });
   await distribution.reconcile();
   const starting = await distribution.status();
@@ -295,4 +298,43 @@ test('healthy running clients cannot mask a third client that is still starting'
   assert.deepEqual(starting.problems, []);
   allocations[2].ClientStatus = 'running';
   assert.equal((await distribution.status()).state, 'ready');
+});
+
+test('the image service runs on every client architecture it is packaged for, and drivers only there', async t => {
+  const root = await temporary(t);
+  // One archive per architecture, as the container build lays them out.
+  for (const [arch, bytes] of [['amd64', 'amd64 package'], ['arm64', 'arm64 package']]) {
+    await mkdir(join(root, 'packages', arch), { recursive: true });
+    await writeFile(join(root, 'packages', arch, 'image-service.tar.gz'), bytes);
+    await writeFile(join(root, 'packages', arch, 'image-service.json'), JSON.stringify({
+      tag: `driverhub/image-service:${arch}0123456789`, arch, sha256: hash(bytes), size: bytes.length }));
+  }
+  const packages = await readPackages(join(root, 'packages'));
+  assert.deepEqual(packages.map(p => p.arch), ['amd64', 'arm64']);
+  assert.deepEqual(await readPackages(join(root, 'missing')), []);
+
+  const listener = await listen(t, distributionServer(new Images(join(root, 'store')), { extra: packageRoute(packages) }));
+  const job = imageServiceJob({ namespace: 'n', datacenters: ['dc1'], source: listener, packages });
+  assert.deepEqual(job.TaskGroups.map(g => [g.Name, g.Constraints.find(c => c.LTarget === '${attr.cpu.arch}').RTarget]),
+    [['images-amd64', 'amd64'], ['images-arm64', 'arm64']]);
+  // Every copy registers as the same service, so copies of either architecture serve each other.
+  assert.deepEqual(new Set(job.TaskGroups.map(g => g.Tasks[0].Services[0].Name)), new Set([IMAGE_JOB]));
+  for (const group of job.TaskGroups) {
+    const task = group.Tasks[0];
+    const served = await (await fetch(task.Artifacts[0].GetterSource)).text();
+    assert.equal(`sha256:${hash(served)}`, task.Artifacts[0].GetterOptions.checksum);
+    assert.match(served, new RegExp(group.Name.slice('images-'.length)));
+  }
+  // With two archives there is no unversioned download to guess between.
+  assert.equal((await fetch(`${listener}/_hub/image-service.tar.gz`)).status, 404);
+
+  const record = platforms => ({ configuration: { schemaVersion: 1, inputs: [] }, record: { image: { platforms } } });
+  const spec = { nodeId: '087aa0f0-8ee9-49f0-aa74-127014499fc1', settings: {} };
+  const placed = (platforms, architectures) => createJob({ spec, previous: null, running: true, migrated: false,
+    image: 'x', release: record(platforms), namespace: 'n', datacenters: ['dc1'], architectures })
+    .TaskGroups[0].Constraints.find(c => c.LTarget === '${attr.cpu.arch}').RTarget;
+  assert.equal(placed(['linux/amd64', 'linux/arm64'], ['amd64', 'arm64']), '^(amd64|arm64)$');
+  assert.equal(placed(['linux/amd64', 'linux/arm64'], ['amd64']), '^(amd64)$');
+  assert.equal(placed(['linux/arm64'], []), '^(arm64)$');
+  assert.throws(() => placed(['linux/arm64'], ['amd64']), error => error.code === 'no_image_service_architecture');
 });

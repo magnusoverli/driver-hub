@@ -90,8 +90,11 @@ export class Deployments {
       registry: IMAGE_HOST, nomadUi: deployment.nomadUiOrigin, sharedWriters: deployment.sharedWriters });
   }
 
-  constructor({ nomad, store, images, registry, datacenters, site, profile, labels, nomadUi, sharedWriters }) {
-    Object.assign(this, { nomad, store, images, registry, datacenters, site, profile, labels, nomadUi, sharedWriters });
+  // `imageArchitectures`: client architectures Hub's image service runs on; unset, any the image has.
+  constructor({ nomad, store, images, registry, datacenters, site, profile, labels, nomadUi, sharedWriters,
+    imageArchitectures }) {
+    Object.assign(this, { nomad, store, images, registry, datacenters, site, profile, labels, nomadUi, sharedWriters,
+      imageArchitectures });
   }
 
   label(nodeId) { return this.labels?.get(nodeId) ?? null; }
@@ -322,7 +325,7 @@ export class Deployments {
     const key = imageKey(release.record);
     const image = `${this.registry}/driverhub/${key}@${release.record.image.digest}`;
     const job = createJob({ spec, previous, running, migrated, image, release,
-      namespace: this.nomad.namespace, datacenters: this.datacenters });
+      namespace: this.nomad.namespace, datacenters: this.datacenters, architectures: this.imageArchitectures });
     if (stageFingerprint) job.Meta.stage_request = stageFingerprint;
     const journal = this.site?.journal, identity = this.identity(spec.nodeId);
     if (journal) job.Meta.hub_owner = journal.owner;

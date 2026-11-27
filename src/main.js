@@ -17,7 +17,7 @@ import { DeploymentLabels } from './labels.js';
 import { WebApp } from './web.js';
 import { ApiTokens } from './api-tokens.js';
 import { readEnvironment } from './environment.js';
-import { ImageDistribution, packageRoute, readPackage } from './image-distribution.js';
+import { ImageDistribution, packageRoute, readPackages } from './image-distribution.js';
 import { imageHandler } from './distribution.js';
 
 // Only what the manager needs before its web interface exists comes from the environment.
@@ -44,10 +44,12 @@ const builder = new Builds(store);
 const operations = new Operations(join(dataDir, 'operations'));
 // The copies on the Nomad clients fetch images, and the image service itself, from this
 // read-only listener. It serves nothing but verified images, so it listens on every interface.
-const imagePackage = await readPackage();
-const distribution = new ImageDistribution({ images: deploymentServices.images, site, pkg: imagePackage,
+const imagePackages = await readPackages();
+// Drivers run only where Hub's image service can: on the architectures it is packaged for.
+deploymentServices.imageArchitectures = imagePackages.map(pkg => pkg.arch);
+const distribution = new ImageDistribution({ images: deploymentServices.images, site, packages: imagePackages,
   port: environment.distributionPort, address: environment.distributionAddress });
-const imageListener = createServer(imageHandler(deploymentServices.images, { extra: packageRoute(imagePackage) }));
+const imageListener = createServer(imageHandler(deploymentServices.images, { extra: packageRoute(imagePackages) }));
 imageListener.listen(environment.distributionPort, '0.0.0.0', () =>
   console.log(`Driver Hub images for Nomad clients: port ${environment.distributionPort}`));
 distribution.start();

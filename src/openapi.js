@@ -29,7 +29,8 @@ const fieldErrors = array(object({ field: str, code: str }));
 const fieldProperties = {
   name: str, type: values('string', 'integer', 'boolean'), required: bool,
   default: { type: ['string', 'integer', 'boolean'] }, env: str, file: str, secret: bool,
-  minLength: integer, minimum: integer, maximum: integer
+  minLength: integer, maxLength: integer, minimum: integer, maximum: integer,
+  description: { type: 'string', maxLength: 1000, description: 'What the input is for, shown to operators.' }
 };
 const preview = { name: 'dryRun', in: 'query', schema: bool, description: 'Plan without publishing or registering a job.' };
 const acquisition = [

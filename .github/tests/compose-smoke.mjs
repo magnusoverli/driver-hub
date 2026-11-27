@@ -5,15 +5,19 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildOci } from './src/builds.js';
-import { readPackage } from './src/image-distribution.js';
+import { readPackages } from './src/image-distribution.js';
 
-const pkg = await readPackage();
-assert.equal(pkg.arch, { x64: 'amd64', arm64: 'arm64' }[process.arch]);
-const response = await fetch(`http://127.0.0.1:5481/_hub/image-service-${pkg.sha256}.tar.gz`);
-assert.equal(response.status, 200);
-const hash = createHash('sha256');
-for await (const bytes of response.body) hash.update(bytes);
-assert.equal(hash.digest('hex'), pkg.sha256);
+// Every manager image carries the image service for both client architectures, whatever its own.
+const packages = await readPackages();
+assert.deepEqual(packages.map(pkg => pkg.arch), ['amd64', 'arm64']);
+for (const pkg of packages) {
+  const response = await fetch(`http://127.0.0.1:5481/_hub/image-service-${pkg.sha256}.tar.gz`);
+  assert.equal(response.status, 200, `${pkg.arch} package`);
+  const hash = createHash('sha256');
+  for await (const bytes of response.body) hash.update(bytes);
+  assert.equal(hash.digest('hex'), pkg.sha256, `${pkg.arch} package`);
+}
+const nativeArch = { x64: 'amd64', arm64: 'arm64' }[process.arch];
 
 const api = 'http://127.0.0.1:8080/api/v1';
 const headers = { 'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1' };
@@ -49,7 +53,7 @@ const work = await mkdtemp(join(tmpdir(), 'hub-build-smoke-'));
 try {
   await writeFile(join(work, 'Dockerfile'), 'FROM scratch\nCOPY marker /marker\n');
   await writeFile(join(work, 'marker'), 'Driver Hub build test\n');
-  await buildOci('.', work, `linux/${pkg.arch}`);
+  await buildOci('.', work, `linux/${nativeArch}`);
   const metadata = JSON.parse(await readFile(join(work, 'metadata.json'), 'utf8'));
   assert.match(metadata['containerimage.digest'], /^sha256:[0-9a-f]{64}$/);
   assert.ok((await stat(join(work, 'image.tar'))).size > 0);
