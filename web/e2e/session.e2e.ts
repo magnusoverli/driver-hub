@@ -1,5 +1,36 @@
 import { expect, test } from '@playwright/test';
 import { createAccount, fillSignIn, openAccountMenu, signIn, updateAccount } from './support';
+import { SERVICE_TOKEN } from './environment.mjs';
+
+test('a first-login session can only change the default password or sign out', async ({
+	page,
+	request
+}) => {
+	const account = { username: `bootstrap-${Date.now()}`, password: 'LicenseToDeploy!' };
+	const created = await request.post('/api/v1/users', {
+		headers: { Authorization: `Bearer ${SERVICE_TOKEN}` },
+		data: { ...account, role: 'admin' }
+	});
+	expect(created.status()).toBe(200);
+	await page.goto('/settings/users');
+	await fillSignIn(page, account);
+	const dialog = page.getByRole('dialog', { name: 'Change password' });
+	await expect(dialog).toBeVisible();
+	await page.reload();
+	await expect(dialog).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeVisible();
+	await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
+	await dialog.getByRole('button', { name: 'Sign out' }).click();
+	await fillSignIn(page, account);
+	const newPassword = `${account.username}-new-password`;
+	await dialog.getByLabel('Current password').fill(account.password);
+	await dialog.getByLabel('New password', { exact: true }).fill(newPassword);
+	await dialog.getByLabel('Confirm new password').fill(newPassword);
+	await dialog.getByRole('button', { name: 'Change password' }).click();
+	await fillSignIn(page, { ...account, password: newPassword });
+	await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+});
 
 test('a session ended by an admin change resumes in place with the new permissions', async ({
 	page,

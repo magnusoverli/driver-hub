@@ -711,6 +711,7 @@ export interface components {
             /** @enum {string} */
             role: "admin" | "viewer";
             provider: string;
+            mustChangePassword?: boolean;
         };
         LocalAccount: {
             username: string;

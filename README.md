@@ -2,35 +2,36 @@
 
 **Deploy and monitor VideoIPath external drivers on your own Nomad cluster.** Download a release once, reuse it across devices, and see which drivers are running and which report a working connection.
 
-[Try it locally](#try-it-locally) · [Product tour](#product-tour) · [Device status](#how-status-is-reported) · [Operations guide](OPERATIONS.md) · [Development](#development)
+[Deploy with Docker Compose](#deploy-with-docker-compose) · [Product tour](#product-tour) · [Device status](#how-status-is-reported) · [Operations guide](OPERATIONS.md) · [Development](#development)
 
 ![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
 
 *The overview brings device health, available updates and site readiness into one view. Screenshots use six demo devices and illustrative release, activity and image-status data.*
 
-## Try it locally
+## Deploy with Docker Compose
 
-### Explore six example devices
+The standard installation is **Docker Compose**. The release image includes the manager, web app, Nomad image-service package, Docker CLI and Buildx. Compose starts a dedicated rootless BuildKit worker alongside the manager. **Driver source builds are off by default**; an administrator can turn them on under **Settings → Manager**, without rebuilding Hub or exposing the host Docker socket.
 
-No cluster is required. With **Node.js 22.17+ and npm 11+**, run these commands from the repository root:
+1. Choose a version from [Driver Hub releases](https://github.com/magnusoverli/driver-hub/releases). From that tag's source tree, download **`compose.yaml`** into an installation directory. Use a release whose **Driver Hub image** workflow has finished successfully. If there is no published image yet, use the [local image build](#build-the-manager-image-locally).
+2. Create `.env` beside `compose.yaml`. Replace `vX.Y.Z` with the **exact release tag**. For a real cluster, set the distribution address to the Docker host name or IP that the Nomad clients can reach.
 
-```sh
-npm ci
-npm --prefix web ci
-npm --prefix web run demo
+```dotenv
+DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z
+# DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
 ```
 
-Open **[localhost:4182](http://localhost:4182)** and sign in with the details printed in the terminal. Under **Deployments → Studio 3 meter**, choose **Update…** to preview a version change against the stand-in Nomad cluster.
+3. For a private image, [sign Docker in to GHCR](OPERATIONS.md#registry-access) with an account that can read the package. From the installation directory:
 
-### Start your own Hub with Docker
+```sh
+docker compose pull
+docker compose up -d
+```
 
-1. Create a `.env` file beside [`compose.yaml`](compose.yaml). Set `DRIVER_HUB_INITIAL_PASSWORD` to a password of at least 12 characters. It creates the first `admin` account only while the volume is empty.
-2. For a real cluster, set `DRIVER_HUB_DISTRIBUTION_ADDRESS` under `manager.environment` to the Docker host name or IP that Nomad clients can reach. Clients need TCP `5481` to the manager and TCP `5480` to each other. Skip this step for a UI-only trial.
-3. Run `docker compose up --build -d`, open **[localhost:8080](http://localhost:8080)** and sign in as `admin`. Use `localhost` for the HTTP trial because the browser session cookie is `Secure`.
+**First login:** Open **[localhost:8080](http://localhost:8080)** on the Docker host. Sign in as `admin` with `LicenseToDeploy!`, choose a new password (at least 12 characters), then sign in again. Existing installations keep their passwords.
 
-Under **Settings → Nomad**, save the cluster connection, then check **Image distribution**. A successful API connection does not tell you whether clients can pull an image. Use HTTPS for production; sending credentials over remote HTTP requires an [explicit trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
+For remote browser access, use an HTTPS reverse proxy after first login. Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
-`docker compose down` stops Hub and keeps its data. Adding `-v` deletes the local volume, including accounts, settings, releases and images; it does not remove Nomad jobs.
+To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), select a new release and repeat the pull and start commands with the same volume. `docker compose down` stops Hub and keeps its data. Adding `-v` deletes accounts, settings, releases and images in the local volume; it does not remove Nomad jobs.
 
 ## Product tour
 
@@ -89,6 +90,30 @@ Also pictured: [VideoIPath target and token pool](docs/screenshots/videoipath.pn
 
 ## Development
 
+### Build the manager image locally
+
+Before the first published release, or when testing a checkout, build the same runtime target yourself. In the installation `.env` described above, set `DRIVER_HUB_IMAGE=driver-hub:local`, then run from the repository root:
+
+```sh
+docker build --target runtime -t driver-hub:local .
+docker compose pull buildkit
+docker compose up -d --pull never
+```
+
+Maintainers: [publish a versioned manager image](OPERATIONS.md#publishing-a-manager-release). This is separate from building or publishing a device driver.
+
+### Try it locally
+
+To explore six seeded devices without a cluster, use **Node.js 22.17+ and npm 11+** in a checkout:
+
+```sh
+npm ci
+npm --prefix web ci
+npm --prefix web run demo
+```
+
+Open **[localhost:4182](http://localhost:4182)** and sign in with the details printed in the terminal. Under **Deployments → Studio 3 meter**, choose **Update…** to preview a version change against the stand-in Nomad cluster.
+
 The Node.js manager serves the SvelteKit web app and `/api/v1` on the same origin. The running manager exposes its OpenAPI 3.1 contract at `/api/v1/openapi.json`. The [frontend guide](web/README.md) covers the dev server, generated types and browser tests.
 
 | From the repository root | Purpose |
@@ -100,7 +125,7 @@ The Node.js manager serves the SvelteKit web app and `/api/v1` on the same origi
 <details>
 <summary><strong>Running the backend from source</strong></summary>
 
-With Node.js 22+, run `npm ci`. On a new installation, point `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` at a protected file containing the first administrator's password, then run `npm start`. The API defaults to `127.0.0.1:8080`; `PORT` changes the port and `DRIVER_HUB_DATA_DIR` changes the data directory (default `~/.driver-hub`). A source checkout does not include the packaged image service; use the Hub container to exercise real image distribution.
+With Node.js 22+, run `npm ci` and `npm start`. The same first-login credentials apply; to provision a private password instead, see [operator sign-in](OPERATIONS.md#operator-sign-in). The API defaults to `127.0.0.1:8080`; `PORT` changes the port and `DRIVER_HUB_DATA_DIR` changes the data directory (default `~/.driver-hub`). A source checkout does not include the packaged image service; use the Hub container to exercise real image distribution.
 
 For a release's path through the backend, start with [`src/catalog.js`](src/catalog.js) and [`src/images.js`](src/images.js). For a device change, follow [`src/deployments.js`](src/deployments.js) through the [job definition](src/job.js) to the [Nomad client](src/nomad.js).
 

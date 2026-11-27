@@ -9,7 +9,7 @@ import { Deployments } from './deployments.js';
 import { Images } from './images.js';
 import { Site } from './site.js';
 import { Operations } from './operations.js';
-import { LocalUsers } from './local-users.js';
+import { initialAdminPassword, LocalUsers } from './local-users.js';
 import { OperatorSessions } from './operator-sessions.js';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -33,11 +33,12 @@ const deploymentServices = { store, images: new Images(environment.imagesDir),
   labels: await DeploymentLabels.open(join(dataDir, 'labels')) };
 const localUsers = await LocalUsers.open(join(dataDir, 'auth'));
 const apiTokens = await ApiTokens.open(join(dataDir, 'auth'));
-if (!localUsers.list().length && environment.bootstrapPasswordFile) {
-  const password = (await readFile(environment.bootstrapPasswordFile, 'utf8')).replace(/\r?\n$/, '');
+if (!localUsers.list().length && (environment.bootstrapPasswordFile || !token)) {
+  const password = environment.bootstrapPasswordFile
+    ? (await readFile(environment.bootstrapPasswordFile, 'utf8')).replace(/\r?\n$/, '')
+    : initialAdminPassword;
   await localUsers.create({ username: environment.bootstrapUsername, password, role: 'admin' });
 }
-if (!localUsers.list().length && !token) throw new Error('First setup requires DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE or DRIVER_HUB_ADMIN_TOKEN');
 const sessions = new OperatorSessions(localUsers);
 const builder = new Builds(store);
 const operations = new Operations(join(dataDir, 'operations'));

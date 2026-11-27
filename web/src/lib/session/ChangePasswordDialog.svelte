@@ -7,7 +7,8 @@
 	import { MIN_PASSWORD_LENGTH, newPasswordProblem, passwordChangeProblem } from './error-messages';
 	import { getSession } from './session.svelte';
 
-	let { open = $bindable(false) }: { open: boolean } = $props();
+	let { open = $bindable(false), required = false }: { open: boolean; required?: boolean } =
+		$props();
 
 	const session = getSession();
 	const formId = $props.id();
@@ -56,7 +57,12 @@
 	}
 </script>
 
-<Dialog bind:open title={m.password_title()} description={m.password_description()}>
+<Dialog
+	bind:open
+	title={m.password_title()}
+	description={required ? m.password_first_login() : m.password_description()}
+	dismissible={!required}
+>
 	<form id={formId} class="form" onsubmit={submit} novalidate>
 		{#if formError}<Callout tone="fail" live>{formError}</Callout>{/if}
 		<TextField
@@ -84,7 +90,11 @@
 		/>
 	</form>
 	{#snippet footer()}
-		<Button variant="ghost" onclick={() => (open = false)}>{m.common_cancel()}</Button>
+		{#if required}
+			<Button variant="ghost" onclick={() => session.signOut()}>{m.account_sign_out()}</Button>
+		{:else}
+			<Button variant="ghost" onclick={() => (open = false)}>{m.common_cancel()}</Button>
+		{/if}
 		<Button variant="primary" type="submit" form={formId} {busy}>{m.password_submit()}</Button>
 	{/snippet}
 </Dialog>

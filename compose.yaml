@@ -1,13 +1,15 @@
-# Local trial of Driver Hub: the manager with its web frontend, on http://localhost:8080.
-# Before the first start, set the first administrator's password (at least 12 characters) in a
-# .env file next to this file:  DRIVER_HUB_INITIAL_PASSWORD=choose-a-long-password
-# See "Try it locally" in README.md.
+# Deploy Driver Hub from a release image. Set DRIVER_HUB_IMAGE
+# in .env next to this file, then run: docker compose pull && docker compose up -d
+# Keep the original project name so upgrades reuse the existing data volume.
 name: driver-hub-trial
 
 services:
   manager:
-    build: .
-    image: driver-hub:local
+    image: ${DRIVER_HUB_IMAGE:?Set DRIVER_HUB_IMAGE in .env to the full versioned Driver Hub image reference}
+    depends_on:
+      buildkit:
+        condition: service_healthy
+        required: false
     ports:
       # Browser/API listener for the local trial. The browser session cookie is Secure.
       - '127.0.0.1:8080:8080'
@@ -33,7 +35,7 @@ services:
       DRIVER_HUB_DISTRIBUTION_PORT: '5481'
       # The address at which Nomad clients reach this machine. Needed here because inside the
       # container Hub only sees its own container address. Without a Nomad cluster it is unused.
-      # DRIVER_HUB_DISTRIBUTION_ADDRESS: driverhub.site.example
+      DRIVER_HUB_DISTRIBUTION_ADDRESS: ${DRIVER_HUB_DISTRIBUTION_ADDRESS:-}
 
       # --- Storage -------------------------------------------------------------------------------
       # Retained releases, verified images, accounts, site settings, device names and the activity
@@ -49,7 +51,8 @@ services:
       # --- First administrator -------------------------------------------------------------------
       # Used only while there are no accounts yet; it never resets an existing password.
       DRIVER_HUB_BOOTSTRAP_USERNAME: admin
-      DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: /run/secrets/initial-password
+      # Optional alternative to the default password: mount a private file readable by UID 1000.
+      # DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: /run/secrets/initial-password
 
       # --- Emergency access ----------------------------------------------------------------------
       # A request with "Authorization: Bearer <token>" gets administrator access without signing
@@ -57,23 +60,36 @@ services:
       # created under Settings > API tokens instead, which can be revoked one by one.
       # DRIVER_HUB_ADMIN_TOKEN: ${DRIVER_HUB_ADMIN_TOKEN}
 
-      # Source builds are turned on under Settings > Manager. That is only possible when the image
-      # is built with its builder target (add "target: builder" under "build") and the container
-      # reaches a Docker daemon with Buildx.
-    secrets:
-      - source: initial-password
-        # Readable by the manager's service user (UID 1000).
-        uid: '1000'
-        mode: 0400
+      # The builder is available at startup; administrators opt in under Settings > Manager.
+      BUILDX_BUILDER: hub-compose
     volumes:
       - data:/data
+      - type: volume
+        source: buildkit-socket
+        target: /run/hub-buildkit
+        read_only: true
+        volume:
+          nocopy: true
     restart: unless-stopped
 
-secrets:
-  initial-password:
-    # Copied into the container as a file; the manager never sees it as an environment variable.
-    # Only used to create the first account while the data volume is empty.
-    environment: DRIVER_HUB_INITIAL_PASSWORD
+  buildkit:
+    image: moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be
+    # Rootless BuildKit needs nested user namespaces, mounts and a separate /proc for build steps.
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=${DRIVER_HUB_BUILDKIT_APPARMOR:-unconfined}
+      - systempaths=unconfined
+    volumes:
+      - buildkit-socket:/run/user/1000
+      - buildkit-cache:/home/user/.local/share/buildkit
+    healthcheck:
+      test: ["CMD", "buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
 
 volumes:
   data:
+  buildkit-socket:
+  buildkit-cache:

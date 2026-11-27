@@ -211,7 +211,7 @@ export class Site {
         sharedWriters: choose(input, old.deployment, 'sharedWriters', flag) };
     } else if (service === 'manager') {
       expect(input.buildsEnabled !== true || this.buildsAvailable,
-        'This manager cannot build: its image has no Docker Buildx or reaches no Docker daemon', 409, 'builds_unavailable');
+        'This manager cannot reach a working Buildx builder', 409, 'builds_unavailable');
       next.manager = { buildsEnabled: choose(input, old.manager, 'buildsEnabled', flag),
         timings: choose(input, old.manager, 'timings', flag) };
     }

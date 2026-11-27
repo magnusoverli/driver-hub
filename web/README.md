@@ -11,7 +11,7 @@ npm ci
 npm run dev        # http://localhost:5173, forwards /api to a manager on 127.0.0.1:8080
 ```
 
-Run a manager next to it (`npm start` in the repository root, with `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` on first start). Set `DRIVER_HUB_DEV_API` to forward to another manager. Open the dev server at `localhost`: the session cookie is `Secure`, which browsers accept over plain HTTP only there.
+Run a manager next to it (`npm start` in the repository root; see [first login](../OPERATIONS.md#operator-sign-in)). Set `DRIVER_HUB_DEV_API` to forward to another manager. Open the dev server at `localhost`: the session cookie is `Secure`, which browsers accept over plain HTTP only there.
 
 | Command                           | Purpose                                                                                                            |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

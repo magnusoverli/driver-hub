@@ -259,6 +259,8 @@ async function authorize(request, { token, apiTokens, sessions, localUsers }) {
   } else if (sessions) {
     // Kept for rules about the operator's own account, such as not deleting it.
     request.operator = await sessions.current(request);
+    expect(!request.operator.mustChangePassword, 'Change the default password before using Driver Hub', 403,
+      'password_change_required');
     access = request.operator.role;
     if (request.method !== 'GET') browserWrite(request);
   } else {
