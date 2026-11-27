@@ -47,7 +47,7 @@ COPY src ./src
 COPY --from=web /app/web/build ./web/build
 COPY --from=image-service-package /image-service ./image-service
 # A writable default for DRIVER_HUB_DATA_DIR, so a named volume works without host preparation.
-RUN mkdir /data && chown node:node /data
+RUN mkdir -p /data /run/hub-route && chown node:node /data /run/hub-route
 USER node
 ENV HOST=0.0.0.0
 CMD ["node", "src/main.js"]

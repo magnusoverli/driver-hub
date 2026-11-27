@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { readFile, readdir, stat, unlink } from 'node:fs/promises';
 import { isIP } from 'node:net';
+import { hostname, networkInterfaces } from 'node:os';
 import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +105,25 @@ export function parseAddress(value, defaultPort) {
   return { host: url.hostname.replace(/^\[|\]$/g, ''), port };
 }
 
+// The Host on the administrator's Nomad setup request names Hub, even across Docker's
+// published web port. Keep only the hostname: the distribution listener has its own port.
+export function setupDownloadHost(authority, fromWebRequest = false) {
+  if (!authority || /[/\\@?#\s]/.test(authority)) return null;
+  try {
+    const { host } = parseAddress(authority);
+    const name = isIP(host) === 6 ? new URL(`http://[${host}]`).hostname.slice(1, -1) :
+      host.toLowerCase().replace(/\.$/, '');
+    if (name === 'localhost' || name.endsWith('.localhost') ||
+      /^(?:0|127)\./.test(name) || ['::', '::1'].includes(name) ||
+      name.startsWith('::ffff:') || /^fe[89ab][\da-f]:/.test(name) || name.startsWith('169.254.')) return null;
+    if (name.endsWith('.docker.internal') || name === 'docker-desktop') return null;
+    // A reverse proxy can rewrite Host to the manager container's private name/IP.
+    if (fromWebRequest && existsSync('/.dockerenv') && (name === hostname() ||
+      Object.values(networkInterfaces()).flat().some(iface => iface.address === name))) return null;
+    return name;
+  } catch { return null; }
+}
+
 // One task group per client architecture, each running the image service built for it.
 export function imageServiceJob({ namespace, datacenters, source, packages }) {
   return {
@@ -154,8 +174,8 @@ const fingerprintOf = value => createHash('sha256').update(JSON.stringify(value)
 export class ImageDistribution {
   // `address` is the installation override for the client-facing address saved with the site.
   // `packages` are the image service archives, one per client architecture.
-  constructor({ images, site, packages = [], port, address, interval = 60000 }) {
-    Object.assign(this, { images, site, packages, port, address, interval });
+  constructor({ images, site, packages = [], port, address, hostRoute, interval = 60000 }) {
+    Object.assign(this, { images, site, packages, port, address, hostRoute, interval });
     this.pending = Promise.resolve();
     this.last = null;
     this.queued = false;
@@ -191,8 +211,9 @@ export class ImageDistribution {
       const { nomad } = this.site.state;
       // Never infer a download URL from the outgoing Nomad connection: behind NAT its local
       // interface can be private to this container. Resolve this before making any Nomad writes.
-      const address = this.address || nomad.distributionAddress;
-      expect(address, 'Set the Hub download address in Settings > Nomad cluster, or set DRIVER_HUB_DISTRIBUTION_ADDRESS.',
+      const address = this.address || nomad.distributionAddress || nomad.setupHost ||
+        setupDownloadHost(await this.hostRoute?.(nomad.address));
+      expect(address, 'Open Hub at its LAN IP or DNS name and save the Nomad connection, or set a Hub download address.',
         409, 'distribution_address_required');
       const { host, port } = parseAddress(address, this.port);
       source = sourceUrl(host, port);

@@ -11,13 +11,14 @@ import { distributionServer, imageHandler } from '../src/distribution.js';
 import { ImageCopies, parseWanted } from '../src/image-copies.js';
 import {
   IMAGE_HOST, IMAGE_JOB, IMAGE_VARIABLE, ImageDistribution, imageServiceJob, packageRoute, prunePackages, readPackages,
-  sourceUrl
+  setupDownloadHost, sourceUrl
 } from '../src/image-distribution.js';
 import { Images } from '../src/images.js';
 import { Deployments } from '../src/deployments.js';
 import { Site } from '../src/site.js';
 import { createJob } from '../src/job.js';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
+import { createApi } from '../src/http.js';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const encode = value => Buffer.from(JSON.stringify(value));
@@ -211,11 +212,61 @@ test('setting up Nomad starts the image service on the clients, with its list wr
   assert.deepEqual(nomad.calls.filter(c => ['putVariable', 'register'].includes(c[0])), []);
 });
 
-test('no inferred address is published; configuring a host updates both Nomad download locations', async () => {
+test('the Hub setup host excludes the UI port and client-local addresses', () => {
+  assert.equal(setupDownloadHost('hub.site.example:8080'), 'hub.site.example');
+  assert.equal(setupDownloadHost('172.20.1.4:8080'), '172.20.1.4');
+  assert.equal(setupDownloadHost('[fd00::5]:8443'), 'fd00::5');
+  for (const authority of ['localhost.:8080', '0x7f000001', '127.5.0.1', '[::1]:8080', '[::ffff:127.0.0.1]',
+    '0.0.0.0', '[::]', 'host.docker.internal', 'user@host', 'host/path', 'a?b', 'https://other', undefined]) {
+    assert.equal(setupDownloadHost(authority), null);
+  }
+});
+
+test('saving just the VIP and ACL via Hub sets both download locations and works after restart', async t => {
+  const root = await temporary(t);
+  const nomad = fakeNomad();
+  const vip = 'https://nomad.site.example:4646';
+  nomad.connection = async () => ({ state: 'connected' });
+  const open = () => Site.open(root, {}, { client: () => nomad });
+  let site = await open();
+  const options = { packages: [pkg], images: { list: async () => [] }, port: 5481 };
+  const distribution = new ImageDistribution({ site, ...options });
+  const services = { token: 'admin-test', site, distribution };
+  const server = createApi(null, null, services).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const data = JSON.stringify({ revision: 0, address: vip, token: 'test-acl' });
+  const status = await new Promise((resolve, reject) => {
+    const req = request({ port: server.address().port, hostname: '127.0.0.1',
+      path: '/api/v1/site/nomad', method: 'PUT',
+      headers: { Authorization: 'Bearer admin-test', Host: 'hub.lan:8080',
+        'Content-Type': 'application/json', 'X-Forwarded-Host': 'untrusted.example' } }, res => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+  assert.equal(status, 200);
+  await distribution.pending;
+  assert.equal(nomad.job.TaskGroups[0].Tasks[0].Artifacts[0].GetterSource,
+    `http://hub.lan:5481/_hub/image-service-${pkg.sha256}.tar.gz`);
+  site = await open();
+  assert.equal(site.state.nomad.token, 'test-acl');
+  assert.equal(site.state.nomad.distributionAddress, null);
+  const restarted = new ImageDistribution({ site, ...options });
+  await restarted.reconcile();
+  assert.equal((await restarted.status()).source, 'http://hub.lan:5481');
+  assert.deepEqual(JSON.parse((await nomad.variable(IMAGE_VARIABLE)).Items.wanted).sources, ['http://hub.lan:5481']);
+  assert.equal(site.state.nomad.address, vip);
+});
+
+test('local setup uses the host route when available and explicit addresses still win', async () => {
   const nomad = fakeNomad();
   const site = { state: { nomad: { address: 'http://127.0.0.1:4646', namespace: 'default', datacenters: ['dc1'] } },
     client: () => nomad };
-  const options = { images: { list: async () => [] }, site, packages: [pkg], port: 5481 };
+  let route = null;
+  const options = { images: { list: async () => [] }, site, packages: [pkg], port: 5481, hostRoute: async () => route };
   const distribution = new ImageDistribution(options);
   await distribution.reconcile();
   assert.deepEqual(nomad.calls, []);
@@ -223,10 +274,11 @@ test('no inferred address is published; configuring a host updates both Nomad do
   assert.equal(status.reason, 'distribution_address_required');
   assert.equal(status.source, null);
 
-  site.state.nomad.distributionAddress = 'hub.lan';
-  await distribution.reconcile();
-  for (const [hub, expected] of [[distribution, 'http://hub.lan:5481'],
-    [new ImageDistribution({ ...options, address: '[fd00::5]:80' }), 'http://[fd00::5]:80']]) {
+  route = '10.12.34.56';
+  for (const [override, env, expected] of [[null, undefined, 'http://10.12.34.56:5481'],
+    ['hub.lan', undefined, 'http://hub.lan:5481'], ['hub.lan', '[fd00::5]:80', 'http://[fd00::5]:80']]) {
+    site.state.nomad.distributionAddress = override;
+    const hub = new ImageDistribution({ ...options, address: env });
     await hub.reconcile();
     const artifact = nomad.job.TaskGroups[0].Tasks[0].Artifacts[0];
     assert.equal(artifact.GetterSource, `${expected}/_hub/image-service-${pkg.sha256}.tar.gz`);

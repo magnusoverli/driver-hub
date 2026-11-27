@@ -16,6 +16,9 @@ services:
   manager:
     image: ${DRIVER_HUB_IMAGE:-ghcr.io/magnusoverli/driver-hub:latest}
     depends_on:
+      host-route:
+        condition: service_started
+        required: false
       buildkit:
         condition: service_healthy
         required: false
@@ -78,12 +81,27 @@ services:
       BUILDX_BUILDER: hub-compose
     volumes:
       - data:/data
+      - host-route:/run/hub-route:ro
       - type: volume
         source: buildkit-socket
         target: /run/hub-buildkit
         read_only: true
         volume:
           nocopy: true
+    restart: unless-stopped
+
+  # For setup over localhost, look up the real host interface towards Nomad. The helper
+  # only listens on a Unix socket; it has no Hub data, credentials or Docker socket.
+  host-route:
+    image: ${DRIVER_HUB_IMAGE:-ghcr.io/magnusoverli/driver-hub:latest}
+    command: ["node", "src/host-route-server.js"]
+    network_mode: host
+    environment:
+      DESKTOP_HOSTNAME: ${COMPUTERNAME:-}
+    cap_drop: [ALL]
+    read_only: true
+    volumes:
+      - host-route:/run/hub-route
     restart: unless-stopped
 
   buildkit:
@@ -105,5 +123,6 @@ services:
 
 volumes:
   data:
+  host-route:
   buildkit-socket:
   buildkit-cache:

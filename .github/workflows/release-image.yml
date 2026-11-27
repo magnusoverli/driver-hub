@@ -189,6 +189,6 @@ jobs:
           mkdir release
           sed -E "s#^(    image: )\\$\{DRIVER_HUB_IMAGE:[-?][^}]*\}#\1\${DRIVER_HUB_IMAGE:-$IMAGE@$DIGEST}#" compose.yaml > release/compose.yaml
           grep -qF "\${DRIVER_HUB_IMAGE:-$IMAGE@$DIGEST}" release/compose.yaml || { echo "::error::compose.yaml has no DRIVER_HUB_IMAGE line to pin"; exit 1; }
-          resolved=$(cd release && docker compose config --images | grep '^ghcr\.io/')
+          resolved=$(cd release && docker compose config --images | grep '^ghcr\.io/' | sort -u)
           [ "$resolved" = "$IMAGE@$DIGEST" ] || { echo "::error::Resolved $resolved, expected $IMAGE@$DIGEST"; exit 1; }
           gh release upload "$TAG" release/compose.yaml --repo "$GITHUB_REPOSITORY" --clobber

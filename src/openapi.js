@@ -6,7 +6,7 @@ const uuid = { type: 'string', format: 'uuid' };
 const tokenMode = { enum: ['per-device', 'shared'], type: 'string' };
 const secret = { type: 'string', writeOnly: true };
 const distributionAddress = { type: ['string', 'null'],
-  description: 'Hub hostname or IP (optionally with port) that Nomad clients fetch images from. Overridden by DRIVER_HUB_DISTRIBUTION_ADDRESS.' };
+  description: 'Optional Hub download host[:port]. Null uses the hostname used for setup or the Docker host route. DRIVER_HUB_DISTRIBUTION_ADDRESS takes precedence.' };
 const date = { type: 'string', format: 'date-time' };
 const anyObject = { type: 'object', additionalProperties: true };
 const ref = name => ({ $ref: `#/components/schemas/${name}` });
@@ -78,7 +78,7 @@ const schemas = {
     nomad: object({ address: { type: ['string', 'null'] }, distributionAddress, namespace: str, datacenters: array(str), tokenConfigured: bool,
       plainHttp: { type: 'boolean', description: 'Credentials may go to this Nomad over plain HTTP: a trusted network.' } }),
     deployment: object({
-      nomadUiOrigin: { type: ['string', 'null'], description: 'HTTPS origin of the Nomad web interface, for log links.' },
+      nomadUiOrigin: { type: ['string', 'null'], description: 'HTTP or HTTPS origin of the Nomad web interface, for log links.' },
       sharedWriters: { type: 'boolean',
         description: 'Other processes may edit Hub\'s Nomad jobs, so Hub never purges a job when a deployment is deleted.' } }),
     manager: object({ buildsEnabled: bool, timings: bool,

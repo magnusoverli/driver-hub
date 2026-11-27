@@ -103,12 +103,14 @@ export function videoIPathEndpoint(value: string): string | null {
 	return `wss://${url.host}/x-driver/v1`;
 }
 
-/** The HTTPS origin the manager saves for the Nomad web interface, or null when it would refuse. */
+/** The HTTP(S) origin the manager saves for the Nomad web interface, or null when it would refuse. */
 export function nomadUiOrigin(value: string): string | null {
 	try {
 		const url = new URL(value.trim());
 		const bare = url.pathname === '/' && !url.search && !url.hash;
-		return url.protocol === 'https:' && !url.username && !url.password && bare ? url.origin : null;
+		return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && bare
+			? url.origin
+			: null;
 	} catch {
 		return null;
 	}

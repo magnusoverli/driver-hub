@@ -78,15 +78,16 @@ test('deployment and manager settings are validated, saved with the site and use
 
   // Image distribution is Hub's own: there is no image host to set.
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, imageHost: 'images.site' })).status, 400);
-  for (const nomadUiOrigin of ['http://nomad.site', 'https://nomad.site/ui', 'https://user:pw@nomad.site'])
+  for (const nomadUiOrigin of ['ftp://nomad.site', 'http://nomad.site/ui', 'https://user:pw@nomad.site',
+    'http://nomad.site?x=1', 'http://nomad.site/#logs'])
     assert.equal((await call('PUT', '/site/deployment', { revision: 0, nomadUiOrigin })).status, 400, nomadUiOrigin);
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, sharedWriters: null })).status, 400);
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, address: 'nomad.site' })).status, 400);
 
   const saved = await call('PUT', '/site/deployment', { revision: 0,
-    nomadUiOrigin: 'https://nomad.site/', sharedWriters: true });
+    nomadUiOrigin: 'http://nomad.site:4646/', sharedWriters: true });
   assert.equal(saved.status, 200);
-  assert.deepEqual(saved.body.deployment, { nomadUiOrigin: 'https://nomad.site', sharedWriters: true });
+  assert.deepEqual(saved.body.deployment, { nomadUiOrigin: 'http://nomad.site:4646', sharedWriters: true });
   assert.equal((await call('GET', '/capabilities')).body.sharedWriters, true);
   assert.equal((await call('PUT', '/site/deployment', { revision: 0, sharedWriters: false })).body.code, 'revision_conflict');
 

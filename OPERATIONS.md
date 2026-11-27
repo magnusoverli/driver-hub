@@ -70,7 +70,7 @@ Saved in the site settings instead:
 | Setting | In the web interface | Purpose |
 | --- | --- | --- |
 | Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Change the connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint and a dedicated namespace in production. The ACL must cover driver service jobs, the image system job, allocation checks and the Variables below. |
-| Nomad web interface | Settings > Nomad, Jobs | Optional operator-facing HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave empty if targets do not share that UI. |
+| Nomad web interface | Settings > Nomad, Jobs | Optional operator-facing HTTP or HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave empty if targets do not share that UI. |
 | Shared writers | Settings > Nomad, Jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so deployments cannot be deleted. |
 | Source builds | Settings > Manager | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
 | Request timings | Settings > Manager | Returns `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
@@ -79,9 +79,11 @@ Saved in the site settings instead:
 
 ### Image distribution
 
-With a saved Nomad connection and Hub download address, the manager writes the desired image list to `nomad/jobs/driverhub-images`, then registers the `driverhub-images` system job in that namespace and its configured datacenters. No customer registry is needed. Use the Hub container for this workflow: a source checkout without the packaged image service reports `unavailable` with `reason: "no_package"`.
+Saving the Nomad connection starts image distribution. The manager writes the desired image list to `nomad/jobs/driverhub-images`, then registers the `driverhub-images` system job in that namespace and its configured datacenters. No customer registry is needed. Use the Hub container for this workflow: a source checkout without the packaged image service reports `unavailable` with `reason: "no_package"`.
 
-If upgrading from a version that guessed the manager address, set **Settings → Nomad cluster → Hub download address** to the Docker host name or IP reachable from the clients. Installations with `DRIVER_HUB_DISTRIBUTION_ADDRESS` already set need no change. With neither address set, Hub reports `distribution_address_required` and leaves the existing job and Variable alone. Saving the address updates both; there is no need to delete the job or replace the Nomad token.
+**Automatic download address:** Hub remembers the hostname used to save the connection (UI or API), drops the web port, and uses the distribution port. When setup is through `localhost`, the supplied Compose file includes a `host-route` helper: on Linux it asks the host kernel which source IP it would use to reach the Nomad VIP, outside the manager's bridge network. The helper listens only on a shared Unix socket and receives only the destination IP. On Docker Desktop the Linux VM's IP is not the physical host IP; on Windows the helper uses the Compose machine name when available. Clients must be able to resolve the selected name and reach the distribution port.
+
+If automatic selection is unavailable, open Hub using its LAN name or IP and save the connection again. For a split network, reverse proxy or remapped port, set **Hub download address** to a client-reachable `host[:port]`. Existing overrides are preserved; `DRIVER_HUB_DISTRIBUTION_ADDRESS` takes precedence. With no usable address Hub reports `distribution_address_required` before writing either the job or the Variable. When upgrading, use the updated Compose file for the localhost lookup helper.
 
 - **Pulls stay on the machine.** Driver jobs pull from `127.0.0.1:5480`, the copy on their own client. Docker accepts plain HTTP from a registry in `127.0.0.0/8` without configuration. Docker documents this, but advises against relying on it; a daemon configured otherwise needs `127.0.0.1:5480` in its `insecure-registries`.
 - **Every client keeps a copy.** The service copies the published images on Hub's list from the manager or a peer. If Docker asks for a pinned root manifest before a newly staged image appears on the local list, the service can fetch it on demand and keeps the fresh copy through a one-hour grace period. With the manager down, a replacement driver needs a running local image service and either a local copy or a reachable peer with the complete image.
@@ -145,14 +147,14 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 
 ## Site setup after container startup
 
-The supplied Compose file mounts the named data volume at `/data`. After first login, enter the Nomad cluster, Hub download address and VideoIPath target under **Settings**.
+The supplied Compose file mounts the named data volume at `/data`. After first login, enter the Nomad cluster and VideoIPath target under **Settings**.
 
 The site endpoints below are admin-only; integration status is also readable by viewers. Paths are relative to `/api/v1`. Supply the latest site `revision` on each PUT; it covers all site settings. Tokens are write-only.
 
 | Request | Input and result |
 | --- | --- |
 | `GET /site` | Returns revision, addresses, namespace, datacenters, `nomad.plainHttp`, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
-| `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","distributionAddress":"hub.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare Nomad IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. `distributionAddress` is the client-facing Hub host, optionally with a port; omit to retain it, or send `null` to clear it. |
+| `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","token":"<Nomad ACL token>"}`. A bare Nomad IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Namespace and datacenters default to `default` and `dc1`. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. `distributionAddress` optionally overrides automatic selection with a client-facing `host[:port]`; omit to retain an override, or send `null` to return to automatic. |
 | `PUT /site/deployment` | `{"revision":1,"nomadUiOrigin":"https://nomad.site.example","sharedWriters":false}`. Each field is optional: an omitted one keeps its value, `null` clears the Nomad web interface. |
 | `GET /integrations/images` | [Image distribution state and counts](#image-distribution), number of published `images`, manager `source` address and `problems` per client. |
 | `PUT /site/manager` | `{"revision":2,"buildsEnabled":true,"timings":false}`. Turning builds on returns `409 builds_unavailable` when the manager cannot build. `GET /site` reports that as `manager.buildsAvailable`. |

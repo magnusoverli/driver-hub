@@ -30,27 +30,27 @@ test('Nomad settings distinguish the Hub download address from the optional Noma
 	await expect(page.getByLabel('Hub download address')).toBeEmpty();
 	const images = page.getByRole('region', { name: 'Image distribution' });
 	await expect(images).toContainText('Not set up');
-	await expect(images).toContainText(
-		'Starts once the Nomad connection and Hub download address are set.'
-	);
+	await expect(images).toContainText('Starts automatically when you save the Nomad connection.');
 
 	const jobs = page.getByRole('region', { name: 'Jobs', exact: true });
 	const ui = jobs.getByLabel('Nomad web interface');
 	const saved = jobs.getByText('Saved. New jobs and device pages use these values.');
-	await ui.fill('http://nomad.site.example');
+	await ui.fill('http://nomad.site.example/ui');
 	await jobs.getByRole('button', { name: 'Save' }).click();
-	await expect(jobs.getByText('Enter an HTTPS address without a path')).toBeVisible();
-	await ui.fill('https://nomad.site.example/');
+	await expect(jobs.getByText('Enter an HTTP or HTTPS address without a path')).toBeVisible();
+	await ui.fill('http://nomad.site.example:4646/');
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(saved).toBeVisible();
 	const current = page.getByRole('region', { name: 'Current connection' });
-	await expect(current).toContainText('https://nomad.site.example');
+	await expect(current).toContainText('http://nomad.site.example:4646');
+	await page.reload();
+	await expect(ui).toHaveValue('http://nomad.site.example:4646');
 
 	// The other tests expect a site without a Nomad web interface.
 	await ui.fill('');
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(saved).toBeVisible();
-	await expect(current).not.toContainText('https://nomad.site.example');
+	await expect(current).not.toContainText('http://nomad.site.example:4646');
 });
 
 test('an API token is shown once, acts with its role, and stops working when revoked', async ({

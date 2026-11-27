@@ -121,9 +121,10 @@ describe('Nomad connection form', () => {
 });
 
 describe('jobs form', () => {
-	it('accepts only an HTTPS origin for the Nomad web interface', () => {
+	it('accepts HTTP and HTTPS origins for the Nomad web interface', () => {
 		expect(nomadUiOrigin('https://nomad.site.example/')).toBe('https://nomad.site.example');
-		expect(nomadUiOrigin('http://nomad.site.example')).toBeNull();
+		expect(nomadUiOrigin('http://192.0.2.104:4646/')).toBe('http://192.0.2.104:4646');
+		expect(nomadUiOrigin('ftp://nomad.site.example')).toBeNull();
 		expect(nomadUiOrigin('https://nomad.site.example/ui')).toBeNull();
 		expect(nomadUiOrigin('https://user:pw@nomad.site.example')).toBeNull();
 	});

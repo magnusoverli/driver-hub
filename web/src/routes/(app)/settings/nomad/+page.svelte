@@ -257,7 +257,7 @@
 						<TextField
 							label={m.nomad_download_address()}
 							bind:value={distributionAddress}
-							placeholder="hub.site.example"
+							placeholder={m.nomad_download_auto()}
 							autocomplete="off"
 							spellcheck={false}
 							hint={m.nomad_download_hint()}

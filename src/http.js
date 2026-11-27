@@ -8,6 +8,7 @@ import { deployForm } from './deployment-inputs.js';
 import { browserWrite } from './operator-sessions.js';
 import { removeRelease } from './retention.js';
 import { nomadTiming } from './nomad.js';
+import { setupDownloadHost } from './image-distribution.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -114,7 +115,8 @@ async function route(request, catalog, store, services, access, coordinator) {
     expect(request.method === (sitePath[1] ? 'PUT' : 'GET'), 'Invalid site request method', 405);
     if (!sitePath[1]) return site.describe();
     const input = await readSettings(request);
-    return write(current => site.configure(sitePath[1], input, () => current.checkpointTarget()));
+    const setupHost = sitePath[1] === 'nomad' ? setupDownloadHost(request.headers.host, true) : null;
+    return write(current => site.configure(sitePath[1], input, () => current.checkpointTarget(), setupHost));
   }
   const apiTokenPath = /^\/api\/v1\/api-tokens(?:\/([0-9a-f]{32}))?$/.exec(pathname);
   if (apiTokenPath || pathname.startsWith('/api/v1/api-tokens/')) {

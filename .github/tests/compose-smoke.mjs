@@ -6,6 +6,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildOci } from './src/builds.js';
 import { readPackages } from './src/image-distribution.js';
+import { dockerHostFor } from './src/host-route.js';
+import { isIPv4 } from 'node:net';
+import { networkInterfaces } from 'node:os';
+
+// Linux host-route lookup, even if the operator visits Hub at localhost. UDP route selection
+// to a documentation-only IP sends no traffic. Don't accept the manager container's interface.
+const hostIP = await dockerHostFor('http://192.0.2.1:4646');
+assert.ok(isIPv4(hostIP), 'Compose host-route helper must return the host IP');
+assert.ok(!Object.values(networkInterfaces()).flat().some(iface => iface.address === hostIP));
 
 // Every manager image carries the image service for both client architectures, whatever its own.
 const packages = await readPackages();

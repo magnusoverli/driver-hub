@@ -766,7 +766,7 @@ export interface components {
             revision: number;
             nomad: {
                 address: string | null;
-                /** @description Hub hostname or IP (optionally with port) that Nomad clients fetch images from. Overridden by DRIVER_HUB_DISTRIBUTION_ADDRESS. */
+                /** @description Optional Hub download host[:port]. Null uses the hostname used for setup or the Docker host route. DRIVER_HUB_DISTRIBUTION_ADDRESS takes precedence. */
                 distributionAddress: string | null;
                 namespace: string;
                 datacenters: string[];
@@ -775,7 +775,7 @@ export interface components {
                 plainHttp: boolean;
             };
             deployment: {
-                /** @description HTTPS origin of the Nomad web interface, for log links. */
+                /** @description HTTP or HTTPS origin of the Nomad web interface, for log links. */
                 nomadUiOrigin: string | null;
                 /** @description Other processes may edit Hub's Nomad jobs, so Hub never purges a job when a deployment is deleted. */
                 sharedWriters: boolean;
@@ -1394,7 +1394,7 @@ export interface operations {
                 "application/json": {
                     revision: number;
                     address: string;
-                    /** @description Hub hostname or IP (optionally with port) that Nomad clients fetch images from. Overridden by DRIVER_HUB_DISTRIBUTION_ADDRESS. */
+                    /** @description Optional Hub download host[:port]. Null uses the hostname used for setup or the Docker host route. DRIVER_HUB_DISTRIBUTION_ADDRESS takes precedence. */
                     distributionAddress?: string | null;
                     token?: string | null;
                     namespace?: string;

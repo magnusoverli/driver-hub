@@ -19,6 +19,7 @@ import { ApiTokens } from './api-tokens.js';
 import { readEnvironment } from './environment.js';
 import { ImageDistribution, packageRoute, readPackages } from './image-distribution.js';
 import { imageHandler } from './distribution.js';
+import { dockerHostFor } from './host-route.js';
 
 // Only what the manager needs before its web interface exists comes from the environment.
 // Everything else is saved in the site settings and changed in the web interface.
@@ -49,7 +50,7 @@ const imagePackages = await readPackages();
 // Drivers run only where Hub's image service can: on the architectures it is packaged for.
 deploymentServices.imageArchitectures = imagePackages.map(pkg => pkg.arch);
 const distribution = new ImageDistribution({ images: deploymentServices.images, site, packages: imagePackages,
-  port: environment.distributionPort, address: environment.distributionAddress });
+  port: environment.distributionPort, address: environment.distributionAddress, hostRoute: dockerHostFor });
 const imageListener = createServer(imageHandler(deploymentServices.images, { extra: packageRoute(imagePackages) }));
 imageListener.listen(environment.distributionPort, '0.0.0.0', () =>
   console.log(`Driver Hub images for Nomad clients: port ${environment.distributionPort}`));

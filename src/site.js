@@ -48,9 +48,9 @@ const fields = {
 
 function uiOrigin(value) {
   let url;
-  try { url = new URL(value); } catch { expect(false, 'Expected an HTTPS address for the Nomad web interface'); }
-  expect(url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search &&
-    !url.hash, 'Expected an HTTPS address for the Nomad web interface, without a path');
+  try { url = new URL(value); } catch { expect(false, 'Expected an HTTP or HTTPS address for the Nomad web interface'); }
+  expect(['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && url.pathname === '/' &&
+    !url.search && !url.hash, 'Expected an HTTP or HTTPS address for the Nomad web interface, without a path');
   return url.origin;
 }
 
@@ -157,7 +157,9 @@ export class Site {
     return update;
   }
 
-  configure(service, input, beforeSwitch) { return this.serialized(() => this.save(service, input, beforeSwitch)); }
+  configure(service, input, beforeSwitch, setupHost) {
+    return this.serialized(() => this.save(service, input, beforeSwitch, setupHost));
+  }
 
   // Removes a per-device token from the pool by fingerprint: an unused one, or one reserved for a
   // device whose deployment no longer exists (`released` decides that). Revocation stays in VideoIPath.
@@ -200,7 +202,7 @@ export class Site {
     });
   }
 
-  async save(service, input, beforeSwitch) {
+  async save(service, input, beforeSwitch, setupHost) {
     const old = this.state;
     expect(Object.hasOwn(fields, service), 'Unknown site setting', 404);
     expect(Object.keys(input).every(key => key === 'revision' || fields[service].includes(key)),
@@ -229,7 +231,8 @@ export class Site {
       const plainHttp = choose(input, { plainHttp: Boolean(old.nomad.plainHttp) }, 'plainHttp', flag);
       const { distributionAddress = old.nomad.distributionAddress ?? null } = input;
       if (distributionAddress !== null) parseAddress(distributionAddress);
-      next.nomad = { address, namespace, datacenters, token, plainHttp, distributionAddress };
+      next.nomad = { address, namespace, datacenters, token, plainHttp, distributionAddress,
+        setupHost: setupHost ?? (same ? old.nomad.setupHost : null) ?? null };
       if (token) requireSecureNomad(address, plainHttp);
       const status = await this.client(next.nomad).connection();
       expect(status.state === 'connected', 'Nomad has no elected leader', 409, 'nomad_not_ready');
