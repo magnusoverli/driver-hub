@@ -523,7 +523,10 @@
 	"delete_problem_running": "The deployment is requested to run. Stop it first.",
 	"delete_done": "{name} was deleted",
 	"delete_done_body": "Remove the Nomad Variable {variable} yourself if you created one for this device.",
-	"delete_done_variable_failed": "Hub could not remove the registration Variable {variable}. Remove it in Nomad; the manager may lack the destroy permission.",
+	"delete_done_variable_failed": "Registration cleanup is pending at {variable}. Check ownership, changed keys and Variable permissions before removing only the old registration key. Retry deletion with the reviewed revision.",
+	"release_use_unconfirmed": "Usage on another target or an unfinished operation must be reconciled.",
+	"allocations_nomad_logs": "Nomad logs",
+	"deployment_rollout": "Nomad rollout for job version {version}: {status}. Device communication is checked separately.",
 
 	"release_title": "Release",
 	"release_error_title": "The release could not be loaded",

@@ -32,6 +32,12 @@
 				<td>
 					<span class="id">
 						<code title={allocation.id}>{shortId(allocation.id)}</code>
+						{#if allocation.logsUrl}
+							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external operator-configured Nomad UI -->
+							<a href={allocation.logsUrl} rel="noreferrer" target="_blank">
+								{m.allocations_nomad_logs()}
+							</a>
+						{/if}
 						{#if allocation === current}<Badge tone="accent">{m.allocations_current()}</Badge>{/if}
 					</span>
 				</td>
@@ -39,6 +45,7 @@
 				<td>{allocation.desired}</td>
 				<td>
 					{allocation.status}
+					{#if allocation.lastEvent}<span class="secondary">{allocation.lastEvent}</span>{/if}
 					{#if allocation.taskState && allocation.taskState !== allocation.status}
 						<span class="secondary">
 							{m.allocations_task_state({ state: allocation.taskState })}

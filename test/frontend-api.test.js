@@ -30,13 +30,13 @@ async function listen(t, server) {
 }
 
 function job(nodeId, { count = 1, health = true, migrated = false, version = 3 } = {}) {
-  const task = { Name: 'driver', Config: { image: `images.internal/driverhub/meter@sha256:${'a'.repeat(64)}` } };
+  const task = { Name: 'driver', Driver: 'docker', Config: { image: `images.internal/driverhub/meter@sha256:${'a'.repeat(64)}` } };
   if (health) task.Services = [{ Name: `driverhub-${nodeId}` }];
   return {
     ID: `driverhub-${nodeId}`, Status: count ? 'running' : 'dead', JobModifyIndex: 40 + version, Version: version,
     Meta: { managed_by: 'driver-hub', migrated: String(migrated), previous: 'null',
       spec: JSON.stringify({ nodeId, driverId: 'meter', version: '1.0.0', settings: {} }) },
-    TaskGroups: [{ Count: count, Tasks: [task] }]
+    TaskGroups: [{ Name: 'device', Count: count, Tasks: [task] }]
   };
 }
 
@@ -109,6 +109,32 @@ test('deployment detail says whether the device takes its VideoIPath target from
   const detail = async nodeId => (await fetch(`${base}/api/v1/deployments/${nodeId}`)).json();
   assert.equal((await detail(ids[0])).inheritsSite, false);
   assert.equal((await detail(ids[1])).inheritsSite, true);
+});
+
+test('ten fleet readers share one 100-job hydration, with fresh monitoring independent of write preconditions', async t => {
+  const rows = Array.from({ length: 100 }, () => job(randomUUID()));
+  const jobs = new Map(rows.map(row => [row.ID, row]));
+  const allocations = Object.fromEntries(rows.map(row => [row.ID, [{
+    ID: row.ID, JobVersion: row.Version, DesiredStatus: 'run', ClientStatus: 'running'
+  }]]));
+  const nomad = fakeNomad(jobs, { allocations });
+  const upstream = nomad.request;
+  let calls = 0, release;
+  const wait = new Promise(r => { release = r; });
+  nomad.request = async (...args) => { calls++; await wait; return upstream(...args); };
+  const deployments = new Deployments({ nomad });
+  const server = createApi(null, null, { deployments, timings: true });
+  const base = await listen(t, server);
+  let arrivals = 0;
+  server.on('request', () => { if (++arrivals === 10) release(); });
+  const fleet = () => fetch(`${base}/api/v1/deployments`);
+  const results = await Promise.all(Array.from({ length: 10 }, fleet));
+  for (const response of results) assert.equal((await response.json()).deployments.length, 100);
+  assert.equal(calls, 301);
+  assert.ok(results.some(r => /301 calls/.test(r.headers.get('server-timing'))));
+  rows[0].Meta.spec = 'invalid JSON';
+  assert.equal((await fetch(`${base}/api/v1/deployments/${rows[0].ID.slice(10)}`)).status, 409);
+  assert.equal((await deployments.overview()).filter(r => r.communicationEvidence.reason === 'job_drift').length, 1);
 });
 
 test('admins rename deployments without touching Nomad; labels are validated, durable and admin-only', async t => {

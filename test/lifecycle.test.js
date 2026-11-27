@@ -99,7 +99,7 @@ test('post-start site setup assigns separate durable registration tokens without
     if (path === '/v1/jobs') {
       const { Job, JobModifyIndex } = JSON.parse(req.body);
       jobs.set(Job.ID, { ...Job, JobModifyIndex: JobModifyIndex + 1 });
-      return Response.json({ JobModifyIndex: JobModifyIndex + 1 });
+      return Response.json({ JobModifyIndex: JobModifyIndex + 1, EvalID: randomUUID() });
     }
     const job = jobs.get(path.split('/').at(-1));
     return job ? Response.json(job) : new Response(null, { status: 404 });
@@ -197,6 +197,9 @@ test('a separately restarted distribution service serves verified bytes by diges
   assert.equal((await fetch(`${base}/blobs/${layer.digest}`)).status, 200);
   assert.equal((await fetch(`${base}/blobs/${layer.digest}`, { method: 'HEAD' })).headers.get('content-length'), '5');
   assert.equal((await fetch(`${base}/manifests/latest`)).status, 404);
+  await rm(join(root, 'images', key, record.image.digest.slice(7)));
+  assert.equal((await fetch(`${base}/manifests/${record.image.digest}`, { method: 'HEAD' })).status, 404);
+  await assert.rejects(images.publish(record, store.archivePath('meter', record.version)), /incomplete/);
   const broken = await retain(store, '2.0.0', true);
   await assert.rejects(images.publish(broken.record, store.archivePath('meter', '2.0.0')), /Corrupt OCI blob/);
 });
@@ -314,11 +317,16 @@ test('migration, guarded start, update, rollback and stop use one stable Nomad j
   const invalid = await post(update, { revision: 2, version: '2.0.0', settings: {} });
   assert.equal(invalid.status, 422);
   assert.deepEqual((await invalid.json()).details.fields, [{ field: 'credential', code: 'required' }]);
+  job.Stop = true; // An operator ran `nomad job stop`, leaving Count=1.
+  assert.equal((await (await fetch(`${base}/${nodeId}`)).json()).requested, 'stopped');
+  assert.equal((await (await post(`${update}?dryRun=true`, { revision: 2, version: '2.0.0' })).json()).requested, 'stopped');
   assert.equal((await post(update, { revision: 2, version: '2.0.0' })).status, 200);
   assert.notEqual(job.TaskGroups[0].Tasks[0].Config.image, original);
+  assert.equal(job.TaskGroups[0].Count, 0);
   assert.equal((await (await post(update, { revision: 3, version: '2.0.0' })).json()).unchanged, true);
   assert.equal((await post(`/${nodeId}/rollback`, { revision: 3 })).status, 200);
   assert.equal(job.TaskGroups[0].Tasks[0].Config.image, original);
+  assert.equal(job.TaskGroups[0].Count, 0);
   assert.equal(job.TaskGroups[0].Tasks[0].Env.VIDEOIPATH_NODE_ID, nodeId);
   assert.equal((await post(`/${nodeId}/stop`, { revision: 4 })).status, 200);
   assert.equal(job.TaskGroups[0].Count, 0);

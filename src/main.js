@@ -26,7 +26,11 @@ const site = await Site.open(join(dataDir, 'site'), {
   address: process.env.NOMAD_ADDR, token: process.env.NOMAD_TOKEN, namespace: process.env.NOMAD_NAMESPACE ?? 'default',
   datacenters: (process.env.NOMAD_DATACENTERS ?? 'dc1').split(',').map(dc => dc.trim())
 }, { keyFile: process.env.DRIVER_HUB_SITE_KEY_FILE });
+const ui = process.env.DRIVER_HUB_NOMAD_UI_ORIGIN && new URL(process.env.DRIVER_HUB_NOMAD_UI_ORIGIN);
+if (ui && (ui.protocol !== 'https:' || ui.username || ui.password || ui.href !== `${ui.origin}/`))
+  throw new Error('DRIVER_HUB_NOMAD_UI_ORIGIN must be an HTTPS origin');
 const deploymentServices = { store, images: new Images(process.env.DRIVER_HUB_IMAGES_DIR ?? join(dataDir, 'images')),
+  sharedWriters: process.env.DRIVER_HUB_NOMAD_SHARED_WRITERS === 'true', nomadUi: ui?.origin,
   registry: process.env.DRIVER_HUB_IMAGE_HOST, labels: await DeploymentLabels.open(join(dataDir, 'labels')) };
 const host = process.env.HOST ?? '127.0.0.1';
 const token = process.env.DRIVER_HUB_ADMIN_TOKEN;
@@ -43,7 +47,8 @@ const builds = process.env.DRIVER_HUB_BUILDS === 'true' ? new Builds(store) : nu
 const operations = new Operations(join(dataDir, 'operations'));
 const server = createApi(new Catalog(new GitHubReleases()), store, {
   get deployments() { return Deployments.forSite(site, deploymentServices); }, site, builds, operations, token, viewerToken,
-  sessions, localUsers, web, imports, images: deploymentServices.images
+  sessions, localUsers, web, imports, images: deploymentServices.images,
+  timings: process.env.DRIVER_HUB_NOMAD_TIMINGS === 'true'
 });
 server.listen(port, host, () => {
   const origin = `http://${host}:${server.address().port}`;

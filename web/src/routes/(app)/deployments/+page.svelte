@@ -10,6 +10,8 @@
 	import { getApi } from '#lib/api/context.js';
 	import { retainedQuery } from '#lib/catalog/queries.js';
 	import DeploymentTable from '#lib/deployments/DeploymentTable.svelte';
+	import { freshStatus } from '#lib/deployments/status-path.js';
+	import { getClock } from '#lib/time/clock.svelte.js';
 	import { deploymentsQuery, updatesQuery } from '#lib/deployments/queries.js';
 	import {
 		DEPLOYMENT_FILTERS,
@@ -67,7 +69,9 @@
 		});
 	});
 
-	const rows = $derived(sortByName(deployments.data ?? []));
+	const clock = getClock();
+	const sorted = $derived(sortByName(deployments.data ?? []));
+	const rows = $derived(sorted.map((row) => freshStatus(row, clock.now)));
 	const visible = $derived(
 		rows.filter((row) => matchesFilter(row, filter) && matchesSearch(row, search))
 	);

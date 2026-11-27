@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { getApi } from '#lib/api/context.js';
 	import { retainedQuery } from '#lib/catalog/queries.js';
-	import { deploymentsQuery } from '#lib/deployments/queries.js';
+	import { unwrap } from '#lib/api/client.js';
 	import { deviceName } from '#lib/deployments/view.js';
 	import { operationsQuery } from '#lib/operations/operations.js';
 	import { m } from '#lib/paraglide/messages.js';
@@ -46,7 +46,8 @@
 
 	// Devices and releases to jump to, loaded only while the palette is open.
 	const deployments = createQuery(() => ({
-		...deploymentsQuery(api),
+		queryKey: ['deployments', 'directory'],
+		queryFn: async () => (await unwrap(api.GET('/deployments/directory'))).devices,
 		enabled: paletteOpen && capabilities.data?.nomadConfigured === true
 	}));
 	const retained = createQuery(() => ({ ...retainedQuery(api), enabled: paletteOpen }));

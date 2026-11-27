@@ -50,7 +50,7 @@ export function createJob({ spec, previous, running, migrated, image, release, n
   expect(arch.length && arch.every(value => /^[a-z0-9]+$/.test(value)), 'No supported Linux image platform', 422);
   const health = release.configuration.controlHealth;
   const task = {
-    Name: 'driver', Driver: 'docker', Config: { image, volumes, force_pull: true },
+    Name: 'driver', Driver: 'docker', Config: { image, volumes, force_pull: false },
     Env: { [nodeEnv]: spec.nodeId }, Templates: templates,
     Resources: { CPU: 500, MemoryMB: 256 }, KillTimeout: 5 * second
   };
@@ -66,7 +66,7 @@ export function createJob({ spec, previous, running, migrated, image, release, n
   return {
     ID: id, Name: id, Namespace: namespace, Type: 'service', Datacenters: datacenters,
     Meta: {
-      managed_by: 'driver-hub', spec: JSON.stringify(spec), previous: JSON.stringify(previous),
+      managed_by: 'driver-hub', hub_schema: '1', spec: JSON.stringify(spec), previous: JSON.stringify(previous),
       migrated: String(migrated)
     },
     TaskGroups: [{

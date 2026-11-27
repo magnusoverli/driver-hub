@@ -10,6 +10,9 @@ Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the cont
 | --- | --- | --- |
 | `NOMAD_ADDR`, `NOMAD_NAMESPACE`, `NOMAD_DATACENTERS` | Manager | Nomad HTTP(S) API, namespace (`default`), comma-separated datacenters (`dc1`). Use a stable HTTPS endpoint in production. |
 | `NOMAD_TOKEN` | Manager | Customer-provisioned Nomad ACL identity for listing, reading, planning and submitting service jobs and reading allocation checks. Use a namespace dedicated to Driver Hub. |
+| `DRIVER_HUB_NOMAD_SHARED_WRITERS` | Manager | Set to `true` if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check. |
+| `DRIVER_HUB_NOMAD_UI_ORIGIN` | Manager | Optional operator-facing HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave unset if targets do not share that UI. |
+| `DRIVER_HUB_NOMAD_TIMINGS` | Manager | Set to `true` to return `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
 | `DRIVER_HUB_DATA_DIR` | Manager | Durable archive and release metadata; default `~/.driver-hub`. |
 | `DRIVER_HUB_IMAGES_DIR` | Manager + image service | Filesystem for verified OCI content. Manager mounts read-write; serving replicas mount read-only. It must support atomic rename and survive loss of the management host. |
 | `DRIVER_HUB_IMAGE_HOST` | Manager | Stable hostname and optional port (e.g. `driver-images.site.example`) of the **Driver Hub** pull service as reached by Nomad clients. No scheme or path. |
@@ -79,6 +82,21 @@ Use these admin-only JSON endpoints under `/api/v1`. Supply the latest `revision
 
 **Storage and access:** Give the manager read/write access to the task Variables at `nomad/jobs/driverhub-<uuid>/device/driver` in its namespace, in addition to its existing job rights. To let it remove that Variable when a deployment is deleted, also grant `destroy` on the same path; without it the deletion succeeds and reports the Variable as left behind. The job contains a reference; the allocation reads its token from Nomad independently of the manager. Use HTTPS to remote Nomad when delivering credentials. For a private CA, configure the manager's Node trust store (e.g. `NODE_EXTRA_CA_CERTS`); separately configure trust in driver images for VideoIPath.
 
+Example [Nomad ACL policy](https://developer.hashicorp.com/nomad/docs/other-specifications/acl-policy) (replace the namespace with the actual site namespace):
+
+```hcl
+namespace "driver-hub" {
+  capabilities = ["list-jobs", "read-job", "submit-job"]
+  variables {
+    path "nomad/jobs/driverhub-*/device/driver" {
+      capabilities = ["read", "write", "destroy"]
+    }
+  }
+}
+```
+
+Omit the Variables stanza for manual registration. The manager does not need `read-logs`, filesystem access, exec or node administration. Use an HTTPS gateway with client authentication if the site requires mTLS; Hub does not load per-target client certificates. A Nomad connection test exercises leader and list access, not job submission, Variable rights, or the Docker daemon’s path to the registry.
+
 One manager process owns a data directory. Settings, including reservations, are persisted under `DRIVER_HUB_DATA_DIR/site` with AES-256-GCM. By default the key is created alongside the ciphertext: anyone with access to both can decrypt it. To separate the key, mount a file containing exactly 32 random bytes and set `DRIVER_HUB_SITE_KEY_FILE` **before first setup**. Protect and back up the state and corresponding key; losing assignments can lead to token reuse. Persisted settings take precedence over `NOMAD_*` startup defaults.
 
 ## Deploy and migrate
@@ -88,7 +106,7 @@ The following paths are relative to `/api/v1`. JSON requests use `Content-Type: 
 | Operation | Request | Result |
 | --- | --- | --- |
 | Acquire | `PUT /retained/{driverId}/{version}` | Downloads immutable release metadata, settings declaration and archive. `GET /retained` lists local releases, including customer builds. |
-| Remove a release | `DELETE /retained/{driverId}/{version}` | Admin only. Removes the retained release and its verified image from the distribution store. Refused with `409 release_in_use`, listing `details.deployments` with `use: current` or `previous`, while a deployment in the configured namespace runs the release or keeps it for rollback. Hub cannot see deployments left on a previously configured cluster or namespace; keep the releases they use. |
+| Remove a release | `DELETE /retained/{driverId}/{version}` | Admin only. Checks current and rollback references. `409 release_in_use` lists `details.deployments` with `use: current`, `previous`, or `unconfirmed` (unfinished write or another target). Without Nomad, only an unpublished release with no journal references can be removed. |
 | Stage | `POST /deployments` with `driverId`, `version`, `settings`, and optional `nodeId` | Validates configuration, verifies and publishes the image, then creates a persistent zero-instance job. Returns `nodeId`, digest-pinned `image`, `revision`, `evaluationId`. |
 | List / inspect | `GET /deployments` or `GET /deployments/{nodeId}` | The list returns one summary per managed device: label, driver and version, Nomad job status, revision, requested state, communication evidence and the newest allocation Nomad wants running. A device Nomad cannot report at that moment stays listed with `requested: null` and evidence reason `status_unavailable`. The detail adds current settings, pinned image, prior version, all allocations and `inheritsSite` (whether the device takes its VideoIPath target and token from the site, as saved at staging; render update forms with the same choice). |
 | Name a device | `PUT /deployments/{nodeId}/label` with `{"label":"Studio 3 meter"}` or `{"label":null}` | Admin only. 1–80 characters, trimmed, no control characters. Labels are stored by the manager, not in the Nomad job, so renaming never changes or restarts a driver. A stage request may include the same optional `label`. |
@@ -97,7 +115,7 @@ The following paths are relative to `/api/v1`. JSON requests use `Content-Type: 
 | Update | `POST /deployments/{nodeId}/update` with `revision`, `version`, optional replacement `settings` | Preflights the target before submission; preserves the device identity and saves the previous version **and settings**. Settings default to the existing set. |
 | Roll back | `POST /deployments/{nodeId}/rollback` with `revision` | Switches to the preceding saved version/settings. Does not undo physical device configuration changes. |
 | Stop | `POST /deployments/{nodeId}/stop` with `revision` | Sets count to zero without needing the image store. Keeps deployment state. For migration back to an external host, verify that the allocation has actually stopped before restarting the original. |
-| Delete | `DELETE /deployments/{nodeId}?revision=N` | Admin only, for a stopped deployment (`409 deployment_running` otherwise). Purges the Nomad job and its history, Hub's label and the registration Variable Hub wrote (`registrationVariable`: `removed`, `none` or `failed`). Nomad's deregistration has no index check, so Hub compares the revision immediately before. Remove the device's own secrets Variable yourself; its reserved VideoIPath token stays in the pool until removed. Cannot be undone. |
+| Delete | `DELETE /deployments/{nodeId}?revision=N` | Admin only, for a stopped deployment with no nonterminal or `lost` allocations. Purges the job/history and label. Cleanup removes only the registration key whose write Hub recorded, with a Variable CAS check; other keys and the device's own secrets path are preserved. The reserved VideoIPath token stays in its pool. Cannot be undone. |
 
 Example stage body using the proposed meter configuration:
 
@@ -116,7 +134,9 @@ For a new device omit `nodeId`; Hub generates one. For an existing device supply
 
 **Settings delivery:** env bindings use a rendered Nomad env file; file bindings render allocation-scoped files and mount them read-only at the declared container paths. For each secret, provision its key in the customer’s Nomad Variable `nomad/jobs/driverhub-<nodeId>` in the same namespace. Use identifier-style keys such as `device_token`, starting with a letter or underscore. Workload identities read their job-scoped variable; Hub never needs the actual values. The staging response provides the UUID needed to provision variables before starting a new device.
 
-Every change after staging requires the `revision` returned by the prior submission or current GET. Competing writers get `409` on stale state. Staging with the same UUID cannot take over another job. Multiple devices reuse the same image independently; there is no need to upload a separate package for each.
+Every lifecycle change after staging requires the reviewed job revision. Hub serializes lifecycle, release deletion and site writes within one manager, and registers jobs against Nomad’s `JobModifyIndex`. Nomad **does not** offer a conditional purge: grant exclusive job-write access to Hub or disable purge. Updates and rollbacks normalize an externally stopped job to persistent count zero; only an explicit start resumes it. Legacy jobs without an owner marker require a dedicated namespace. Do not manually edit Hub-rendered jobspecs; the next Hub registration reconstructs them.
+
+Back up `site/deployments/` with site state. It holds the installation identity, per-target release pins and incomplete cleanup receipts. Switching targets checks the departing namespace before saving. To retire jobs on a previous target, reconnect to it and complete removal there. An unreachable prior target is not proof that its releases are unused. For `nomad_write_unconfirmed`, inspect the stable job ID and revision before retrying; repeat a new-device stage with its original idempotency key. A registration key already present before staging is borrowed, not deleted. For `registrationVariable: failed`, inspect the named task Variable and reconcile **only the old key** (or restore permissions); retry DELETE with the same revision. A legacy or changed Variable is deliberately not treated as owned. Pending deletion prevents that UUID from being restaged.
 
 ## Client API contract
 
@@ -149,6 +169,8 @@ HTTP 200 returns `validation: {"valid":boolean,"errors":[{"field":"…","code":"
 | Apply after preview | Repeat the POST without `dryRun`, using the original revision. Migration start still needs `originalStopped: true`. A 409 with `code: "revision_conflict"` means to reload and review, not to overwrite. |
 | Retry a new-device stage | Before the first POST, generate a random lowercase UUID and send it in `Idempotency-Key`, omitting `nodeId`. That UUID becomes the new device's stable identity. Retrying identical input returns `replayed: true` with the **current** revision/image; it never reverts later updates. Different input under the same key conflicts. For migrations send the existing `nodeId` alone and inspect it after a timeout. |
 | Diagnose a deployment | Detail includes `requiresOriginalStopped`, pinned image, allocation/task state, restart counts when available, and `communicationEvidence`. `GET /api/v1/deployments/{nodeId}/evaluations` returns the latest 50 scheduler evaluations, newest first, with placement failure counts. A completed evaluation alone is not proof of control. |
+| Inspect a rollout | `GET /api/v1/deployments/{nodeId}/rollout` returns the latest rollout only if its job version and namespace match the current job; otherwise `rollout` is `null`. Allocation rows can show the latest task-event type without returning log text. |
+| Search devices | `GET /api/v1/deployments/directory` lists device IDs, names and versions without allocation/check reads. Concurrent fleet reads share one hydration pass and briefly reuse its result; writes always use fresh preconditions. |
 | Review deployment history | `GET /api/v1/deployments/{nodeId}/history` projects the latest 50 job versions still retained by Nomad to driver version, image digest reference, requested state and revision. It does not expose raw job definitions or past settings. |
 | Handle validation errors | Response bodies preserve `error` and add a stable `code` and optional `details`. For `invalid_settings`, `details.fields` contains `{field, code}` entries. Unknown runtime failures return a generic error; raw job payloads and driver logs are not part of this contract. |
 
@@ -160,9 +182,13 @@ The journal in `DRIVER_HUB_DATA_DIR/operations` is for **one running manager per
 
 Linux Nomad clients need a healthy Docker task driver and access to VideoIPath, the device, Nomad Variables and the image service. Jobs constrain placement to a supported architecture. Resources currently default to 500 MHz CPU and 256 MiB per task; qualify driver-specific requirements before production use.
 
+Use datacenters containing only qualified clients. Architecture matching alone does not establish CPU variant compatibility, VLAN routing or spare capacity. Confirm both the actual device read and VideoIPath session on each eligible host, including after a cold pull. Digest-pinned jobs permit reuse of an exact local image; a cold client still needs the complete registry graph. A manifest HEAD checks the backing file and length, not every blob or its hash. Measure a warm restart with the registry down separately from a cold replacement with the manager absent.
+
 An optional declaration extension, `"controlHealth":{"port":8080,"path":"/control"}`, tells Hub to register an HTTP check with Nomad service discovery. Use it **only** for a driver endpoint that returns success when both its VideoIPath session and device communication are working. The driver must listen on the declared container port. Hub returns `driver-reports-connected` only for a recent successful check on the current running allocation, `check-failed` for a recent failure, and `unknown` without fresh evidence. Approval is always `unknown` in this API. Container liveness alone is not a control check.
 
 Nomad's service scheduler restarts or reschedules the job without Hub intervention. Updates have no canaries. The job uses [`disconnect.stop_on_client_after`](https://developer.hashicorp.com/nomad/docs/job-specification/disconnect) (30 seconds) to have a disconnected client stop its task. This is **not hard fencing**: it depends on the Nomad agent still running and on synchronized clocks. If a driver survives a frozen agent or a management partition, two instances may compete for the same VideoIPath session. For sites requiring a strict single-writer guarantee, commission host or network fencing before enabling automatic takeover; a successful clean host-loss test does not prove partition safety.
+
+Qualify orderly drain, hard host loss, loss of all server connectivity while the device remains reachable, and a frozen client agent separately. Measure last/first successful device reads and any overlap using an independent observer. Neither a `lost` allocation nor an empty allocation history proves physical termination. Losing the Nomad control plane can itself interrupt driver service. Keep approval, rollout status and driver-reported communication as separate signals.
 
 ## Import a local image
 
