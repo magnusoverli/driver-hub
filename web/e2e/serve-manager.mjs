@@ -17,7 +17,6 @@ import {
 	CLUSTER_PORT,
 	FAKE_NOMAD_PORT,
 	FAKE_NOMAD_URL,
-	IMAGE_HOST,
 	PORT,
 	SERVICE_TOKEN
 } from './environment.mjs';
@@ -53,8 +52,7 @@ const manager = spawn(process.execPath, [join(web, '..', 'src', 'main.js')], {
 		DRIVER_HUB_WEB_DIR: join(web, 'build'),
 		DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: passwordFile,
 		DRIVER_HUB_BOOTSTRAP_USERNAME: ADMIN.username,
-		DRIVER_HUB_ADMIN_TOKEN: SERVICE_TOKEN,
-		...(cluster && { NOMAD_ADDR: FAKE_NOMAD_URL, DRIVER_HUB_IMAGE_HOST: IMAGE_HOST })
+		DRIVER_HUB_ADMIN_TOKEN: SERVICE_TOKEN
 	}
 });
 

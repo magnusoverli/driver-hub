@@ -3,7 +3,7 @@ import { ApiError, NETWORK_ERROR } from '#lib/api/errors.js';
 import { errorMessage, fieldErrors } from '#lib/api/messages.js';
 import type { Schema } from '#lib/api/types.js';
 import { m } from '#lib/paraglide/messages.js';
-import type { DeployForm, Settings } from './settings-form';
+import type { DeployForm, Settings } from './configuration-form';
 
 export type StageBody = Schema<'Stage'>;
 type Release = { driverId: string; version: string };
@@ -77,7 +77,7 @@ export function stageProblem(error: unknown, applying: boolean): StageProblem {
 			case 'invalid_settings':
 				return {
 					kind: 'settings',
-					message: m.action_problem_settings(),
+					message: m.action_problem_configuration(),
 					fields: fieldErrors(error)
 				};
 			case 'driver_token_pool_empty':

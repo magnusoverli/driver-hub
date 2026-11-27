@@ -11,14 +11,14 @@
 	function limits(input: Input): string {
 		const parts: string[] = [];
 		if (input.minimum !== undefined && input.maximum !== undefined) {
-			parts.push(m.settings_hint_range({ minimum: input.minimum, maximum: input.maximum }));
+			parts.push(m.configuration_hint_range({ minimum: input.minimum, maximum: input.maximum }));
 		} else if (input.minimum !== undefined) {
-			parts.push(m.settings_hint_minimum({ minimum: input.minimum }));
+			parts.push(m.configuration_hint_minimum({ minimum: input.minimum }));
 		} else if (input.maximum !== undefined) {
-			parts.push(m.settings_hint_maximum({ maximum: input.maximum }));
+			parts.push(m.configuration_hint_maximum({ maximum: input.maximum }));
 		}
 		if (input.minLength && input.minLength > 1) {
-			parts.push(m.settings_hint_min_length({ count: input.minLength }));
+			parts.push(m.configuration_hint_min_length({ count: input.minLength }));
 		}
 		return parts.join(' ');
 	}
@@ -61,7 +61,9 @@
 							{#if input.required && input.default === undefined}
 								<Badge>{m.catalog_required()}</Badge>
 							{/if}
-							{#if input.secret}<Badge tone="accent">{m.settings_secret_reference()}</Badge>{/if}
+							{#if input.secret}<Badge tone="accent">
+									{m.configuration_secret_reference()}
+								</Badge>{/if}
 						</span>
 						{#if supplied}<span class="secondary">{supplied}</span>{/if}
 						{#if limits(input)}<span class="secondary">{limits(input)}</span>{/if}

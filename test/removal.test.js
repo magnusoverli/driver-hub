@@ -16,6 +16,9 @@ import { Nomad } from '../src/nomad.js';
 import { ReleaseStore } from '../src/release-store.js';
 import { Site } from '../src/site.js';
 
+// Stands in for the API token store; the HTTP layer only asks for a bearer token's role.
+const viewerTokens = (...tokens) => ({ role: header => tokens.some(t => header === `Bearer ${t}`) ? 'viewer' : null });
+
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const encode = value => Buffer.from(JSON.stringify(value));
 const configuration = { schemaVersion: 1, inputs: [] };
@@ -97,10 +100,11 @@ test('deployments, VideoIPath tokens and retained releases are removed only when
   await retain(store, '1.1.0');
   await retain(store, '2.0.0');
   const nomad = fakeNomad();
-  const site = await Site.open(join(root, 'site'), { namespace: 'default', datacenters: ['dc1'] },
+  const site = await Site.open(join(root, 'site'), { nomad: { namespace: 'default', datacenters: ['dc1'] },
+    deployment: { imageHost: 'images.internal' } },
     { client: settings => new Nomad(settings.address, settings.token, settings.namespace, nomad.request) });
-  const server = createApi(null, store, { token: 'admin', viewerToken: 'reader', site, images,
-    get deployments() { return Deployments.forSite(site, { store, images, registry: 'images.internal', labels }); } });
+  const server = createApi(null, store, { token: 'admin', apiTokens: viewerTokens('reader'), site, images,
+    get deployments() { return Deployments.forSite(site, { store, images, labels }); } });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -275,10 +279,11 @@ test('an ambiguous registration replays after restart and CAS cleanup never dele
     }
     return response;
   });
-  const open = () => Site.open(join(root, 'site'), { address: 'https://nomad.example', namespace: 'default', datacenters: ['dc1'] }, { client });
+  const open = () => Site.open(join(root, 'site'), { nomad: { address: 'https://nomad.example', namespace: 'default', datacenters: ['dc1'] },
+    deployment: { imageHost: 'images.internal' } }, { client });
   let site = await open();
   await site.configure('videoipath', { revision: 0, address: 'vip.example', token });
-  const manager = () => Deployments.forSite(site, { store, images, registry: 'images.internal' });
+  const manager = () => Deployments.forSite(site, { store, images });
   const stage = () => manager().stage({ driverId: 'meter', version: '1.0.0' }, false, id);
   await assert.rejects(stage, e => e.code === 'nomad_write_unconfirmed');
   site = await open();

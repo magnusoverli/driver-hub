@@ -11,9 +11,12 @@ services:
     ports:
       # Plain HTTP is only accepted on localhost; the session cookie is Secure.
       - '127.0.0.1:8080:8080'
-    # Every setting the manager reads, set to its default. A commented-out setting has no default
-    # and stays off until you set it: uncomment it rather than leaving it empty. Keep secrets in the
-    # .env file and refer to them as ${NAME}. OPERATIONS.md describes each setting in more detail.
+    # The settings the manager needs before its web interface runs, set to their defaults. Everything
+    # else (the Nomad cluster, image host, VideoIPath, source builds, API tokens) is set in the web
+    # interface under Settings, which also lists the values below as Settings > Manager shows them.
+    # A commented-out setting has no default and stays off until you set it: uncomment it rather
+    # than leaving it empty. Keep secrets in the .env file and refer to them as ${NAME}. Changes
+    # here take effect when the manager restarts. OPERATIONS.md describes each setting in detail.
     environment:
       # --- Network -------------------------------------------------------------------------------
       # Address and port the manager listens on inside the container. If you change PORT, change
@@ -41,37 +44,15 @@ services:
       DRIVER_HUB_BOOTSTRAP_USERNAME: admin
       DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: /run/secrets/initial-password
 
-      # --- API access for scripts ----------------------------------------------------------------
-      # A request with "Authorization: Bearer <token>" gets administrator or read-only access
-      # without signing in. Unset, the API accepts signed-in users only.
+      # --- Emergency access ----------------------------------------------------------------------
+      # A request with "Authorization: Bearer <token>" gets administrator access without signing
+      # in, even when every administrator account is locked out. Scripts should use API tokens
+      # created under Settings > API tokens instead, which can be revoked one by one.
       # DRIVER_HUB_ADMIN_TOKEN: ${DRIVER_HUB_ADMIN_TOKEN}
-      # DRIVER_HUB_VIEWER_TOKEN: ${DRIVER_HUB_VIEWER_TOKEN}
 
-      # --- Nomad ---------------------------------------------------------------------------------
-      # Starting values for Site > Nomad cluster. They apply only until site settings are first
-      # saved in the web interface (Nomad or VideoIPath); from then on the saved settings are used.
-      # Unset NOMAD_ADDR, Hub has no cluster until one is entered there.
-      # NOMAD_ADDR: https://nomad.site.example:4646
-      # NOMAD_TOKEN: ${NOMAD_TOKEN}
-      NOMAD_NAMESPACE: default
-      # Comma-separated.
-      NOMAD_DATACENTERS: dc1
-      # Host name, optionally with a port, of the image service as Nomad clients reach it. No
-      # scheme or path. Needed before Hub can stage or update devices.
-      # DRIVER_HUB_IMAGE_HOST: driver-images.site.example
-      # HTTPS address of the Nomad web interface. Adds links to allocation logs on device pages.
-      # DRIVER_HUB_NOMAD_UI_ORIGIN: https://nomad.site.example
-      # 'true' if another process may edit Hub's Nomad jobs directly. Hub then never purges a job
-      # when a deployment is deleted, because a purge cannot check that the job is unchanged.
-      DRIVER_HUB_NOMAD_SHARED_WRITERS: 'false'
-      # 'true' adds a Server-Timing header to API responses, with the request's duration and its
-      # Nomad calls. For diagnosing slow pages.
-      DRIVER_HUB_NOMAD_TIMINGS: 'false'
-
-      # --- Source builds -------------------------------------------------------------------------
-      # 'true' lets administrators build drivers from the public repository. Also needs the image's
-      # builder target (add "target: builder" under "build") and a Docker daemon with Buildx.
-      DRIVER_HUB_BUILDS: 'false'
+      # Source builds are turned on under Settings > Manager. That is only possible when the image
+      # is built with its builder target (add "target: builder" under "build") and the container
+      # reaches a Docker daemon with Buildx.
     secrets:
       - source: initial-password
         # Readable by the manager's service user (UID 1000).

@@ -6,7 +6,7 @@ import { deleteDeployment, stageWithSite } from './fixture';
 test('the Nomad page reports the connection and saves only after reaching the leader', async ({
 	page
 }) => {
-	await signIn(page, ADMIN, '/site/nomad');
+	await signIn(page, ADMIN, '/settings/nomad');
 	const current = page.getByRole('region', { name: 'Current connection' });
 	await expect(current).toContainText('Connected');
 	await expect(current).toContainText(FAKE_NOMAD_URL);
@@ -34,7 +34,7 @@ test('the Nomad page reports the connection and saves only after reaching the le
 test('per-device tokens are added to a pool, and assignments show which device holds one', async ({
 	page
 }) => {
-	await signIn(page, ADMIN, '/site/videoipath');
+	await signIn(page, ADMIN, '/settings/videoipath');
 	const form = page.getByRole('region', { name: 'Change the target' });
 	await form.getByLabel('VideoIPath address').fill('vip.site.example');
 	await expect(

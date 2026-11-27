@@ -17,8 +17,9 @@ export interface ReadinessItem {
 	label: string;
 	state: ReadinessState;
 	detail: string;
-	/** Where an administrator fixes it in Hub, if it is configured there. */
-	settingsRoute?: '/(app)/site/nomad' | '/(app)/site/videoipath';
+	/** Where an administrator changes it in Hub. */
+	settingsRoute?:
+		'/(app)/settings/nomad' | '/(app)/settings/videoipath' | '/(app)/settings/manager';
 }
 
 export interface ReadinessInput {
@@ -31,7 +32,7 @@ function nomadItem({ nomad, nomadError }: ReadinessInput): ReadinessItem {
 	const base = {
 		id: 'nomad',
 		label: m.readiness_nomad(),
-		settingsRoute: '/(app)/site/nomad'
+		settingsRoute: '/(app)/settings/nomad'
 	} as const;
 	if (nomadError) {
 		const detail = nomadError instanceof ApiError ? nomadError.message : m.error_unexpected();
@@ -65,7 +66,7 @@ export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 		{
 			id: 'videoipath',
 			label: m.readiness_videoipath(),
-			settingsRoute: '/(app)/site/videoipath',
+			settingsRoute: '/(app)/settings/videoipath',
 			...(!capabilities
 				? checking
 				: capabilities.videoIPathConfigured
@@ -75,6 +76,7 @@ export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 		{
 			id: 'images',
 			label: m.readiness_images(),
+			settingsRoute: '/(app)/settings/nomad',
 			...(!capabilities
 				? checking
 				: capabilities.imageHostConfigured
@@ -84,6 +86,7 @@ export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 		{
 			id: 'builds',
 			label: m.readiness_builds(),
+			settingsRoute: '/(app)/settings/manager',
 			...(!capabilities
 				? checking
 				: capabilities.buildsEnabled

@@ -54,8 +54,21 @@ function endpoint(operationId, result, { parameters, body, async = false } = {})
 const schemas = {
   Operator: object({ username: str, role, provider: str }),
   LocalAccount: object({ username: str, role, enabled: bool }),
+  ApiToken: object({ id: str, name: str, role, createdAt: date,
+    createdBy: { type: ['string', 'null'], description: 'The operator who created it; null when created with a token.' } }),
+  EnvironmentSetting: object({ name: str, secret: bool,
+    source: { ...values('environment', 'default', 'unset'),
+      description: 'Set in the manager\'s environment, using the built-in default, or unset without a default.' },
+    value: { type: ['string', 'null'], description: 'The value in effect. Always null for a secret.' } }),
   Site: object({ revision: integer,
     nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool }),
+    deployment: object({
+      imageHost: { type: ['string', 'null'], description: 'Host, optionally with a port, Nomad clients pull driver images from.' },
+      nomadUiOrigin: { type: ['string', 'null'], description: 'HTTPS origin of the Nomad web interface, for log links.' },
+      sharedWriters: { type: 'boolean',
+        description: 'Other processes may edit Hub\'s Nomad jobs, so Hub never purges a job when a deployment is deleted.' } }),
+    manager: object({ buildsEnabled: bool, timings: bool,
+      buildsAvailable: { type: 'boolean', description: 'Whether this manager can run source builds at all.' } }),
     videoipath: object({ url: { type: ['string', 'null'] }, tokenMode, tokenConfigured: bool,
       assignments: array(object({ nodeId: uuid, tokenFingerprint: str })), availableTokens: { type: ['integer', 'null'] },
       pool: { ...array(object({ tokenFingerprint: str, nodeId: { type: ['string', 'null'], format: 'uuid' } })),
@@ -128,6 +141,20 @@ const paths = {
   '/site/videoipath': { put: endpoint('configureVideoIPath', ref('Site'), { body: object({
     revision: integer, address: str, tokenMode, token: secret, tokens: array(secret)
   }, ['revision', 'address']) }) },
+  '/site/deployment': { put: endpoint('configureDeployment', ref('Site'), { body: object({ revision: integer,
+    imageHost: { type: ['string', 'null'] }, nomadUiOrigin: { type: ['string', 'null'] }, sharedWriters: bool
+  }, ['revision']) }) },
+  '/site/manager': { put: { ...endpoint('configureManager', ref('Site'), { body: object({ revision: integer,
+    buildsEnabled: bool, timings: bool }, ['revision']) }),
+  description: 'Turning builds on is refused with 409 builds_unavailable when the manager cannot build.' } },
+  '/site/environment': { get: { ...endpoint('getManagerEnvironment', object({ settings: array(ref('EnvironmentSetting')) })),
+    description: 'Startup settings the manager reads from its environment. They change only with a restart.' } },
+  '/api-tokens': { get: endpoint('listApiTokens', object({ tokens: array(ref('ApiToken')) })),
+    post: { ...endpoint('createApiToken', { allOf: [ref('ApiToken'), object({ token: { type: 'string',
+      description: 'The bearer token. Returned only here; Hub keeps only its hash.' } })] }, {
+      body: object({ name: str, role }) }), description: 'Refused with 409 token_name_taken for a name already in use.' } },
+  '/api-tokens/{tokenId}': { delete: endpoint('deleteApiToken', object({ id: str, deleted: { const: true } }), {
+    parameters: [path('tokenId')] }) },
   '/site/videoipath/tokens/{fingerprint}': { delete: { ...endpoint('removeVideoIPathToken', ref('Site'), {
     parameters: [path('fingerprint'), revisionQuery] }), description: 'Removes a per-device token from the pool: ' +
     'an unused one, or one reserved for a device whose deployment no longer exists (otherwise 409 token_in_use). ' +
@@ -135,7 +162,8 @@ const paths = {
   '/openapi.json': { get: endpoint('getContract', anyObject) },
   '/capabilities': { get: endpoint('getCapabilities', object({
     apiVersion: str, access: values('admin', 'viewer'), buildsEnabled: bool, asyncAcquisition: bool,
-    siteSetupEnabled: bool, videoIPathConfigured: bool, nomadConfigured: bool, imageHostConfigured: bool
+    siteSetupEnabled: bool, videoIPathConfigured: bool, nomadConfigured: bool, imageHostConfigured: bool,
+    sharedWriters: { type: 'boolean', description: 'Hub never purges Nomad jobs, so deployments cannot be deleted.' }
   })) },
   '/integrations/nomad': { get: endpoint('getNomadConnection', object({
     state: values('not_configured', 'no_leader', 'connected'), namespace: str
@@ -215,7 +243,7 @@ export const apiContract = {
   openapi: '3.1.0', info: { title: 'Driver Hub management API', version: '1.0.0' },
   servers: [{ url: '/api/v1' }], security: [{ adminBearer: [] }, { operatorSession: [] }], paths,
   components: { securitySchemes: { adminBearer: { type: 'http', scheme: 'bearer',
-    description: 'Admin or viewer service token for automation.' },
+    description: 'An API token created by an administrator, or the emergency DRIVER_HUB_ADMIN_TOKEN.' },
     operatorSession: { type: 'apiKey', in: 'cookie', name: '__Host-driverhub_session',
       description: 'Sign in via /auth/login. Include X-Driver-Hub-Request: 1 on all non-GET session requests.' } }, schemas }
 };

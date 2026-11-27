@@ -42,6 +42,29 @@ test('a running device cannot be deleted until it is stopped', async ({ page }) 
 	await expect(dialog.getByRole('button', { name: 'Delete deployment' })).toBeDisabled();
 });
 
+test('with shared writers on, deletion is explained and refused before anything is typed', async ({
+	page
+}) => {
+	await signIn(page, ADMIN, '/settings/nomad');
+	const jobs = page.getByRole('region', { name: 'Jobs and images' });
+	await jobs.getByLabel("Other tools also change Hub's jobs").check();
+	await jobs.getByRole('button', { name: 'Save' }).click();
+	await expect(jobs.getByText('Saved. New jobs and device pages use these values.')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Current connection' })).toContainText(
+		'On: deployments cannot be deleted'
+	);
+
+	await page.goto(`/deployments/${spare.nodeId}`);
+	await page.getByRole('button', { name: 'More actions' }).click();
+	await page.getByRole('menuitem', { name: 'Delete deployment…' }).click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.getByText('Deleting is turned off on this site')).toBeVisible();
+	await expect(dialog.getByRole('textbox')).toHaveCount(0);
+	await expect(dialog.getByRole('button', { name: 'Delete deployment' })).toBeDisabled();
+	await dialog.getByRole('link', { name: 'Open the Nomad settings' }).click();
+	await expect(page).toHaveURL('/settings/nomad');
+});
+
 test('a release that devices still use is not removed, and they are named', async ({ page }) => {
 	await signIn(page, ADMIN, '/catalog/exampleco-meter/1.4.0');
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText('ExampleCo Meter');

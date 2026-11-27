@@ -25,7 +25,7 @@ describe('navigation', () => {
 	});
 
 	it('finds the item that guards a route', () => {
-		expect(navItemFor('/(app)/site/users')?.adminOnly).toBe(true);
+		expect(navItemFor('/(app)/settings/users')?.adminOnly).toBe(true);
 		expect(navItemFor('/(app)/deployments')?.adminOnly).toBeUndefined();
 		expect(navItemFor('/(app)')).toBeUndefined();
 		expect(navItemFor('/login')).toBeUndefined();

@@ -8,7 +8,7 @@ test('an administrator adds an account, and the new operator signs in with its r
 }) => {
 	const username = `Operator-${Date.now().toString(36)}`;
 	const password = 'a-long-enough-password';
-	await signIn(page, ADMIN, '/site/users');
+	await signIn(page, ADMIN, '/settings/users');
 	await page.getByRole('button', { name: 'Add account' }).click();
 	const dialog = page.getByRole('dialog', { name: 'Add an account' });
 	await dialog.getByLabel('Username').fill(username);
@@ -50,7 +50,7 @@ test('changing an account ends its sessions, and disabled accounts cannot sign i
 }) => {
 	const username = `disable-${Date.now().toString(36)}`;
 	const password = 'another-long-password';
-	await signIn(page, ADMIN, '/site/users');
+	await signIn(page, ADMIN, '/settings/users');
 	await page.getByRole('button', { name: 'Add account' }).click();
 	const create = page.getByRole('dialog', { name: 'Add an account' });
 	await create.getByLabel('Username').fill(username);
@@ -88,7 +88,7 @@ test('an account is deleted after typing its name; your own account has no delet
 	request
 }) => {
 	const account = await createAccount(request, 'viewer');
-	await signIn(page, ADMIN, '/site/users');
+	await signIn(page, ADMIN, '/settings/users');
 	await expect(
 		page.getByRole('button', { name: `Delete ${ADMIN.username}`, exact: true })
 	).toHaveCount(0);

@@ -4,21 +4,32 @@ The manager is an HTTP API. Operators and the future UI use the same endpoints. 
 
 ## Installation
 
-Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. A native installation listens on loopback by default. The manager requires authentication even on loopback. The manager also serves the web frontend from `web/build` (the container image includes it), so the browser loads the app and `/api/v1` from one origin. For remote browser access, put that listener behind HTTPS, preserve the public `Host` header at the reverse proxy, and use a local operator account. Plain HTTP works only at `http://localhost`, because the session cookie is `Secure`. Existing admin and viewer bearer tokens remain supported for automation.
+Run `npm ci --omit=dev` and `node src/main.js` on Node.js 22+, or build the container with `docker build -t driver-hub:local .`. A native installation listens on loopback by default. The manager requires authentication even on loopback. The manager also serves the web frontend from `web/build` (the container image includes it), so the browser loads the app and `/api/v1` from one origin. For remote browser access, put that listener behind HTTPS, preserve the public `Host` header at the reverse proxy, and use a local operator account. Plain HTTP works only at `http://localhost`, because the session cookie is `Secure`. Scripts use API tokens (see [API tokens](#api-tokens)).
+
+The environment holds only what the manager needs before its web interface runs, or what describes the machine it runs on. Everything else is saved in the site settings and changed under **Settings** in the web interface (or with the endpoints in [site setup](#site-setup-after-container-startup)). Settings > Manager lists the values below as the running manager sees them; changing one takes a restart.
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
-| `NOMAD_ADDR`, `NOMAD_NAMESPACE`, `NOMAD_DATACENTERS` | Manager | Nomad HTTP(S) API, namespace (`default`), comma-separated datacenters (`dc1`). Use a stable HTTPS endpoint in production. |
-| `NOMAD_TOKEN` | Manager | Customer-provisioned Nomad ACL identity for listing, reading, planning and submitting service jobs and reading allocation checks. Use a namespace dedicated to Driver Hub. |
-| `DRIVER_HUB_NOMAD_SHARED_WRITERS` | Manager | Set to `true` if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check. |
-| `DRIVER_HUB_NOMAD_UI_ORIGIN` | Manager | Optional operator-facing HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave unset if targets do not share that UI. |
-| `DRIVER_HUB_NOMAD_TIMINGS` | Manager | Set to `true` to return `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
-| `DRIVER_HUB_DATA_DIR` | Manager | Durable archive and release metadata; default `~/.driver-hub`. |
-| `DRIVER_HUB_IMAGES_DIR` | Manager + image service | Filesystem for verified OCI content. Manager mounts read-write; serving replicas mount read-only. It must support atomic rename and survive loss of the management host. |
-| `DRIVER_HUB_IMAGE_HOST` | Manager | Stable hostname and optional port (e.g. `driver-images.site.example`) of the **Driver Hub** pull service as reached by Nomad clients. No scheme or path. |
 | `HOST`, `PORT` | Both processes | Bind address and port. Manager defaults to `127.0.0.1:8080` natively; image server defaults to `127.0.0.1:5000`. The container binds `0.0.0.0`. |
-| `DRIVER_HUB_BUILDS` | Manager | `true` enables building reviewed source from the public repository using Docker Buildx. Off by default. |
+| `DRIVER_HUB_DATA_DIR` | Manager | Durable archive and release metadata, accounts and site settings; default `~/.driver-hub`. |
+| `DRIVER_HUB_IMAGES_DIR` | Manager + image service | Filesystem for verified OCI content. Manager mounts read-write; serving replicas mount read-only. It must support atomic rename and survive loss of the management host. Default `DRIVER_HUB_DATA_DIR/images`. |
 | `DRIVER_HUB_WEB_DIR` | Manager | Built frontend to serve; default `web/build` beside `src/`. Without an `index.html` there, the manager serves only the API. |
+| `DRIVER_HUB_SITE_KEY_FILE` | Manager | Key for the saved site settings; see the end of [site setup](#site-setup-after-container-startup). |
+| `DRIVER_HUB_BOOTSTRAP_USERNAME`, `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` | Manager | The first administrator; see [operator sign-in](#operator-sign-in). |
+| `DRIVER_HUB_ADMIN_TOKEN` | Manager | Optional emergency administrator bearer token, for when every administrator account is locked out. Prefer API tokens for scripts. |
+
+Saved in the site settings instead:
+
+| Setting | In the web interface | Purpose |
+| --- | --- | --- |
+| Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint in production. The ACL identity needs listing, reading, planning and submitting service jobs and reading allocation checks. Use a namespace dedicated to Driver Hub. |
+| Image host | Settings > Nomad, Jobs | Stable hostname and optional port (e.g. `driver-images.site.example`) of the **Driver Hub** pull service as reached by Nomad clients. No scheme or path. Needed before Hub can stage or update devices. |
+| Nomad web interface | Settings > Nomad, Jobs | Optional operator-facing HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave empty if targets do not share that UI. |
+| Shared writers | Settings > Nomad, Jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so deployments cannot be deleted. |
+| Source builds | Settings > Manager | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
+| Request timings | Settings > Manager | Returns `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
+| VideoIPath | Settings > VideoIPath | See [site setup](#site-setup-after-container-startup). |
+| API tokens | Settings > API tokens | See [API tokens](#api-tokens). |
 
 **Image availability:** run `node src/serve-images.js` on a host independent of the manager. For host-redundant distribution run it on two independent hosts behind a stable HTTPS address, backed by resilient shared storage. Route `/v2/` and all `/v2/driverhub/…` requests to those processes; `/v2/` returns 200 when the listener is available. Use an actual manifest HEAD for a storage-aware health check. The service only supports pulls by digest, with no push or delete API. Restrict it to authorized client networks (or use mTLS at the proxy); ensure each client's container runtime trusts the endpoint. A second process or volume on the manager machine alone does **not** meet the HA requirement.
 
@@ -36,6 +47,16 @@ Both processes must have access to the published files; use the same service UID
 ## Operator sign-in
 
 **First administrator:** on the first start, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected UTF-8 file containing the initial password (one trailing line ending is ignored). In Docker, mount it read-only, readable by UID 1000. The initial username is `admin`, or set `DRIVER_HUB_BOOTSTRAP_USERNAME`. Remove the bootstrap mount and setting after provisioning. Restarting with an existing account store never resets a password. Alternatively, an installation with `DRIVER_HUB_ADMIN_TOKEN` can create its first admin via `POST /api/v1/users` using the bearer token. There is no public sign-up or default password.
+
+### API tokens
+
+Administrators create bearer tokens for scripts under Settings > API tokens, each with a name and the `admin` or `viewer` role. A request with `Authorization: Bearer <token>` then gets that role without signing in. The token is shown once, when it is created; Hub keeps only its SHA-256 hash in `DRIVER_HUB_DATA_DIR/auth/api-tokens.json`. Deleting a token stops it working at once.
+
+| API | Behavior |
+| --- | --- |
+| `GET /api-tokens` | Admin only. Lists tokens: `id`, `name`, `role`, `createdAt`, `createdBy`. Never the token. |
+| `POST /api-tokens` | Admin only. `{ "name": "...", "role": "viewer" }`. Returns the record with `token`. Names are unique ignoring case (`409 token_name_taken`). |
+| `DELETE /api-tokens/{id}` | Admin only. Revokes the token. |
 
 **Frontend:** all paths below are relative to `/api/v1`. On page load, call `GET /auth/session`; a 401 means show the login form. Send `Content-Type: application/json` with JSON bodies and **`X-Driver-Hub-Request: 1` on login, logout, and every non-GET cookie-authenticated request**, including deploy-form previews. Use same-origin fetch so the browser handles the `HttpOnly; Secure; SameSite=Strict` cookie. Do not enable cross-origin credentialed access at a proxy. A bearer header selects service authentication on management routes; omit it when acting as a signed-in user.
 
@@ -55,7 +76,7 @@ Both processes must have access to the published files; use the same service UID
 
 ## Site setup after container startup
 
-Start the manager with a durable directory writable by UID 1000 and the address of the separate image service. Example using a bootstrap password file (expose the loopback port through your HTTPS gateway):
+Start the manager with a durable directory writable by UID 1000, then sign in and enter the Nomad cluster, the image host and VideoIPath under Settings. Example using a bootstrap password file (expose the loopback port through your HTTPS gateway):
 
 ```sh
 docker run -d --name driverhub --restart unless-stopped \
@@ -63,16 +84,18 @@ docker run -d --name driverhub --restart unless-stopped \
   -v /srv/driverhub/bootstrap-password:/run/secrets/initial-password:ro \
   -e DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/initial-password \
   -v /srv/driverhub/data:/data -e DRIVER_HUB_DATA_DIR=/data \
-  -v /srv/driverhub/images:/images -e DRIVER_HUB_IMAGES_DIR=/images \
-  -e DRIVER_HUB_IMAGE_HOST=driver-images.site.example driver-hub:local
+  -v /srv/driverhub/images:/images -e DRIVER_HUB_IMAGES_DIR=/images driver-hub:local
 ```
 
-Use these admin-only JSON endpoints under `/api/v1`. Supply the latest `revision` on each PUT. Tokens are write-only.
+The web interface uses these admin-only JSON endpoints under `/api/v1`; scripts can too. Supply the latest `revision` on each PUT; it covers all site settings. Tokens are write-only.
 
 | Request | Input and result |
 | --- | --- |
 | `GET /site` | Returns revision, addresses, namespace, datacenters, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
 | `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. |
+| `PUT /site/deployment` | `{"revision":1,"imageHost":"driver-images.site.example","nomadUiOrigin":"https://nomad.site.example","sharedWriters":false}`. Each field is optional: an omitted one keeps its value, `null` clears the image host or the Nomad web interface. |
+| `PUT /site/manager` | `{"revision":2,"buildsEnabled":true,"timings":false}`. Turning builds on returns `409 builds_unavailable` when the manager cannot build. `GET /site` reports that as `manager.buildsAvailable`. |
+| `GET /site/environment` | The startup settings from the table in [installation](#installation): each `name`, `value` in effect, and `source` (`environment`, `default` or `unset`). Secrets report only their source. |
 | `PUT /site/videoipath` | `{"revision":1,"address":"vip.site.example","tokens":["<driver token A>","<driver token B>"]}`. Hub normalizes the address to `wss://vip.site.example/x-driver/v1`. The default `tokenMode` is `per-device`. Repeat with the current revision to add more pre-issued tokens. Saving does not open a driver session. |
 | `DELETE /site/videoipath/tokens/{fingerprint}?revision=N` | Removes a per-device token from the pool, identified by the SHA-256 fingerprint that `GET /site` lists under `videoipath.pool`. Allowed for an unused token, or one reserved for a device whose deployment no longer exists; a token of an existing deployment returns `409 token_in_use`. Revoke removed tokens in VideoIPath. |
 
@@ -97,7 +120,7 @@ namespace "driver-hub" {
 
 Omit the Variables stanza for manual registration. The manager does not need `read-logs`, filesystem access, exec or node administration. Use an HTTPS gateway with client authentication if the site requires mTLS; Hub does not load per-target client certificates. A Nomad connection test exercises leader and list access, not job submission, Variable rights, or the Docker daemon’s path to the registry.
 
-One manager process owns a data directory. Settings, including reservations, are persisted under `DRIVER_HUB_DATA_DIR/site` with AES-256-GCM. By default the key is created alongside the ciphertext: anyone with access to both can decrypt it. To separate the key, mount a file containing exactly 32 random bytes and set `DRIVER_HUB_SITE_KEY_FILE` **before first setup**. Protect and back up the state and corresponding key; losing assignments can lead to token reuse. Persisted settings take precedence over `NOMAD_*` startup defaults.
+One manager process owns a data directory. Settings, including reservations, are persisted under `DRIVER_HUB_DATA_DIR/site` with AES-256-GCM. By default the key is created alongside the ciphertext: anyone with access to both can decrypt it. To separate the key, mount a file containing exactly 32 random bytes and set `DRIVER_HUB_SITE_KEY_FILE` **before first setup**. Protect and back up the state and corresponding key; losing assignments can lead to token reuse.
 
 ## Deploy and migrate
 
@@ -229,7 +252,7 @@ Allow temporary disk space in the manager data volume for both the compressed ar
 
 ## Customer builds
 
-Enable `DRIVER_HUB_BUILDS=true` on a manager with a Docker CLI, an OCI-export-capable Buildx builder and access to the public repository. For the containerized manager build the optional `builder` target (`docker build --target builder -t driver-hub:builder .`) and connect it to a dedicated build daemon. A source build executes the selected Dockerfile; use a builder appropriate for the code's trust level. No push credentials are needed. Configure an HTTP timeout long enough for builds (up to 30 minutes).
+Turn on source builds under Settings > Manager. That is possible only on a manager with a Docker CLI, an OCI-export-capable Buildx builder and access to the public repository. For the containerized manager build the optional `builder` target (`docker build --target builder -t driver-hub:builder .`) and connect it to a dedicated build daemon. A source build executes the selected Dockerfile; use a builder appropriate for the code's trust level. No push credentials are needed. Configure an HTTP timeout long enough for builds (up to 30 minutes).
 
 `POST /api/v1/builds` with `driverId`, full Git `commit`, `directory` under `Drivers/` or `examples/`, and optionally `platform` (`linux/amd64` or `linux/arm64`). Hub uses `driver-config.json` at that same revision unless the admin provides the `configuration` declaration in the request. The driver directory must contain a self-contained Dockerfile/context. Buildx receives a pinned Git context and exports OCI locally. A successful build returns a retained release with `origin: "customer"` and a unique `0.0.0-local.…` version. It is deployable through the same API; nothing is published to GitHub or a public registry.
 

@@ -14,6 +14,9 @@ import { Nomad } from '../src/nomad.js';
 import { WebApp } from '../src/web.js';
 import { apiContract } from '../src/openapi.js';
 
+// Stands in for the API token store; the HTTP layer only asks for a bearer token's role.
+const viewerTokens = (...tokens) => ({ role: header => tokens.some(t => header === `Bearer ${t}`) ? 'viewer' : null });
+
 const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
 
 async function temporary(t, prefix) {
@@ -151,7 +154,7 @@ test('admins rename deployments without touching Nomad; labels are validated, du
   const admin = randomUUID();
   const viewer = randomUUID();
   const deployments = new Deployments({ nomad, labels, datacenters: ['dc1'] });
-  const base = await listen(t, createApi(null, null, { deployments, token: admin, viewerToken: viewer }));
+  const base = await listen(t, createApi(null, null, { deployments, token: admin, apiTokens: viewerTokens(viewer) }));
   const rename = (nodeId, body, token = admin) => fetch(`${base}/api/v1/deployments/${nodeId}/label`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body)
   });

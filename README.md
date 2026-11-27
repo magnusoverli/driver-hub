@@ -48,11 +48,17 @@ Downloads and builds run on the manager in the background. Activity lists them w
 
 ![Activity with a running download, a failed and a completed build](docs/screenshots/activity.png)
 
-### Site administration
+### Settings
 
-- **Nomad cluster.** The address, namespace, datacenters and ACL token. Hub saves only after it reaches the leader and can list jobs.
+Administrators set up the site under **Settings**. Everything that can be changed while Hub runs is changed there; `compose.yaml` keeps only what the manager needs to start.
+
+- **Nomad.** The connection (address, namespace, datacenters and ACL token; Hub saves only after it reaches the leader and can list jobs), and how jobs run: the image host Nomad clients pull from, the link to the Nomad web interface, and whether other processes also edit Hub's jobs.
 - **VideoIPath.** The driver endpoint and the pool of pre-issued driver tokens, one per device or shared. Tokens show as SHA-256 fingerprints to match your issuance records. Unused tokens, and tokens of deleted devices, can be removed.
 - **Users.** Local accounts with an _Administrator_ or _Viewer_ role. Accounts can be disabled, given a new password or deleted; the last administrator is protected.
+- **API tokens.** Named bearer tokens for scripts, each an _Administrator_ or _Viewer_, shown once and revocable.
+- **Manager.** Source builds and request timings, plus a read-only list of the startup settings from the manager's environment, with where each comes from.
+
+A device's own values, entered at staging, are its **Configuration**, shown on its page.
 
 ![VideoIPath target and token pool](docs/screenshots/videoipath.png)
 
@@ -86,23 +92,23 @@ With Docker, start the manager and web app on `http://localhost:8080`:
 1. Next to `compose.yaml`, create a file named `.env` containing `DRIVER_HUB_INITIAL_PASSWORD=` followed by a password of at least 12 characters. It is only used to create the first account, `admin`, while the data volume is empty. The file is ignored by Git.
 2. Run `docker compose up --build -d`, then open `http://localhost:8080` and sign in as `admin`.
 
-Use `localhost`, not an IP address: the session cookie is `Secure`, which browsers accept over plain HTTP only on `localhost`. Without a Nomad cluster, the overview reports what the site still needs. `docker compose down` stops it; add `-v` to also delete the accounts and settings. `compose.yaml` lists every manager setting with its default value and what it does.
+Use `localhost`, not an IP address: the session cookie is `Secure`, which browsers accept over plain HTTP only on `localhost`. Without a Nomad cluster, the overview reports what the site still needs. `docker compose down` stops it; add `-v` to also delete the accounts and settings. `compose.yaml` lists the startup settings with their defaults; everything else is set in the web app under Settings.
 
 **Explore the deployment screens without a cluster:** with Node.js 22.17+ and npm 11+, run `npm ci` in this directory and in `web/`, then `npm run demo` in `web/`. This starts the manager with a stand-in Nomad cluster and six example devices on `http://localhost:4182`, and prints the sign-in details. The screenshots above were taken from it.
 
 ## Running the backend
 
-For a container installation, follow [site setup after startup](OPERATIONS.md#site-setup-after-container-startup). Administrators can then configure the Nomad connection and the VideoIPath target in the web app, or through the site API. By default each logical device receives its own pre-issued VideoIPath token and keeps it across allocation replacements.
+For a container installation, follow [site setup after startup](OPERATIONS.md#site-setup-after-container-startup). Administrators then configure the Nomad connection, the image host and the VideoIPath target under Settings in the web app, or through the site API. By default each logical device receives its own pre-issued VideoIPath token and keeps it across allocation replacements.
 
-Install Node.js 22 or newer and run `npm ci`. For a new installation, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected file containing the first administrator's password, then run `npm start`. See [operator sign-in](OPERATIONS.md#operator-sign-in) for the login API, account management and the service-token alternative. The manager listens on `127.0.0.1:8080`; set `PORT` to change the port. It serves the built web app from `web/build` (`npm run web:build`) on the same origin as the API.
+Install Node.js 22 or newer and run `npm ci`. For a new installation, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected file containing the first administrator's password, then run `npm start`. See [operator sign-in](OPERATIONS.md#operator-sign-in) for the login API, account management and API tokens. The manager listens on `127.0.0.1:8080`; set `PORT` to change the port. It serves the built web app from `web/build` (`npm run web:build`) on the same origin as the API.
 
 | Area | Endpoints under `/api/v1` |
 | --- | --- |
 | Releases | `GET /releases`, `GET /releases/{driverId}/{version}`, `GET /retained`, `GET`/`PUT`/`DELETE /retained/{driverId}/{version}`, `PUT /imports/{driverId}/{version}`, `POST /builds`, `GET /updates`, `POST …/deploy-form` |
 | Deployments | `GET`/`POST /deployments`, `GET`/`DELETE /deployments/{nodeId}`, `POST /deployments/{nodeId}/{start,stop,update,rollback}` (with `?dryRun=true` to plan), `PUT …/label`, `GET …/history`, `GET …/evaluations` |
 | Background work | `GET /operations`, `GET /operations/{id}` |
-| Site | `GET /site`, `PUT /site/nomad`, `PUT /site/videoipath`, `DELETE /site/videoipath/tokens/{fingerprint}`, `GET /integrations/nomad`, `GET /capabilities` |
-| Accounts | `POST /auth/login`, `GET /auth/session`, `POST /auth/logout`, `POST /auth/password`, `GET`/`POST /users`, `PATCH`/`DELETE /users/{username}` |
+| Site | `GET /site`, `PUT /site/{nomad,deployment,manager,videoipath}`, `DELETE /site/videoipath/tokens/{fingerprint}`, `GET /site/environment`, `GET /integrations/nomad`, `GET /capabilities` |
+| Accounts | `POST /auth/login`, `GET /auth/session`, `POST /auth/logout`, `POST /auth/password`, `GET`/`POST /users`, `PATCH`/`DELETE /users/{username}`, `GET`/`POST /api-tokens`, `DELETE /api-tokens/{id}` |
 
 The [client API contract](OPERATIONS.md#client-api-contract) describes requests, errors and revisions in detail; the running manager also serves it as OpenAPI 3.1 at `/api/v1/openapi.json`, from which the web app's types are generated.
 

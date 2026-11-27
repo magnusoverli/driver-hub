@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { createQuery } from '@tanstack/svelte-query';
+	import { resolve } from '$app/paths';
 	import { getApi } from '#lib/api/context.js';
 	import { m } from '#lib/paraglide/messages.js';
+	import { capabilitiesQuery } from '#lib/system/queries.js';
 	import Callout from '#lib/ui/Callout.svelte';
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import { deleteDeployment, deletionProblem, type Deletion } from './lifecycle';
@@ -16,6 +19,9 @@
 	let { open = $bindable(false), deployment, onDeleted }: Props = $props();
 
 	const api = getApi();
+	const capabilities = createQuery(() => capabilitiesQuery(api));
+	/** The site lets other tools change Hub's jobs, so the manager refuses every purge. */
+	const purgeOff = $derived(capabilities.data?.sharedWriters === true);
 	let busy = $state(false);
 	let problem = $state<string | null>(null);
 
@@ -46,12 +52,19 @@
 	title={m.delete_title({ name: deviceName(deployment) })}
 	confirmLabel={m.delete_confirm()}
 	phrase={deployment.label ?? shortId(deployment.nodeId)}
-	blocked={!stopped}
+	blocked={!stopped || purgeOff}
 	{busy}
 	{problem}
 	onConfirm={confirm}
 >
-	{#if !stopped}
+	{#if purgeOff}
+		<Callout tone="warn" title={m.delete_shared_writers_title()}>
+			<p>{m.delete_shared_writers_body()}</p>
+			<p>
+				<a href={resolve('/(app)/settings/nomad')}>{m.delete_shared_writers_link()}</a>
+			</p>
+		</Callout>
+	{:else if !stopped}
 		<Callout tone="warn" title={m.delete_stop_first_title()}>{m.delete_stop_first_body()}</Callout>
 	{:else}
 		<p>{m.delete_removes({ job: jobId })}</p>

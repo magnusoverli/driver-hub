@@ -15,6 +15,9 @@ import { Images, imageKey } from '../src/images.js';
 import { Imports } from '../src/imports.js';
 import { ReleaseStore } from '../src/release-store.js';
 
+// Stands in for the API token store; the HTTP layer only asks for a bearer token's role.
+const viewerTokens = (...tokens) => ({ role: header => tokens.some(t => header === `Bearer ${t}`) ? 'viewer' : null });
+
 const sha = b => createHash('sha256').update(b).digest('hex');
 const metadata = { displayName: 'Meter', source: { commit: 'c'.repeat(40), directory: 'Drivers/Meter' },
   configuration: { schemaVersion: 1, inputs: [] } };
@@ -63,7 +66,7 @@ async function manager(t, options) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = new ReleaseStore(join(root, 'releases'));
   const imports = await Imports.open(store, options);
-  const base = `${await listen(t, createApi(null, store, { imports, token: 'uploader', viewerToken: 'viewer' }))}/api/v1`;
+  const base = `${await listen(t, createApi(null, store, { imports, token: 'uploader', apiTokens: viewerTokens('viewer') }))}/api/v1`;
   const put = (body, version = '1.0.0', headers = auth) =>
     fetch(`${base}/imports/meter/${version}`, { method: 'PUT', headers, body });
   return { store, imports, root, base, put };

@@ -12,6 +12,7 @@
 		namespaceProblem,
 		nomadInput,
 		nomadOrigin,
+		revisionFor,
 		siteKeys,
 		siteQuery,
 		type NomadTokenChoice,
@@ -26,6 +27,7 @@
 	import Freshness from '#lib/ui/Freshness.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import JobsForm from '#lib/site/JobsForm.svelte';
 	import RadioGroup from '#lib/ui/RadioGroup.svelte';
 	import TextField from '#lib/ui/TextField.svelte';
 
@@ -39,8 +41,8 @@
 	let datacenters = $state('dc1');
 	let tokenChoice = $state<NomadTokenChoice>('replace');
 	let token = $state('');
-	/** The revision the form was filled from; saving with it detects concurrent changes. */
-	let revision = $state<number | null>(null);
+	/** The settings the form was filled from; saving against them detects concurrent changes. */
+	let basis = $state<Site | null>(null);
 	let attempted = $state(false);
 	let busy = $state(false);
 	let problem = $state<SiteProblem | null>(null);
@@ -56,13 +58,13 @@
 				? 'none'
 				: 'replace';
 		token = '';
-		revision = settings.revision;
+		basis = settings;
 		attempted = false;
 	}
 
 	$effect(() => {
 		const settings = site.data;
-		if (settings && revision === null) untrack(() => fill(settings));
+		if (settings && basis === null) untrack(() => fill(settings));
 	});
 
 	const origin = $derived(nomadOrigin(address));
@@ -110,12 +112,18 @@
 		saved = false;
 		if (!origin || namespaceProblem(namespace) || datacentersProblem(datacenters)) return;
 		if (tokenChoice === 'replace' && !token.trim()) return;
-		if (revision === null) return;
+		if (!basis || !site.data) return;
 		busy = true;
 		try {
 			const result = await configureNomad(
 				api,
-				nomadInput(revision, { address, namespace, datacenters, tokenChoice, token })
+				nomadInput(revisionFor(basis, site.data, 'nomad'), {
+					address,
+					namespace,
+					datacenters,
+					tokenChoice,
+					token
+				})
 			);
 			queryClient.setQueryData(siteKeys.settings(), result);
 			fill(result);
@@ -174,66 +182,85 @@
 				<dd><code>{site.data.nomad.datacenters.join(', ')}</code></dd>
 				<dt>{m.nomad_token()}</dt>
 				<dd>{site.data.nomad.tokenConfigured ? m.site_token_saved() : m.site_token_none()}</dd>
+				<dt>{m.nomad_image_host()}</dt>
+				<dd>
+					{#if site.data.deployment.imageHost}<code>{site.data.deployment.imageHost}</code>
+					{:else}<Badge tone="warn">{m.site_not_set()}</Badge>{/if}
+				</dd>
+				<dt>{m.nomad_ui_origin()}</dt>
+				<dd>
+					{#if site.data.deployment.nomadUiOrigin}<code>{site.data.deployment.nomadUiOrigin}</code>
+					{:else}{m.site_not_set()}{/if}
+				</dd>
+				<dt>{m.nomad_shared_writers()}</dt>
+				<dd>
+					{site.data.deployment.sharedWriters
+						? m.nomad_shared_writers_on()
+						: m.nomad_shared_writers_off()}
+				</dd>
 			</Facts>
 			<p class="footnote">{m.nomad_current_note()}</p>
 		</Card>
 
-		<Card title={m.nomad_form_title()} description={m.nomad_form_description()}>
-			<form class="form" onsubmit={submit} novalidate>
-				{#if saved}<Callout tone="ok" title={m.nomad_saved()} live />{/if}
-				{#if problem}
-					<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
-						{problem.message}
-					</Callout>
-				{/if}
-				<TextField
-					label={m.nomad_address()}
-					bind:value={address}
-					placeholder="nomad.site.example"
-					autocomplete="off"
-					spellcheck={false}
-					hint={origin ? m.nomad_address_resolved({ origin }) : m.nomad_address_hint()}
-					error={addressError}
-				/>
-				<div class="pair">
+		<div class="forms">
+			<Card title={m.nomad_form_title()} description={m.nomad_form_description()}>
+				<form class="form" onsubmit={submit} novalidate>
+					{#if saved}<Callout tone="ok" title={m.nomad_saved()} live />{/if}
+					{#if problem}
+						<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
+							{problem.message}
+						</Callout>
+					{/if}
 					<TextField
-						label={m.nomad_namespace()}
-						bind:value={namespace}
+						label={m.nomad_address()}
+						bind:value={address}
+						placeholder="nomad.site.example"
 						autocomplete="off"
 						spellcheck={false}
-						error={namespaceError}
+						hint={origin ? m.nomad_address_resolved({ origin }) : m.nomad_address_hint()}
+						error={addressError}
 					/>
-					<TextField
-						label={m.nomad_datacenters()}
-						bind:value={datacenters}
-						autocomplete="off"
-						spellcheck={false}
-						hint={m.nomad_datacenters_hint()}
-						error={datacentersError}
-					/>
-				</div>
-				<RadioGroup legend={m.nomad_token()} options={tokenOptions} bind:value={tokenChoice} />
-				{#if tokenChoice === 'replace'}
-					<TextField
-						label={m.nomad_token_field()}
-						type="password"
-						autocomplete="off"
-						bind:value={token}
-						hint={m.nomad_token_field_hint()}
-						error={tokenError}
-					/>
-				{/if}
-				{#if targetChanges && site.data.videoipath.url}
-					<Callout tone="warn" title={m.nomad_target_change_title()}>
-						{m.nomad_target_change_body()}
-					</Callout>
-				{/if}
-				<div class="submit">
-					<Button variant="primary" type="submit" {busy}>{m.nomad_submit()}</Button>
-					<span class="note">{m.nomad_submit_note()}</span>
-				</div>
-			</form>
-		</Card>
+					<div class="pair">
+						<TextField
+							label={m.nomad_namespace()}
+							bind:value={namespace}
+							autocomplete="off"
+							spellcheck={false}
+							error={namespaceError}
+						/>
+						<TextField
+							label={m.nomad_datacenters()}
+							bind:value={datacenters}
+							autocomplete="off"
+							spellcheck={false}
+							hint={m.nomad_datacenters_hint()}
+							error={datacentersError}
+						/>
+					</div>
+					<RadioGroup legend={m.nomad_token()} options={tokenOptions} bind:value={tokenChoice} />
+					{#if tokenChoice === 'replace'}
+						<TextField
+							label={m.nomad_token_field()}
+							type="password"
+							autocomplete="off"
+							bind:value={token}
+							hint={m.nomad_token_field_hint()}
+							error={tokenError}
+						/>
+					{/if}
+					{#if targetChanges && site.data.videoipath.url}
+						<Callout tone="warn" title={m.nomad_target_change_title()}>
+							{m.nomad_target_change_body()}
+						</Callout>
+					{/if}
+					<div class="submit">
+						<Button variant="primary" type="submit" {busy}>{m.nomad_submit()}</Button>
+						<span class="note">{m.nomad_submit_note()}</span>
+					</div>
+				</form>
+			</Card>
+			<JobsForm site={site.data} reload={async () => (await site.refetch()).data} />
+		</div>
 	</div>
 {/if}
 
@@ -249,6 +276,13 @@
 		.layout {
 			grid-template-columns: minmax(0, 1fr);
 		}
+	}
+
+	.forms {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+		min-width: 0;
 	}
 
 	.form {

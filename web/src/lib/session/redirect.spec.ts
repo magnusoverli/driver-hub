@@ -4,7 +4,7 @@ import { safeNextPath, signInPath } from './redirect.js';
 describe('safeNextPath', () => {
 	it.each([
 		['/deployments', '/deployments'],
-		['/site/users?filter=admin#top', '/site/users?filter=admin#top'],
+		['/settings/users?filter=admin#top', '/settings/users?filter=admin#top'],
 		['/a/../deployments', '/deployments']
 	])('keeps the same-origin path %s', (next, expected) => {
 		expect(safeNextPath(next)).toBe(expected);
@@ -26,8 +26,8 @@ describe('safeNextPath', () => {
 
 describe('signInPath', () => {
 	it('remembers where the operator was going', () => {
-		expect(signInPath({ pathname: '/site/users', search: '?q=1' })).toBe(
-			'/login?next=%2Fsite%2Fusers%3Fq%3D1'
+		expect(signInPath({ pathname: '/settings/users', search: '?q=1' })).toBe(
+			'/login?next=%2Fsettings%2Fusers%3Fq%3D1'
 		);
 	});
 

@@ -32,9 +32,9 @@
 		updatesQuery
 	} from '#lib/deployments/queries.js';
 	import RenameDialog from '#lib/deployments/RenameDialog.svelte';
-	import SettingsList from '#lib/deployments/SettingsList.svelte';
+	import ConfigurationList from '#lib/deployments/ConfigurationList.svelte';
 	import StatusHops from '#lib/deployments/StatusHops.svelte';
-	import { secretReferences } from '#lib/deployments/settings-form.js';
+	import { secretReferences } from '#lib/deployments/configuration-form.js';
 	import { detailStatusInput, freshStatus } from '#lib/deployments/status-path.js';
 	import { getClock } from '#lib/time/clock.svelte.js';
 	import { deviceName, updateTargets } from '#lib/deployments/view.js';
@@ -317,10 +317,10 @@
 			<Card title={m.deployment_device_title()}>
 				<DeviceFacts {deployment} />
 			</Card>
-			<Card title={m.deployment_settings_title()}>
-				<SettingsList settings={deployment.settings} />
+			<Card title={m.deployment_configuration_title()}>
+				<ConfigurationList settings={deployment.settings} />
 				<p class="footnote settings-note">
-					{m.deployment_settings_note({ nodeId: deployment.nodeId })}
+					{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
 				</p>
 			</Card>
 		</div>

@@ -25,6 +25,18 @@ export function buildOci(context, workspace, platform) {
   });
 }
 
+// Whether this manager can build: the image ships the Docker CLI with Buildx (the builder target)
+// and reaches a Docker daemon. Administrators turn builds on in the web interface only if it can.
+export async function buildxAvailable() {
+  const succeeds = args => new Promise(resolve => {
+    const child = spawn('docker', args, { stdio: 'ignore', timeout: 15 * 1000, windowsHide: true });
+    child.on('error', () => resolve(false));
+    child.on('close', code => resolve(code === 0));
+  });
+  // `docker info` fails when no daemon answers; `buildx version` when the plugin is missing.
+  return await succeeds(['buildx', 'version']) && succeeds(['info', '--format', '{{.ServerVersion}}']);
+}
+
 export class Builds {
   constructor(store, build = buildOci, source = new GitHubReleases()) {
     this.store = store;

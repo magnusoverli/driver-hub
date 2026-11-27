@@ -61,7 +61,7 @@ function preview(searchParams) {
 }
 
 async function route(request, catalog, store, services, access, coordinator) {
-  const { deployments, builds, operations, site, localUsers, imports, images } = services;
+  const { deployments, builds, operations, site, localUsers, imports, images, apiTokens } = services;
   const write = fn => coordinator.write(() => fn(services.deployments));
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
   const upload = /^\/api\/v1\/imports\/([^/]+)\/([^/]+)$/.exec(pathname);
@@ -100,7 +100,12 @@ async function route(request, catalog, store, services, access, coordinator) {
         !await current.nomad.get(`driverhub-${nodeId}`);
     }));
   }
-  const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath))?$/.exec(pathname);
+  if (pathname === '/api/v1/site/environment') {
+    expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
+    expect(request.method === 'GET', 'Expected GET', 405);
+    return { settings: services.environment ?? [] };
+  }
+  const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath|deployment|manager))?$/.exec(pathname);
   if (sitePath) {
     expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
     expect(site, 'Site configuration is unavailable', 503);
@@ -108,6 +113,19 @@ async function route(request, catalog, store, services, access, coordinator) {
     if (!sitePath[1]) return site.describe();
     const input = await readSettings(request);
     return write(current => site.configure(sitePath[1], input, () => current.checkpointTarget()));
+  }
+  const apiTokenPath = /^\/api\/v1\/api-tokens(?:\/([0-9a-f]{32}))?$/.exec(pathname);
+  if (apiTokenPath || pathname.startsWith('/api/v1/api-tokens/')) {
+    expect(access === 'admin', 'API tokens require administrator access', 403, 'admin_required');
+    expect(apiTokens, 'API tokens are unavailable', 503);
+    expect(apiTokenPath, 'Unknown API token', 404);
+    if (apiTokenPath[1]) {
+      expect(request.method === 'DELETE', 'Expected DELETE', 405);
+      return apiTokens.remove(apiTokenPath[1]);
+    }
+    if (request.method === 'GET') return { tokens: apiTokens.list() };
+    expect(request.method === 'POST', 'Expected GET or POST', 405);
+    return apiTokens.create(await readSettings(request), request.operator?.username ?? null);
   }
   if (pathname === '/api/v1/openapi.json') {
     expect(request.method === 'GET', 'Expected GET', 405);
@@ -117,7 +135,8 @@ async function route(request, catalog, store, services, access, coordinator) {
     expect(request.method === 'GET', 'Expected GET', 405);
     return { apiVersion: 'v1', access, buildsEnabled: Boolean(builds), asyncAcquisition: Boolean(operations),
       siteSetupEnabled: Boolean(site), videoIPathConfigured: Boolean(site?.state.videoipath),
-      nomadConfigured: Boolean(deployments?.nomad.address), imageHostConfigured: Boolean(deployments?.registry) };
+      nomadConfigured: Boolean(deployments?.nomad.address), imageHostConfigured: Boolean(deployments?.registry),
+      sharedWriters: Boolean(deployments?.sharedWriters) };
   }
   if (pathname === '/api/v1/integrations/nomad') {
     expect(request.method === 'GET', 'Expected GET', 405);
@@ -220,14 +239,16 @@ async function route(request, catalog, store, services, access, coordinator) {
   return action === 'validate' ? validateSettings(release.configuration, input) : release;
 }
 
-async function authorize(request, { token, viewerToken, sessions, localUsers }) {
+// `token` is the emergency administrator token from the environment; `apiTokens` are the tokens
+// administrators create in the web interface.
+async function authorize(request, { token, apiTokens, sessions, localUsers }) {
   let access;
   if (request.headers.authorization !== undefined || (!sessions && token)) {
     const digest = value => createHash('sha256').update(value).digest();
     const provided = digest(request.headers.authorization ?? '');
     if (token && timingSafeEqual(provided, digest(`Bearer ${token}`))) return 'admin';
-    expect(viewerToken && timingSafeEqual(provided, digest(`Bearer ${viewerToken}`)), 'Authorization required', 401);
-    access = 'viewer';
+    access = apiTokens?.role(request.headers.authorization);
+    expect(access, 'Authorization required', 401);
   } else if (sessions) {
     // Kept for rules about the operator's own account, such as not deleting it.
     request.operator = await sessions.current(request);
