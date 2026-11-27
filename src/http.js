@@ -262,7 +262,7 @@ async function authorize(request, { token, apiTokens, sessions, localUsers }) {
     expect(!request.operator.mustChangePassword, 'Change the default password before using Driver Hub', 403,
       'password_change_required');
     access = request.operator.role;
-    if (request.method !== 'GET') browserWrite(request);
+    if (request.method !== 'GET') browserWrite(request, sessions.plainHttp);
   } else {
     expect(!localUsers, 'Operator session authentication is required', 503);
     expect(/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(request.headers.host ?? ''),
@@ -293,7 +293,7 @@ async function dispatch(request, headers, catalog, store, services, coordinator)
       return sessions.current(request);
     }
     expect(request.method === 'POST', 'Expected POST', 405);
-    browserWrite(request);
+    browserWrite(request, sessions.plainHttp);
     if (pathname === '/api/v1/auth/login') return sessions.login(request, await readSettings(request), headers);
     if (pathname === '/api/v1/auth/logout') return sessions.logout(request, headers);
     if (pathname === '/api/v1/auth/password') {

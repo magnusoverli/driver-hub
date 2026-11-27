@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { request as httpRequest } from 'node:http';
 import { createApi } from '../src/http.js';
 import { LocalUsers } from '../src/local-users.js';
 import { OperatorSessions } from '../src/operator-sessions.js';
@@ -232,4 +233,57 @@ test('an account named after a built-in object property keeps a whole-number rev
   await users.remove('constructor');
   await users.create({ username: 'constructor', role: 'viewer', password: randomUUID() });
   assert.equal((await LocalUsers.open(directory)).resolve('constructor').revision, 2);
+});
+
+test('sign-in works over plain HTTP from another host only when the manager allows it', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'driverhub-plain-http-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const users = await LocalUsers.open(directory);
+  const password = randomUUID();
+  await users.create({ username: 'operator', role: 'admin', password });
+  // A browser on another machine, visiting the manager by its network address over HTTP. Node's
+  // fetch would replace the Host header, so requests go through node:http.
+  const host = 'hub.site.example:8080';
+  const browser = { 'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1', Host: host, Origin: `http://${host}` };
+  function send(port, method, path, headers, body) {
+    return new Promise((resolve, reject) => {
+      const request = httpRequest({ host: '127.0.0.1', port, method, path: `/api/v1${path}`, headers }, response => {
+        let text = '';
+        response.on('data', chunk => { text += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode, cookie: response.headers['set-cookie']?.[0],
+          body: text ? JSON.parse(text) : null }));
+      });
+      request.on('error', reject);
+      request.end(body && JSON.stringify(body));
+    });
+  }
+  async function manager(plainHttp) {
+    const server = createApi(null, null, { localUsers: users,
+      sessions: new OperatorSessions(users, Date.now, { plainHttp }) }).listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    return server.address().port;
+  }
+  const credentials = { username: 'operator', password };
+
+  // By default the cookie is Secure, and an http:// origin other than localhost is refused.
+  const secure = await manager(false);
+  const refused = await send(secure, 'POST', '/auth/login', browser, credentials);
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.code, 'csrf_check_failed');
+  const local = await send(secure, 'POST', '/auth/login', { ...browser, Host: 'localhost:8080', Origin: 'http://localhost:8080' },
+    credentials);
+  assert.match(local.cookie, /^__Host-driverhub_session=[\w-]+; Path=\/; HttpOnly; Secure; SameSite=Strict/);
+
+  const plain = await manager(true);
+  const login = await send(plain, 'POST', '/auth/login', browser, credentials);
+  assert.equal(login.status, 200);
+  assert.match(login.cookie, /^driverhub_session=[\w-]+; Path=\/; HttpOnly; SameSite=Strict; Max-Age=28800$/);
+  const cookie = login.cookie.split(';')[0];
+  assert.equal((await send(plain, 'GET', '/auth/session', { ...browser, Cookie: cookie })).body.username, 'operator');
+  // The other protections stay: the request header and the same origin.
+  assert.equal((await send(plain, 'POST', '/auth/logout', { ...browser, Cookie: cookie, Origin: 'http://elsewhere.example' })).status, 403);
+  const { 'X-Driver-Hub-Request': _, ...headerless } = browser;
+  assert.equal((await send(plain, 'POST', '/auth/logout', { ...headerless, Cookie: cookie })).status, 403);
+  assert.equal((await send(plain, 'POST', '/auth/logout', { ...browser, Cookie: cookie })).status, 200);
 });

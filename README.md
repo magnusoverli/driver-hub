@@ -20,12 +20,18 @@ On a fresh installation, open [http://localhost:8080](http://localhost:8080) on 
 
 The standard installation is **Docker Compose**. The release image includes the manager, web app, Nomad image-service package, Docker CLI and Buildx. Compose starts a dedicated rootless BuildKit worker alongside the manager. **Driver source builds are off by default**; an administrator can turn them on under **Settings → Manager**, without rebuilding Hub or exposing the host Docker socket.
 
-1. Choose a version from [Driver Hub releases](https://github.com/magnusoverli/driver-hub/releases). From that tag's source tree, download **`compose.yaml`** into an installation directory. Use a release whose **Driver Hub image** workflow has finished successfully. If there is no published image yet, use the [local image build](#build-the-manager-image-locally).
-2. Create `.env` beside `compose.yaml`. Replace `vX.Y.Z` with the **exact release tag**. For a real cluster, set the distribution address to the Docker host name or IP that the Nomad clients can reach.
+1. Choose a version from [Driver Hub releases](https://github.com/magnusoverli/driver-hub/releases) and download **`compose.yaml`** from its **Assets** into an installation directory. Use a release whose **Driver Hub image** workflow has finished successfully. If there is no published image yet, use the [local image build](#build-the-manager-image-locally).
+2. Optionally, create `.env` beside `compose.yaml`. The `compose.yaml` attached to a release already names that release's image, so Hub starts without one. Add only the lines you need:
 
 ```dotenv
-DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z
-# DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
+# By default the web interface is published on every interface and accepts sign-in over plain
+# HTTP. Behind an HTTPS reverse proxy on this machine, keep it local and the cookie Secure:
+# DRIVER_HUB_LISTEN_ADDRESS=127.0.0.1
+# DRIVER_HUB_ALLOW_PLAIN_HTTP=false
+# For a real cluster: the host name or IP the Nomad clients use to reach this machine.
+DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
+# A compose.yaml taken from the source tree instead of a release needs the image too.
+# DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z
 ```
 
 3. For a private image, [sign Docker in to GHCR](OPERATIONS.md#registry-access) with an account that can read the package. Alternatively, [load the manager image from the release assets](OPERATIONS.md#installing-the-manager-from-a-release-asset). For the registry install, run:
@@ -37,7 +43,7 @@ docker compose up -d
 
 4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup.
 
-For remote browser access, use an HTTPS reverse proxy after first login. Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
+By default Hub is reachable at `http://<host>:8080` from the network and accepts sign-in over plain HTTP, which suits a trusted development network. For anything else, put an HTTPS reverse proxy in front and set the two lines above (see [remote access](OPERATIONS.md#installation)). Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
 To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), select a new release and repeat the pull and start commands with the same volume. `docker compose down` stops Hub and keeps its data. Adding `-v` deletes accounts, settings, releases and images in the local volume; it does not remove Nomad jobs.
 

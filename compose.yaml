@@ -1,5 +1,12 @@
-# Deploy Driver Hub from a release image. Set DRIVER_HUB_IMAGE
-# in .env next to this file, then run: docker compose pull && docker compose up -d
+# Deploy Driver Hub from a release image: docker compose pull && docker compose up -d
+# The compose.yaml attached to each release already names that release's image, so no .env is
+# needed to start. To change a setting, create .env next to this file with only the lines you need:
+#
+#   DRIVER_HUB_LISTEN_ADDRESS=127.0.0.1         # web interface on this machine only
+#   DRIVER_HUB_ALLOW_PLAIN_HTTP=false           # behind HTTPS: keep the session cookie Secure
+#   DRIVER_HUB_DISTRIBUTION_ADDRESS=10.0.0.5    # how Nomad clients reach this machine
+#   DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z   # a different release
+#
 # Keep the original project name so upgrades reuse the existing data volume.
 name: driver-hub-trial
 
@@ -11,8 +18,9 @@ services:
         condition: service_healthy
         required: false
     ports:
-      # Browser/API listener for the local trial. The browser session cookie is Secure.
-      - '127.0.0.1:8080:8080'
+      # Web interface and API, on every network interface of this machine. Set
+      # DRIVER_HUB_LISTEN_ADDRESS=127.0.0.1 to keep it local, for example behind an HTTPS proxy here.
+      - '${DRIVER_HUB_LISTEN_ADDRESS:-0.0.0.0}:8080:8080'
       # Nomad clients fetch the image-service package and verified driver images here (read-only HTTP).
       - '5481:5481'
     # The settings the manager needs before its web interface runs, set to their defaults. Everything
@@ -27,6 +35,10 @@ services:
       # the second port under "ports" above to match.
       HOST: 0.0.0.0
       PORT: '8080'
+      # 'true' (the default) lets browsers on other machines sign in over plain http://, so
+      # passwords and sessions cross the network unencrypted: use it on trusted networks only.
+      # Behind an HTTPS reverse proxy, set 'false' so the session cookie is Secure.
+      DRIVER_HUB_ALLOW_PLAIN_HTTP: ${DRIVER_HUB_ALLOW_PLAIN_HTTP:-true}
 
       # --- Image distribution --------------------------------------------------------------------
       # Hub runs an image service on every Nomad client by itself, once the Nomad cluster is set up
