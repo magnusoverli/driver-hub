@@ -34,10 +34,18 @@ jobs:
       - name: Start the packaged app with the release Compose file
         env:
           DRIVER_HUB_IMAGE: driver-hub:verify
+          DRIVER_HUB_BUILDKIT_APPARMOR: driver-hub-buildkit
           COMPOSE_PROJECT_NAME: hub-smoke
         run: |
           trap 'docker compose down --volumes' EXIT
           trap 'docker compose logs --tail=50 buildkit' ERR
+          # Ubuntu 24.04 requires an explicit AppArmor profile for rootless user namespaces.
+          sudo apparmor_parser --replace <<'PROFILE'
+          abi <abi/4.0>,
+          profile driver-hub-buildkit flags=(unconfined) {
+            userns,
+          }
+          PROFILE
           docker compose pull buildkit
           docker compose up --detach --no-build --pull never
           curl --fail --silent --show-error --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:8080/ | grep -i '<!doctype html>'

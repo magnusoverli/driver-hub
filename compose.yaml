@@ -77,7 +77,7 @@ services:
     # Rootless BuildKit needs nested user namespaces, mounts and a separate /proc for build steps.
     security_opt:
       - seccomp=unconfined
-      - apparmor=unconfined
+      - apparmor=${DRIVER_HUB_BUILDKIT_APPARMOR:-unconfined}
       - systempaths=unconfined
     volumes:
       - buildkit-socket:/run/user/1000

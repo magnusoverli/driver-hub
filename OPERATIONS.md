@@ -297,6 +297,17 @@ The manager's Docker CLI/Buildx uses the `hub-compose` builder. Its rootless Bui
 
 If the switch is unavailable, check `docker compose ps` and `docker compose logs buildkit`, then `docker compose exec manager docker buildx du`. The host must support rootless BuildKit (unprivileged user namespaces). Restart the manager after restoring the worker: Hub checks builder availability at startup. Allow up to 30 minutes for a build when configuring proxy timeouts.
 
+On Ubuntu 24.04 and other hosts that restrict unprivileged user namespaces with AppArmor, select a host-approved worker profile with `DRIVER_HUB_BUILDKIT_APPARMOR` in `.env`. For example, the following worker-only profile permits rootless namespaces without changing the kernel-wide policy:
+
+```text
+abi <abi/4.0>,
+profile driver-hub-buildkit flags=(unconfined) {
+  userns,
+}
+```
+
+Install it as `/etc/apparmor.d/driver-hub-buildkit`, load it with `sudo apparmor_parser --replace /etc/apparmor.d/driver-hub-buildkit`, set `DRIVER_HUB_BUILDKIT_APPARMOR=driver-hub-buildkit`, and run `docker compose up -d` followed by `docker compose restart manager`.
+
 `POST /api/v1/builds` with `driverId`, full Git `commit`, `directory` under `Drivers/` or `examples/`, and optionally `platform` (`linux/amd64` or `linux/arm64`). Hub uses `driver-config.json` at that same revision unless the admin provides the `configuration` declaration in the request. The driver directory must contain a self-contained Dockerfile/context. Buildx receives a pinned Git context and exports OCI locally. A successful build returns a retained release with `origin: "customer"` and a unique `0.0.0-local.…` version. It is deployable through the same API; nothing is published to GitHub or a public registry.
 
 For a commissioning exercise before the first upstream packaged release exists, this is a build request for the [upstream Rust demonstration driver](https://github.com/VideoIPath/VideoIPath_External_Drivers/tree/f64a319caf5f27fd46ef2ce203c71e6aa63f3d4c/examples/rust_example). This revision was built and its OCI image verified during backend development. The example models an in-memory device, not physical equipment.
