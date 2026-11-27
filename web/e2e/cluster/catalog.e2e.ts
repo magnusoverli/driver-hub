@@ -7,6 +7,7 @@ test('a retained release works without GitHub and stages a new stopped device af
 	page
 }) => {
 	await resetCluster();
+	await page.addInitScript(() => Object.defineProperty(crypto, 'randomUUID', { value: undefined }));
 	await stubUpdates(page);
 	await page.route('**/api/v1/releases?*', (route) =>
 		route.fulfill({ status: 403, json: { error: 'Upstream unavailable', code: 'upstream' } })

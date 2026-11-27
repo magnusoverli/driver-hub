@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { getApi } from '#lib/api/context.js';
+	import { operationKey } from '#lib/api/operation-key.js';
 	import { deploymentKeys } from '#lib/deployments/queries.js';
 	import ConfigurationFields from '#lib/deployments/ConfigurationFields.svelte';
 	import {
@@ -56,7 +57,7 @@
 	let problem = $state<StageProblem | null>(null);
 	let review = $state<{ body: StageBody; nodeId: string; plan: Preview } | null>(null);
 	/** A new device's node ID; also the request key, so retrying cannot create a second device. */
-	let key = $state(crypto.randomUUID());
+	let key = $state(operationKey());
 	/** The request last sent for real. Changing anything after an unclear outcome needs a new key. */
 	let attemptedBody = '';
 	/** Node ID of a deployment an unanswered stage request may have created. */
@@ -142,7 +143,7 @@
 		const serialized = JSON.stringify(review.body);
 		if (attemptedBody && attemptedBody !== serialized && review.body.nodeId === undefined) {
 			// A different request may not reuse the key of one whose outcome is unknown.
-			key = crypto.randomUUID();
+			key = operationKey();
 			review = null;
 			problem = { kind: 'other', message: m.stage_problem_preview_again() };
 			return;
@@ -171,7 +172,7 @@
 		problem = null;
 		// After a definite refusal, a changed request is a new request.
 		if (attemptedBody) {
-			key = crypto.randomUUID();
+			key = operationKey();
 			attemptedBody = '';
 		}
 	}

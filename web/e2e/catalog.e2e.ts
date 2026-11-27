@@ -8,6 +8,9 @@ const release = { driverId: 'exampleco-meter', version: '1.4.0' };
 test('published prereleases can be downloaded and only become local after completion', async ({
 	page
 }) => {
+	// Chromium exposes getRandomValues but not randomUUID on plain HTTP LAN origins.
+	await page.addInitScript(() => Object.defineProperty(crypto, 'randomUUID', { value: undefined }));
+	const keys: string[] = [];
 	let state: 'idle' | 'running' | 'succeeded' = 'idle';
 	const op = {
 		id: crypto.randomUUID(),
@@ -48,16 +51,24 @@ test('published prereleases can be downloaded and only become local after comple
 	await page.route('**/api/v1/retained/exampleco-meter/1.4.0', async (route) => {
 		expect(route.request().method()).toBe('PUT');
 		expect(route.request().headers()['prefer']).toBe('respond-async');
-		expect(route.request().headers()['idempotency-key']).toMatch(/^[a-f0-9-]{36}$/);
+		const key = route.request().headers()['idempotency-key'];
+		expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		keys.push(key);
+		if (keys.length === 1) return route.abort('connectionreset');
 		state = 'running';
 		await route.fulfill({ status: 202, json: { ...op, state } });
 	});
 	await signIn(page, ADMIN, '/catalog');
 	await expect(page.getByText(/No matching releases have been published/)).toBeVisible();
 	await page.getByLabel('Include prereleases').check();
-	await page.getByRole('button', { name: 'Download', exact: true }).click();
+	const download = page.getByRole('button', { name: 'Download', exact: true });
+	await download.click();
+	await expect(page.getByRole('alert')).toBeVisible();
+	expect(keys).toHaveLength(1);
+	await download.click();
 	const tasks = page.getByRole('table', { name: 'Recent downloads and builds' });
 	await expect(tasks).toContainText('In progress');
+	expect(keys).toEqual([keys[0], keys[0]]);
 	state = 'succeeded';
 	await expect(tasks).toContainText('Completed');
 	await expect(page.getByRole('table', { name: 'Published releases' })).toContainText(

@@ -1,5 +1,6 @@
 import type { ApiClient } from '#lib/api/client.js';
 import { ApiError } from '#lib/api/errors.js';
+import { operationKey } from '#lib/api/operation-key.js';
 import type { Schema } from '#lib/api/types.js';
 import { acquireRelease, type BuildInput, type Identity } from './queries';
 
@@ -21,7 +22,7 @@ export async function acquire(
 ): Promise<Acquired> {
 	const payload = 'commit' in input ? input : { driverId: input.driverId, version: input.version };
 	const fingerprint = JSON.stringify(payload);
-	const key = background ? (pendingKeys.get(fingerprint) ?? crypto.randomUUID()) : undefined;
+	const key = background ? (pendingKeys.get(fingerprint) ?? operationKey()) : undefined;
 	if (key) pendingKeys.set(fingerprint, key);
 	try {
 		const result = await acquireRelease(api, payload, key);
