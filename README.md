@@ -2,6 +2,8 @@
 
 **Deploy and monitor VideoIPath external drivers on your own Nomad cluster.** Download a release once, reuse it across devices, and see which drivers are running and which report a working connection.
 
+**Project status: Experimental.** Driver Hub is currently intended for evaluation.
+
 [Deploy with Docker Compose](#deploy-with-docker-compose) · [Default admin login](#default-admin-login) · [Product tour](#product-tour) · [Device status](#how-status-is-reported) · [Operations guide](OPERATIONS.md) · [Development](#development)
 
 ## Default admin login
