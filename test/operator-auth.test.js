@@ -20,14 +20,21 @@ test('manager bootstraps once from a file and still requires sign-in on loopback
     await writeFile(passwordFile, password + '\n', { mode: 0o600 });
     for (const first of [true, false]) {
       const env = { ...process.env, PORT: '0', HOST: '127.0.0.1', DRIVER_HUB_DATA_DIR: root,
+        DRIVER_HUB_DISTRIBUTION_PORT: '0',
         DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: passwordFile, DRIVER_HUB_BOOTSTRAP_USERNAME: 'installer' };
       delete env.DRIVER_HUB_ADMIN_TOKEN;
       delete env.DRIVER_HUB_VIEWER_TOKEN;
       manager = spawn(process.execPath, ['src/main.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
       closed = once(manager, 'exit');
       const lines = createInterface({ input: manager.stdout });
-      const [line] = await Promise.race([once(lines, 'line'), closed.then(() => { throw new Error('Manager exited before listening'); })]);
-      const url = line.match(/http:\/\/127\.0\.0\.1:\d+\/api\/v1/)[0];
+      const api = (async () => {
+        for await (const line of lines) {
+          const found = line.match(/http:\/\/127\.0\.0\.1:\d+\/api\/v1/);
+          if (found) return found[0];
+        }
+        throw new Error('Manager exited before listening');
+      })();
+      const url = await Promise.race([api, closed.then(() => { throw new Error('Manager exited before listening'); })]);
       assert.equal((await fetch(`${url}/capabilities`)).status, 401);
       const res = await fetch(`${url}/auth/login`, { method: 'POST', headers: {
         'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1'

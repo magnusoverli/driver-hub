@@ -22,7 +22,7 @@ async function workspace(t) {
   return dir;
 }
 
-test('Buildx builds an OCI image; a clean OCI client pulls it from the independent service', {
+test('Buildx builds an OCI image; a clean OCI client pulls it from the image service', {
   skip: !process.env.DRIVER_HUB_TEST_DOCKER
 }, async t => {
   const dir = await workspace(t);
@@ -39,7 +39,8 @@ test('Buildx builds an OCI image; a clean OCI client pulls it from the independe
   await run('docker', ['build', '-t', distributionImage, '.'], { timeout: 180000 });
   t.after(() => run('docker', ['image', 'rm', distributionImage]));
   const { stdout: container } = await run('docker', ['run', '-d', '--rm',
-    '-v', `${images.root}:/images:ro`, '-e', 'DRIVER_HUB_IMAGES_DIR=/images', distributionImage, 'node', 'src/serve-images.js']);
+    '-v', `${images.root}:/images:ro`, '-e', 'DRIVER_HUB_IMAGES_DIR=/images', '-e', 'PORT=5000', distributionImage,
+    'node', 'src/image-service.js']);
   try {
     const image = `localhost:5000/driverhub/${key}@${digest}`;
     await run('docker', ['run', '--rm', '--network', `container:${container.trim()}`, 'regclient/regctl:v0.8.3',

@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import tar from 'tar-stream';
 import { InvalidRelease, parseJson, requireRelease } from './release.js';
 
-const digestPattern = /^sha256:[0-9a-f]{64}$/;
+export const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const oci = 'application/vnd.oci.image.';
 const manifestType = `${oci}manifest.v1+json`;
 const indexType = `${oci}index.v1+json`;
@@ -161,6 +161,21 @@ export async function inspectArchive(archive, workspace, signal) {
 
 export class Images {
   constructor(root) { this.root = root; }
+
+  // Every published image, as the keys and root digests that copies on Nomad clients must hold.
+  async list() {
+    let names;
+    try { names = await readdir(this.root); } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+    const listed = [];
+    for (const key of names.filter(name => /^[0-9a-f]{64}$/.test(name)).sort()) {
+      const info = await this.info(key);
+      if (digestPattern.test(info?.digest)) listed.push({ key, digest: info.digest });
+    }
+    return listed;
+  }
 
   async info(key) {
     if (!/^[0-9a-f]{64}$/.test(key)) return null;

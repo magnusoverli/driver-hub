@@ -56,14 +56,25 @@ const schemas = {
   LocalAccount: object({ username: str, role, enabled: bool }),
   ApiToken: object({ id: str, name: str, role, createdAt: date,
     createdBy: { type: ['string', 'null'], description: 'The operator who created it; null when created with a token.' } }),
+  ImageDistribution: object({
+    state: { ...values('not_configured', 'unavailable', 'starting', 'copying', 'ready', 'failing'),
+      description: 'not_configured: no Nomad cluster. unavailable: this manager has no image service package. ' +
+        'starting: no copy runs yet. copying: some copies still fetch images. failing: see reason or problems.' },
+    reason: str, detail: str,
+    source: { type: ['string', 'null'], description: 'Where the copies fetch images from the manager.' },
+    images: { type: 'integer', description: 'Images the copies hold: every image staged at least once.' },
+    running: { type: 'integer', description: 'Clients where the image service runs.' },
+    upToDate: { type: 'integer', description: 'Of those, how many hold every image.' },
+    problems: array(object({ host: { type: ['string', 'null'] }, status: str, event: { type: ['string', 'null'] } }))
+  }, ['state', 'source', 'images', 'running', 'upToDate', 'problems']),
   EnvironmentSetting: object({ name: str, secret: bool,
     source: { ...values('environment', 'default', 'unset'),
       description: 'Set in the manager\'s environment, using the built-in default, or unset without a default.' },
     value: { type: ['string', 'null'], description: 'The value in effect. Always null for a secret.' } }),
   Site: object({ revision: integer,
-    nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool }),
+    nomad: object({ address: { type: ['string', 'null'] }, namespace: str, datacenters: array(str), tokenConfigured: bool,
+      plainHttp: { type: 'boolean', description: 'Credentials may go to this Nomad over plain HTTP: a trusted network.' } }),
     deployment: object({
-      imageHost: { type: ['string', 'null'], description: 'Host, optionally with a port, Nomad clients pull driver images from.' },
       nomadUiOrigin: { type: ['string', 'null'], description: 'HTTPS origin of the Nomad web interface, for log links.' },
       sharedWriters: { type: 'boolean',
         description: 'Other processes may edit Hub\'s Nomad jobs, so Hub never purges a job when a deployment is deleted.' } }),
@@ -136,13 +147,14 @@ const paths = {
     'administrator (409 last_admin) and for the signed-in operator\'s own account (409 own_account).' } },
   '/site': { get: endpoint('getSiteSettings', ref('Site')) },
   '/site/nomad': { put: endpoint('configureNomad', ref('Site'), { body: object({ revision: integer,
-    address: str, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str)
+    address: str, token: { type: ['string', 'null'], writeOnly: true }, namespace: str, datacenters: array(str),
+    plainHttp: { type: 'boolean', description: 'Allow sending the token over plain HTTP. Only for trusted networks.' }
   }, ['revision', 'address']) }) },
   '/site/videoipath': { put: endpoint('configureVideoIPath', ref('Site'), { body: object({
     revision: integer, address: str, tokenMode, token: secret, tokens: array(secret)
   }, ['revision', 'address']) }) },
   '/site/deployment': { put: endpoint('configureDeployment', ref('Site'), { body: object({ revision: integer,
-    imageHost: { type: ['string', 'null'] }, nomadUiOrigin: { type: ['string', 'null'] }, sharedWriters: bool
+    nomadUiOrigin: { type: ['string', 'null'] }, sharedWriters: bool
   }, ['revision']) }) },
   '/site/manager': { put: { ...endpoint('configureManager', ref('Site'), { body: object({ revision: integer,
     buildsEnabled: bool, timings: bool }, ['revision']) }),
@@ -162,9 +174,11 @@ const paths = {
   '/openapi.json': { get: endpoint('getContract', anyObject) },
   '/capabilities': { get: endpoint('getCapabilities', object({
     apiVersion: str, access: values('admin', 'viewer'), buildsEnabled: bool, asyncAcquisition: bool,
-    siteSetupEnabled: bool, videoIPathConfigured: bool, nomadConfigured: bool, imageHostConfigured: bool,
+    siteSetupEnabled: bool, videoIPathConfigured: bool, nomadConfigured: bool,
     sharedWriters: { type: 'boolean', description: 'Hub never purges Nomad jobs, so deployments cannot be deleted.' }
   })) },
+  '/integrations/images': { get: { ...endpoint('getImageDistribution', ref('ImageDistribution')),
+    description: 'The image service Hub runs on every eligible Nomad client, from which drivers pull their images.' } },
   '/integrations/nomad': { get: endpoint('getNomadConnection', object({
     state: values('not_configured', 'no_leader', 'connected'), namespace: str
   })) },

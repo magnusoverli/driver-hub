@@ -9,7 +9,8 @@ export type NomadConnection = ResponseBody<'/integrations/nomad', 'get'>;
 export const systemKeys = {
 	all: ['system'] as const,
 	capabilities: () => [...systemKeys.all, 'capabilities'] as const,
-	nomad: () => [...systemKeys.all, 'nomad'] as const
+	nomad: () => [...systemKeys.all, 'nomad'] as const,
+	images: () => [...systemKeys.all, 'images'] as const
 };
 
 export function capabilitiesQuery(api: ApiClient) {
@@ -24,6 +25,17 @@ export function nomadConnectionQuery(api: ApiClient) {
 	return queryOptions({
 		queryKey: systemKeys.nomad(),
 		queryFn: () => unwrap(api.GET('/integrations/nomad')),
+		refetchInterval: POLL_INTERVAL_MS
+	});
+}
+
+export type ImageDistribution = ResponseBody<'/integrations/images', 'get'>;
+
+/** The image service Hub runs on the Nomad clients, which drivers pull their images from. */
+export function imageDistributionQuery(api: ApiClient) {
+	return queryOptions({
+		queryKey: systemKeys.images(),
+		queryFn: () => unwrap(api.GET('/integrations/images')),
 		refetchInterval: POLL_INTERVAL_MS
 	});
 }

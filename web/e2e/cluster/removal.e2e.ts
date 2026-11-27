@@ -46,7 +46,7 @@ test('with shared writers on, deletion is explained and refused before anything 
 	page
 }) => {
 	await signIn(page, ADMIN, '/settings/nomad');
-	const jobs = page.getByRole('region', { name: 'Jobs and images' });
+	const jobs = page.getByRole('region', { name: 'Jobs', exact: true });
 	await jobs.getByLabel("Other tools also change Hub's jobs").check();
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(jobs.getByText('Saved. New jobs and device pages use these values.')).toBeVisible();

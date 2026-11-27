@@ -282,6 +282,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/integrations/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The image service Hub runs on every eligible Nomad client, from which drivers pull their images. */
+        get: operations["getImageDistribution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/integrations/nomad": {
         parameters: {
             query?: never;
@@ -711,6 +728,28 @@ export interface components {
             /** @description The operator who created it; null when created with a token. */
             createdBy: string | null;
         };
+        ImageDistribution: {
+            /**
+             * @description not_configured: no Nomad cluster. unavailable: this manager has no image service package. starting: no copy runs yet. copying: some copies still fetch images. failing: see reason or problems.
+             * @enum {string}
+             */
+            state: "not_configured" | "unavailable" | "starting" | "copying" | "ready" | "failing";
+            reason?: string;
+            detail?: string;
+            /** @description Where the copies fetch images from the manager. */
+            source: string | null;
+            /** @description Images the copies hold: every image staged at least once. */
+            images: number;
+            /** @description Clients where the image service runs. */
+            running: number;
+            /** @description Of those, how many hold every image. */
+            upToDate: number;
+            problems: {
+                host: string | null;
+                status: string;
+                event: string | null;
+            }[];
+        };
         EnvironmentSetting: {
             name: string;
             secret: boolean;
@@ -729,10 +768,10 @@ export interface components {
                 namespace: string;
                 datacenters: string[];
                 tokenConfigured: boolean;
+                /** @description Credentials may go to this Nomad over plain HTTP: a trusted network. */
+                plainHttp: boolean;
             };
             deployment: {
-                /** @description Host, optionally with a port, Nomad clients pull driver images from. */
-                imageHost: string | null;
                 /** @description HTTPS origin of the Nomad web interface, for log links. */
                 nomadUiOrigin: string | null;
                 /** @description Other processes may edit Hub's Nomad jobs, so Hub never purges a job when a deployment is deleted. */
@@ -1349,6 +1388,8 @@ export interface operations {
                     token?: string | null;
                     namespace?: string;
                     datacenters?: string[];
+                    /** @description Allow sending the token over plain HTTP. Only for trusted networks. */
+                    plainHttp?: boolean;
                 };
             };
         };
@@ -1430,7 +1471,6 @@ export interface operations {
             content: {
                 "application/json": {
                     revision: number;
-                    imageHost?: string | null;
                     nomadUiOrigin?: string | null;
                     sharedWriters?: boolean;
                 };
@@ -1732,10 +1772,38 @@ export interface operations {
                         siteSetupEnabled: boolean;
                         videoIPathConfigured: boolean;
                         nomadConfigured: boolean;
-                        imageHostConfigured: boolean;
                         /** @description Hub never purges Nomad jobs, so deployments cannot be deleted. */
                         sharedWriters: boolean;
                     };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getImageDistribution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageDistribution"];
                 };
             };
             /** @description Request failed */

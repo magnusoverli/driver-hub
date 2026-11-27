@@ -10,6 +10,8 @@ export function siteProblem(error: unknown): SiteProblem {
 		if (error.code === 'revision_conflict') {
 			return { kind: 'conflict', message: m.site_error_conflict() };
 		}
+		if (error.code === 'nomad_plain_http')
+			return { kind: 'other', message: m.nomad_error_plain_http() };
 		if (error.code === 'nomad_not_ready')
 			return { kind: 'other', message: m.nomad_error_no_leader() };
 		if (error.status === 502) {

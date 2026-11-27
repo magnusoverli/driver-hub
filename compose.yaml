@@ -11,8 +11,10 @@ services:
     ports:
       # Plain HTTP is only accepted on localhost; the session cookie is Secure.
       - '127.0.0.1:8080:8080'
+      # Nomad clients fetch driver images from the manager here. It serves only verified images.
+      - '5481:5481'
     # The settings the manager needs before its web interface runs, set to their defaults. Everything
-    # else (the Nomad cluster, image host, VideoIPath, source builds, API tokens) is set in the web
+    # else (the Nomad cluster, VideoIPath, source builds, API tokens) is set in the web
     # interface under Settings, which also lists the values below as Settings > Manager shows them.
     # A commented-out setting has no default and stays off until you set it: uncomment it rather
     # than leaving it empty. Keep secrets in the .env file and refer to them as ${NAME}. Changes
@@ -24,14 +26,19 @@ services:
       HOST: 0.0.0.0
       PORT: '8080'
 
+      # --- Image distribution --------------------------------------------------------------------
+      # Hub runs an image service on every Nomad client by itself, once the Nomad cluster is set up
+      # under Settings. The clients fetch images from the manager on this port. If you change it,
+      # change the last port under "ports" above to match.
+      DRIVER_HUB_DISTRIBUTION_PORT: '5481'
+      # The address at which Nomad clients reach this machine. Needed here because inside the
+      # container Hub only sees its own container address. Without a Nomad cluster it is unused.
+      # DRIVER_HUB_DISTRIBUTION_ADDRESS: driverhub.site.example
+
       # --- Storage -------------------------------------------------------------------------------
-      # Retained releases, accounts, site settings, device names and the activity journal. Back it
-      # up, and let only one manager use it at a time.
+      # Retained releases, verified images, accounts, site settings, device names and the activity
+      # journal. Back it up, and let only one manager use it at a time.
       DRIVER_HUB_DATA_DIR: /data
-      # Verified driver images, which Nomad clients pull through the image service. The image
-      # service (node src/serve-images.js) is not part of this file; it needs read access to the
-      # same directory.
-      DRIVER_HUB_IMAGES_DIR: /data/images
       # The built web frontend. Without an index.html there, the manager serves only the API.
       DRIVER_HUB_WEB_DIR: /app/web/build
       # A file of exactly 32 random bytes that encrypts the saved site settings. Unset, the key is

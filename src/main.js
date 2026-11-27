@@ -12,10 +12,13 @@ import { Operations } from './operations.js';
 import { LocalUsers } from './local-users.js';
 import { OperatorSessions } from './operator-sessions.js';
 import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { DeploymentLabels } from './labels.js';
 import { WebApp } from './web.js';
 import { ApiTokens } from './api-tokens.js';
 import { readEnvironment } from './environment.js';
+import { ImageDistribution, packageRoute, readPackage } from './image-distribution.js';
+import { imageHandler } from './distribution.js';
 
 // Only what the manager needs before its web interface exists comes from the environment.
 // Everything else is saved in the site settings and changed in the web interface.
@@ -38,8 +41,18 @@ if (!localUsers.list().length && !token) throw new Error('First setup requires D
 const sessions = new OperatorSessions(localUsers);
 const builder = new Builds(store);
 const operations = new Operations(join(dataDir, 'operations'));
+// The copies on the Nomad clients fetch images, and the image service itself, from this
+// read-only listener. It serves nothing but verified images, so it listens on every interface.
+const imagePackage = await readPackage();
+const distribution = new ImageDistribution({ images: deploymentServices.images, site, pkg: imagePackage,
+  port: environment.distributionPort, address: environment.distributionAddress });
+const imageListener = createServer(imageHandler(deploymentServices.images, { extra: packageRoute(imagePackage) }));
+imageListener.listen(environment.distributionPort, '0.0.0.0', () =>
+  console.log(`Driver Hub images for Nomad clients: port ${environment.distributionPort}`));
+distribution.start();
 const server = createApi(new Catalog(new GitHubReleases()), store, {
   get deployments() { return Deployments.forSite(site, deploymentServices); },
+  distribution,
   get builds() { return site.state.manager.buildsEnabled && site.buildsAvailable ? builder : null; },
   get timings() { return site.state.manager.timings; },
   site, operations, token, apiTokens, sessions, localUsers, web, imports, images: deploymentServices.images,

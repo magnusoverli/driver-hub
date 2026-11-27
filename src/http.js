@@ -62,7 +62,9 @@ function preview(searchParams) {
 
 async function route(request, catalog, store, services, access, coordinator) {
   const { deployments, builds, operations, site, localUsers, imports, images, apiTokens } = services;
-  const write = fn => coordinator.write(() => fn(services.deployments));
+  // A change may add, use or drop an image, so the copies on the Nomad clients are updated after it.
+  const write = fn => coordinator.write(() => fn(services.deployments))
+    .finally(() => { services.distribution?.trigger(); });
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
   const upload = /^\/api\/v1\/imports\/([^/]+)\/([^/]+)$/.exec(pathname);
   if (upload) {
@@ -135,8 +137,13 @@ async function route(request, catalog, store, services, access, coordinator) {
     expect(request.method === 'GET', 'Expected GET', 405);
     return { apiVersion: 'v1', access, buildsEnabled: Boolean(builds), asyncAcquisition: Boolean(operations),
       siteSetupEnabled: Boolean(site), videoIPathConfigured: Boolean(site?.state.videoipath),
-      nomadConfigured: Boolean(deployments?.nomad.address), imageHostConfigured: Boolean(deployments?.registry),
+      nomadConfigured: Boolean(deployments?.nomad.address),
       sharedWriters: Boolean(deployments?.sharedWriters) };
+  }
+  if (pathname === '/api/v1/integrations/images') {
+    expect(request.method === 'GET', 'Expected GET', 405);
+    return coordinator.read('images', () => services.distribution?.status() ??
+      Promise.resolve({ state: 'not_configured', running: 0, upToDate: 0, images: 0, source: null, problems: [] }));
   }
   if (pathname === '/api/v1/integrations/nomad') {
     expect(request.method === 'GET', 'Expected GET', 405);

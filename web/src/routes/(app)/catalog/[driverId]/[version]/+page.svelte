@@ -56,9 +56,7 @@
 	const release = $derived(retained.data ?? published.data);
 	const record = $derived(release?.record);
 	const declaration = $derived(release?.configuration);
-	const clusterReady = $derived(
-		capabilities.data?.nomadConfigured === true && capabilities.data.imageHostConfigured
-	);
+	const clusterReady = $derived(capabilities.data?.nomadConfigured === true);
 	const deployments = createQuery(() => ({
 		...deploymentsQuery(api),
 		enabled: retained.data !== undefined && capabilities.data?.nomadConfigured === true

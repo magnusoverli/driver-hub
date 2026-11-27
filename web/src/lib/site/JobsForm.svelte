@@ -14,7 +14,6 @@
 	import {
 		configureDeployment,
 		deploymentInput,
-		imageHostProblem,
 		nomadUiOrigin,
 		revisionFor,
 		siteKeys,
@@ -33,7 +32,6 @@
 	const api = getApi();
 	const queryClient = useQueryClient();
 
-	let imageHost = $state('');
 	let uiOrigin = $state('');
 	let sharedWriters = $state(false);
 	/** The settings the form was filled from, to detect changes made meanwhile. */
@@ -44,7 +42,6 @@
 	let saved = $state(false);
 
 	function fill(settings: Site) {
-		imageHost = settings.deployment.imageHost ?? '';
 		uiOrigin = settings.deployment.nomadUiOrigin ?? '';
 		sharedWriters = settings.deployment.sharedWriters;
 		basis = settings;
@@ -55,7 +52,6 @@
 		if (basis === null) untrack(() => fill(site));
 	});
 
-	const imageHostError = $derived(attempted ? imageHostProblem(imageHost) : null);
 	const uiOriginError = $derived(
 		attempted && uiOrigin.trim() && !nomadUiOrigin(uiOrigin) ? m.nomad_error_ui_origin() : null
 	);
@@ -65,14 +61,13 @@
 		attempted = true;
 		problem = null;
 		saved = false;
-		if (imageHostProblem(imageHost) || (uiOrigin.trim() && !nomadUiOrigin(uiOrigin))) return;
+		if (uiOrigin.trim() && !nomadUiOrigin(uiOrigin)) return;
 		if (!basis) return;
 		busy = true;
 		try {
 			const result = await configureDeployment(
 				api,
 				deploymentInput(revisionFor(basis, site, 'deployment'), {
-					imageHost,
 					nomadUiOrigin: uiOrigin,
 					sharedWriters
 				})
@@ -102,15 +97,6 @@
 				{problem.message}
 			</Callout>
 		{/if}
-		<TextField
-			label={m.nomad_image_host()}
-			bind:value={imageHost}
-			placeholder="driver-images.site.example"
-			autocomplete="off"
-			spellcheck={false}
-			hint={m.nomad_image_host_hint()}
-			error={imageHostError}
-		/>
 		<TextField
 			label={m.nomad_ui_origin()}
 			bind:value={uiOrigin}
