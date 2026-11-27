@@ -86,7 +86,7 @@ With Docker, start the manager and web app on `http://localhost:8080`:
 1. Next to `compose.yaml`, create a file named `.env` containing `DRIVER_HUB_INITIAL_PASSWORD=` followed by a password of at least 12 characters. It is only used to create the first account, `admin`, while the data volume is empty. The file is ignored by Git.
 2. Run `docker compose up --build -d`, then open `http://localhost:8080` and sign in as `admin`.
 
-Use `localhost`, not an IP address: the session cookie is `Secure`, which browsers accept over plain HTTP only on `localhost`. Without a Nomad cluster, the overview reports what the site still needs. `docker compose down` stops it; add `-v` to also delete the accounts and settings.
+Use `localhost`, not an IP address: the session cookie is `Secure`, which browsers accept over plain HTTP only on `localhost`. Without a Nomad cluster, the overview reports what the site still needs. `docker compose down` stops it; add `-v` to also delete the accounts and settings. `compose.yaml` lists every manager setting with its default value and what it does.
 
 **Explore the deployment screens without a cluster:** with Node.js 22.17+ and npm 11+, run `npm ci` in this directory and in `web/`, then `npm run demo` in `web/`. This starts the manager with a stand-in Nomad cluster and six example devices on `http://localhost:4182`, and prints the sign-in details. The screenshots above were taken from it.
 

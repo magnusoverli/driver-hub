@@ -15,6 +15,55 @@ async function audit(page: Page) {
 	return violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
 }
 
+// Where scrollbars take up space (Linux and Windows by default), an area that overflows by a pixel
+// or two shows a scrollbar with nothing to scroll. Page-level scrolling is left out. On narrow
+// screens, tables and tab bars may scroll sideways by any amount, so only `sideways` checks that.
+function strayScrolling(page: Page, sideways: boolean) {
+	return page.evaluate((sideways) => {
+		const scrolls = (value: string) => value === 'auto' || value === 'scroll';
+		const stray = (pixels: number) => pixels > 0 && pixels <= 4;
+		return [...document.querySelectorAll('body *')].flatMap((element) => {
+			const style = getComputedStyle(element);
+			const across = scrolls(style.overflowX) ? element.scrollWidth - element.clientWidth : 0;
+			const down = scrolls(style.overflowY) ? element.scrollHeight - element.clientHeight : 0;
+			if (!stray(down) && !(sideways && stray(across))) return [];
+			return [`${element.getAttribute('class') ?? element.tagName} overflows ${across}×${down}px`];
+		});
+	}, sideways);
+}
+
+test('no tab bar, table or panel scrolls by a stray pixel', async ({ page }) => {
+	await stubUpdates(page);
+	await page.route('**/api/v1/releases?*', (route) =>
+		route.fulfill({
+			json: { releases: [{ driverId: 'exampleco-meter', version: '1.5.0', prerelease: false }] }
+		})
+	);
+	await signIn(page, ADMIN, '/');
+	for (const width of [1440, 420]) {
+		await page.setViewportSize({ width, height: 900 });
+		for (const path of [
+			'/',
+			'/deployments',
+			`/deployments/${DEVICES.studio.nodeId}`,
+			'/catalog',
+			'/catalog?tab=retained',
+			'/catalog?tab=updates',
+			'/catalog?tab=build',
+			'/catalog/exampleco-meter/1.4.0',
+			'/activity',
+			'/site/users',
+			'/site/nomad',
+			'/site/videoipath'
+		]) {
+			await page.goto(path);
+			await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+			await expect(page.getByRole('status').filter({ hasText: /Loading/ })).toHaveCount(0);
+			expect(await strayScrolling(page, width > 1000), `${path} at ${width}px`).toEqual([]);
+		}
+	}
+});
+
 for (const colorScheme of ['light', 'dark'] as const) {
 	test.describe(`${colorScheme} theme`, () => {
 		test.use({ colorScheme });

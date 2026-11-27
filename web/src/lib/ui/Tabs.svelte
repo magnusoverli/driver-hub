@@ -29,7 +29,10 @@
 		display: flex;
 		gap: var(--space-1);
 		padding: 0 var(--space-2);
-		border-bottom: 1px solid var(--border);
+		/* The divider is drawn inside the list, under the tabs, so the active tab's underline can
+		   cover it without reaching past the list. Tabs that stick out make this sideways-scrolling
+		   list scroll vertically as well, which shows a stray scrollbar. */
+		box-shadow: inset 0 -1px 0 var(--border);
 		overflow-x: auto;
 	}
 
@@ -41,7 +44,6 @@
 		padding: 0 var(--space-3);
 		border: 0;
 		border-bottom: 2px solid transparent;
-		margin-bottom: -1px;
 		background: transparent;
 		color: var(--text-2);
 		font-size: var(--text-md);
