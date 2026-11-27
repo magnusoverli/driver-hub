@@ -33,6 +33,7 @@
 	const queryClient = useQueryClient();
 
 	let uiOrigin = $state('');
+	let customUi = $state(false);
 	let sharedWriters = $state(false);
 	/** The settings the form was filled from, to detect changes made meanwhile. */
 	let basis = $state<Site | null>(null);
@@ -43,6 +44,7 @@
 
 	function fill(settings: Site) {
 		uiOrigin = settings.deployment.nomadUiOrigin ?? '';
+		customUi = Boolean(uiOrigin);
 		sharedWriters = settings.deployment.sharedWriters;
 		basis = settings;
 		attempted = false;
@@ -53,7 +55,7 @@
 	});
 
 	const uiOriginError = $derived(
-		attempted && uiOrigin.trim() && !nomadUiOrigin(uiOrigin) ? m.nomad_error_ui_origin() : null
+		attempted && customUi && !nomadUiOrigin(uiOrigin) ? m.nomad_error_ui_origin() : null
 	);
 
 	async function submit(event: SubmitEvent) {
@@ -61,14 +63,14 @@
 		attempted = true;
 		problem = null;
 		saved = false;
-		if (uiOrigin.trim() && !nomadUiOrigin(uiOrigin)) return;
+		if (customUi && !nomadUiOrigin(uiOrigin)) return;
 		if (!basis) return;
 		busy = true;
 		try {
 			const result = await configureDeployment(
 				api,
 				deploymentInput(revisionFor(basis, site, 'deployment'), {
-					nomadUiOrigin: uiOrigin,
+					nomadUiOrigin: customUi ? uiOrigin : '',
 					sharedWriters
 				})
 			);
@@ -97,15 +99,20 @@
 				{problem.message}
 			</Callout>
 		{/if}
-		<TextField
-			label={m.nomad_ui_origin()}
-			bind:value={uiOrigin}
-			placeholder="https://nomad.site.example"
-			autocomplete="off"
-			spellcheck={false}
-			hint={m.nomad_ui_origin_hint()}
-			error={uiOriginError}
-		/>
+		<Checkbox bind:checked={customUi} hint={m.nomad_ui_default_hint()}>
+			{m.nomad_ui_override()}
+		</Checkbox>
+		{#if customUi}
+			<TextField
+				label={m.nomad_ui_origin()}
+				bind:value={uiOrigin}
+				placeholder="https://nomad.site.example"
+				autocomplete="off"
+				spellcheck={false}
+				hint={m.nomad_ui_origin_hint()}
+				error={uiOriginError}
+			/>
+		{/if}
 		<Checkbox bind:checked={sharedWriters} hint={m.nomad_shared_writers_hint()}>
 			{m.nomad_shared_writers()}
 		</Checkbox>

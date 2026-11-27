@@ -775,7 +775,7 @@ export interface components {
                 plainHttp: boolean;
             };
             deployment: {
-                /** @description HTTP or HTTPS origin of the Nomad web interface, for log links. */
+                /** @description Browser origin override for allocation log links. Null uses the Nomad cluster address. */
                 nomadUiOrigin: string | null;
                 /** @description Other processes may edit Hub's Nomad jobs, so Hub never purges a job when a deployment is deleted. */
                 sharedWriters: boolean;
@@ -1169,7 +1169,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    currentPassword: string;
+                    /** @description Required unless the session must change its default password. */
+                    currentPassword?: string;
                     newPassword: string;
                 };
             };
@@ -1181,7 +1182,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
+                    "application/json": components["schemas"]["Operator"] | {
                         signedOut: boolean;
                     };
                 };

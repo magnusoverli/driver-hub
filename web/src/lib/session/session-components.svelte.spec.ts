@@ -13,7 +13,7 @@ function fakeAuth(overrides: Partial<AuthService> = {}): AuthService {
 		current: () => Promise.resolve(null),
 		signIn: vi.fn(() => Promise.resolve(admin)),
 		signOut: () => Promise.resolve(),
-		changePassword: vi.fn(() => Promise.resolve()),
+		changePassword: vi.fn(() => Promise.resolve(null)),
 		...overrides
 	};
 }
@@ -74,7 +74,7 @@ describe('ChangePasswordDialog', () => {
 		const changePassword = vi
 			.fn<AuthService['changePassword']>()
 			.mockRejectedValueOnce(new ApiError(401, 'invalid_credentials', 'Invalid'))
-			.mockResolvedValueOnce();
+			.mockResolvedValueOnce(null);
 		const session = new Session(fakeAuth({ changePassword }));
 		await session.signIn('admin', 'x');
 		await render(SessionHarness, { session, view: 'change-password' });

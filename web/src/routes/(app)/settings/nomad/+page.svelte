@@ -38,6 +38,7 @@
 	const api = getApi();
 	const queryClient = useQueryClient();
 	const site = createQuery(() => siteQuery(api));
+	const webAddress = $derived(site.data?.deployment.nomadUiOrigin ?? site.data?.nomad.address);
 	const environment = createQuery(() => environmentQuery(api));
 	const downloadOverride = $derived(
 		environment.data?.find((entry) => entry.name === 'DRIVER_HUB_DISTRIBUTION_ADDRESS')?.value
@@ -211,9 +212,7 @@
 					</dd>
 					<dt>{m.nomad_ui_origin()}</dt>
 					<dd>
-						{#if site.data.deployment.nomadUiOrigin}<code>
-								{site.data.deployment.nomadUiOrigin}
-							</code>
+						{#if webAddress}<code>{webAddress}</code>
 						{:else}{m.site_not_set()}{/if}
 					</dd>
 					<dt>{m.nomad_shared_writers()}</dt>

@@ -69,6 +69,10 @@ export class OperatorSessions {
 
   async login(request, input, headers) {
     const identity = await this.verify(request, input.username, input.password);
+    return this.start(request, identity, headers);
+  }
+
+  start(request, identity, headers) {
     const now = this.now();
     for (const [key, session] of this.sessions) if (session.expires <= now) this.sessions.delete(key);
     this.sessions.delete(this.sessionKey(request));
@@ -80,12 +84,16 @@ export class OperatorSessions {
   }
 
   async current(request) {
+    return publicUser(await this.currentIdentity(request));
+  }
+
+  async currentIdentity(request) {
     const key = this.sessionKey(request);
     const session = this.sessions.get(key);
     if (session && session.expires > this.now()) {
       const user = await this.provider.resolve(session.identity.username);
       if (user && user.username === session.identity.username && user.provider === session.identity.provider && user.revision === session.identity.revision &&
-          user.role === session.identity.role) return publicUser(user);
+          user.role === session.identity.role) return user;
     }
     this.sessions.delete(key);
     expect(false, 'Sign-in required', 401);

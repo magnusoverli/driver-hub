@@ -299,12 +299,15 @@ async function dispatch(request, headers, catalog, store, services, coordinator)
     if (pathname === '/api/v1/auth/login') return sessions.login(request, await readSettings(request), headers);
     if (pathname === '/api/v1/auth/logout') return sessions.logout(request, headers);
     if (pathname === '/api/v1/auth/password') {
-      const current = await sessions.current(request);
+      const current = await sessions.currentIdentity(request);
       expect(current.provider === 'local' && localUsers, 'Password managed by identity provider', 403);
       const { currentPassword, newPassword } = await readSettings(request);
-      const identity = await sessions.verify(request, current.username, currentPassword);
+      if (!current.mustChangePassword || currentPassword !== undefined) {
+        await sessions.verify(request, current.username, currentPassword);
+      }
       expect(typeof newPassword === 'string', 'Expected newPassword');
-      await localUsers.update(current.username, { password: newPassword }, identity.revision);
+      const updated = await localUsers.changePassword(current.username, newPassword, current.revision);
+      if (current.mustChangePassword) return sessions.start(request, updated, headers);
       return sessions.logout(request, headers);
     }
     throw new RequestError(404, 'Unknown authentication route');

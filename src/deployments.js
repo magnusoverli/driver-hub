@@ -87,7 +87,7 @@ export class Deployments {
     // Only this non-secret snapshot is safe to carry in Nomad job metadata.
     const profile = videoipath && { id: videoipath.id, url: videoipath.url, mode: videoipath.mode };
     return new Deployments({ ...services, site, profile, nomad: site.client(nomad), datacenters: nomad.datacenters,
-      registry: IMAGE_HOST, nomadUi: deployment.nomadUiOrigin, sharedWriters: deployment.sharedWriters });
+      registry: IMAGE_HOST, nomadUi: deployment.nomadUiOrigin ?? nomad.address, sharedWriters: deployment.sharedWriters });
   }
 
   // `imageArchitectures`: client architectures Hub's image service runs on; unset, any the image has.

@@ -71,9 +71,12 @@ export class Session {
 		}
 	}
 
-	async changePassword(currentPassword: string, newPassword: string): Promise<void> {
-		await this.#auth.changePassword(currentPassword, newPassword);
-		this.#end('password-changed');
+	async changePassword(currentPassword: string | undefined, newPassword: string): Promise<void> {
+		const operator = await this.#auth.changePassword(currentPassword, newPassword);
+		if (operator) {
+			this.operator = operator;
+			this.status = 'signed-in';
+		} else this.#end('password-changed');
 	}
 
 	#end(reason: SignOutReason): void {

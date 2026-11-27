@@ -10,6 +10,8 @@ const roles = ['admin', 'viewer'];
 export const initialAdminPassword = 'LicenseToDeploy!';
 const normalize = value => typeof value === 'string' ? value.toLowerCase() : '';
 const visible = ({ username, role, enabled }) => ({ username, role, enabled });
+const identity = user => ({ username: user.username, role: user.role, provider: 'local', revision: user.revision,
+  mustChangePassword: user.mustChangePassword === true });
 
 // The v1 store fixes the KDF parameters so an upgrade can identify old hashes.
 async function hash(password, salt) {
@@ -54,9 +56,7 @@ export class LocalUsers {
 
   resolve(username) {
     const user = this.records.get(username);
-    if (user?.enabled) return { username, role: user.role, provider: 'local', revision: user.revision,
-      mustChangePassword: user.mustChangePassword === true };
-    return null;
+    return user?.enabled ? identity(user) : null;
   }
 
   async authenticate(username, password) {
@@ -69,7 +69,7 @@ export class LocalUsers {
     return this.resolve(name);
   }
 
-  create(input) { return this.write(input.username, input, true); }
+  create(input) { return this.#write(input.username, input, true).then(visible); }
 
   remove(username) {
     const name = normalize(username);
@@ -87,15 +87,19 @@ export class LocalUsers {
     this.pending = run.catch(() => {});
     return run;
   }
-  update(username, changes, revision) { return this.write(username, changes, false, revision); }
+  update(username, changes, revision) { return this.#write(username, changes, false, revision).then(visible); }
 
-  write(username, changes, create, revision) {
-    const run = this.pending.then(() => this.save(normalize(username), changes, create, revision));
+  changePassword(username, password, revision) {
+    return this.#write(username, { password }, false, revision).then(identity);
+  }
+
+  #write(username, changes, create, revision) {
+    const run = this.pending.then(() => this.#save(normalize(username), changes, create, revision));
     this.pending = run.catch(() => {});
     return run;
   }
 
-  async save(username, changes, create, revision) {
+  async #save(username, changes, create, revision) {
     const allowed = create ? ['username', 'password', 'role'] : ['password', 'role', 'enabled'];
     expect(Object.keys(changes).length && Object.keys(changes).every(key => allowed.includes(key)), 'Invalid account fields');
     expect(usernamePattern.test(username), 'Expected a username of 1–64 letters, digits, periods, underscores or hyphens');
@@ -120,7 +124,7 @@ export class LocalUsers {
     const records = new Map(this.records).set(username, next);
     expect([...records.values()].some(u => u.enabled && u.role === 'admin'), 'At least one enabled local admin is required', 409);
     await this.persist(records, this.retired);
-    return visible(next);
+    return next;
   }
 
   async persist(records, retired) {

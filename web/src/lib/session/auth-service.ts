@@ -11,8 +11,11 @@ export interface AuthService {
 	current: () => Promise<Operator | null>;
 	signIn: (username: string, password: string) => Promise<Operator>;
 	signOut: () => Promise<void>;
-	/** Succeeds by ending every session of this operator, including the current one. */
-	changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+	/** Returns the operator for a renewed first-login session, or null after sign-out. */
+	changePassword: (
+		currentPassword: string | undefined,
+		newPassword: string
+	) => Promise<Operator | null>;
 }
 
 export function httpAuthService(api: ApiClient): AuthService {
@@ -38,12 +41,13 @@ export function httpAuthService(api: ApiClient): AuthService {
 			);
 		},
 		async changePassword(currentPassword, newPassword) {
-			await unwrap(
+			const result = await unwrap(
 				api.POST('/auth/password', {
 					body: { currentPassword, newPassword },
 					params: { header: { 'X-Driver-Hub-Request': '1' } }
 				})
 			);
+			return 'signedOut' in result ? null : result;
 		}
 	};
 }

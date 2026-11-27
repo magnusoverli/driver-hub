@@ -24,11 +24,15 @@ test('a first-login session can only change the default password or sign out', a
 	await dialog.getByRole('button', { name: 'Sign out' }).click();
 	await fillSignIn(page, account);
 	const newPassword = `${account.username}-new-password`;
-	await dialog.getByLabel('Current password').fill(account.password);
+	await expect(dialog.getByLabel('Current password')).toHaveCount(0);
 	await dialog.getByLabel('New password', { exact: true }).fill(newPassword);
 	await dialog.getByLabel('Confirm new password').fill(newPassword);
 	await dialog.getByRole('button', { name: 'Change password' }).click();
-	await fillSignIn(page, { ...account, password: newPassword });
+	await expect(
+		page.getByRole('status').filter({ hasText: 'Your password was changed.' })
+	).toBeVisible();
+	await expect(page).toHaveURL('/settings/users');
+	await page.reload();
 	await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 });
 

@@ -7,8 +7,11 @@
 	import { MIN_PASSWORD_LENGTH, newPasswordProblem, passwordChangeProblem } from './error-messages';
 	import { getSession } from './session.svelte';
 
-	let { open = $bindable(false), required = false }: { open: boolean; required?: boolean } =
-		$props();
+	let {
+		open = $bindable(false),
+		required = false,
+		onChanged
+	}: { open: boolean; required?: boolean; onChanged?: () => void } = $props();
 
 	const session = getSession();
 	const formId = $props.id();
@@ -40,15 +43,17 @@
 		event.preventDefault();
 		attempted = true;
 		serverNewError = currentError = formError = null;
-		if (!current) currentError = m.password_error_current_required();
+		if (!required && !current) currentError = m.password_error_current_required();
 		if (currentError || newPasswordProblem(next, confirmation)) return;
 		busy = true;
 		try {
-			await session.changePassword(current, next);
+			await session.changePassword(required ? undefined : current, next);
+			onChanged?.();
 			open = false;
 		} catch (error) {
 			const problem = passwordChangeProblem(error);
-			if (problem.field === 'current') currentError = problem.message;
+			if (problem.field === 'current' && required) formError = m.reauth_title();
+			else if (problem.field === 'current') currentError = problem.message;
 			else if (problem.field === 'new') serverNewError = problem.message;
 			else formError = problem.message;
 		} finally {
@@ -65,14 +70,16 @@
 >
 	<form id={formId} class="form" onsubmit={submit} novalidate>
 		{#if formError}<Callout tone="fail" live>{formError}</Callout>{/if}
-		<TextField
-			label={m.password_current()}
-			type="password"
-			autocomplete="current-password"
-			bind:value={current}
-			error={currentError}
-			oninput={() => (currentError = null)}
-		/>
+		{#if !required}
+			<TextField
+				label={m.password_current()}
+				type="password"
+				autocomplete="current-password"
+				bind:value={current}
+				error={currentError}
+				oninput={() => (currentError = null)}
+			/>
+		{/if}
 		<TextField
 			label={m.password_new()}
 			type="password"

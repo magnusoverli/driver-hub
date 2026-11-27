@@ -33,7 +33,12 @@ test('Nomad settings distinguish the Hub download address from the optional Noma
 	await expect(images).toContainText('Starts automatically when you save the Nomad connection.');
 
 	const jobs = page.getByRole('region', { name: 'Jobs', exact: true });
-	const ui = jobs.getByLabel('Nomad web interface');
+	const override = jobs.getByRole('checkbox', {
+		name: 'Use a different address for the Nomad web interface'
+	});
+	const ui = jobs.getByLabel('Nomad web interface', { exact: true });
+	await expect(ui).toHaveCount(0);
+	await override.check();
 	const saved = jobs.getByText('Saved. New jobs and device pages use these values.');
 	await ui.fill('http://nomad.site.example/ui');
 	await jobs.getByRole('button', { name: 'Save' }).click();
@@ -46,8 +51,7 @@ test('Nomad settings distinguish the Hub download address from the optional Noma
 	await page.reload();
 	await expect(ui).toHaveValue('http://nomad.site.example:4646');
 
-	// The other tests expect a site without a Nomad web interface.
-	await ui.fill('');
+	await override.uncheck();
 	await jobs.getByRole('button', { name: 'Save' }).click();
 	await expect(saved).toBeVisible();
 	await expect(current).not.toContainText('http://nomad.site.example:4646');

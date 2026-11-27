@@ -27,7 +27,7 @@ docker compose pull buildkit
 docker compose up -d --pull never
 ```
 
-Only the manager is in the archive. Skip the BuildKit pull if the exact worker image in `compose.yaml` is already available locally.
+Only the manager is in the archive. For an offline installation, preload the BuildKit image named in your Compose file and use `--pull never` as above. Starting with v0.0.9, Compose normally checks `moby/buildkit:rootless` on each `up`; the attached release file pins the **manager** image, not BuildKit.
 
 ### Upgrading a Compose installation
 
@@ -70,7 +70,7 @@ Saved in the site settings instead:
 | Setting | In the web interface | Purpose |
 | --- | --- | --- |
 | Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Change the connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint and a dedicated namespace in production. The ACL must cover driver service jobs, the image system job, allocation checks and the Variables below. |
-| Nomad web interface | Settings > Nomad, Jobs | Optional operator-facing HTTP or HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave empty if targets do not share that UI. |
+| Nomad web interface | Settings > Nomad, Jobs | Allocation log links use the cluster address and the operator’s own Nomad login. Override the address only if browsers reach Nomad at a different HTTP or HTTPS origin. |
 | Shared writers | Settings > Nomad, Jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so deployments cannot be deleted. |
 | Source builds | Settings > Manager | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
 | Request timings | Settings > Manager | Returns `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
@@ -115,7 +115,7 @@ Back up retained releases, `DRIVER_HUB_DATA_DIR/images` and `DRIVER_HUB_DATA_DIR
 
 ## Operator sign-in
 
-**First administrator:** on a fresh installation, sign in locally as `admin` with `LicenseToDeploy!`. A session using this default can only check its identity, change the password or sign out. Choose a different password of at least 12 characters and sign in again. Changing it invalidates every session for the account. Restarting or upgrading with the existing data volume never resets the password.
+**First administrator:** on a fresh installation, sign in locally as `admin` with `LicenseToDeploy!`. A session using this default can only check its identity, change the password or sign out. Choose a different password of at least 12 characters to continue. This browser stays signed in with a fresh session; all previous sessions for the account become invalid. Restarting or upgrading with the existing data volume never resets the password.
 
 For unattended provisioning, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected UTF-8 file containing a private initial password (one trailing line ending is ignored). In Docker, mount the file read-only, readable by UID 1000. A distinct private password bypasses the default-password prompt. Set `DRIVER_HUB_BOOTSTRAP_USERNAME` to choose another username. Alternatively, setting only `DRIVER_HUB_ADMIN_TOKEN` preserves token-only bootstrap: create the first admin via `POST /api/v1/users` with the bearer token.
 
@@ -136,7 +136,7 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 | `POST /auth/login` | `{ "username": "...", "password": "..." }`. Sets an 8-hour session cookie and returns `{username, role, provider}`. If login or `GET /auth/session` also returns `mustChangePassword: true`, use `POST /auth/password` before accessing management routes (`403 password_change_required`). Bad credentials and disabled accounts return the same 401. Repeated failures or too many concurrent verifications return 429. |
 | `GET /auth/session` | Returns the current operator; use `role` (`admin` or `viewer`) to choose which controls to display. The API also enforces permissions. |
 | `POST /auth/logout` | Revokes the current session and clears the cookie. Restarting the manager signs everyone out. |
-| `POST /auth/password` | A local user supplies `currentPassword` and `newPassword`. Success invalidates all their sessions; sign in again. |
+| `POST /auth/password` | On first login, send `newPassword`; the response returns the operator and a fresh session cookie. Otherwise send both `currentPassword` and `newPassword`, then sign in again. In both cases all previous sessions become invalid. |
 | `GET /users`, `POST /users` | Admin only. List local accounts or create one with `username`, `password`, and `role`. Usernames are case-insensitive; passwords require at least 12 characters (up to 1024 UTF-8 bytes). |
 | `PATCH /users/{username}` | Admin only. Supply `role`, `enabled`, and/or a replacement `password`. Changes invalidate the user's sessions. The last enabled local admin cannot be disabled or demoted. |
 | `DELETE /users/{username}` | Admin only. Deletes a local account and ends its sessions. Refuses the last enabled admin (`409 last_admin`) and the signed-in operator's own account (`409 own_account`). Recreating the username starts a new account; sessions of the deleted one never become valid again. |
@@ -155,7 +155,7 @@ The site endpoints below are admin-only; integration status is also readable by 
 | --- | --- |
 | `GET /site` | Returns revision, addresses, namespace, datacenters, `nomad.plainHttp`, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
 | `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","token":"<Nomad ACL token>"}`. A bare Nomad IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Namespace and datacenters default to `default` and `dc1`. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. `distributionAddress` optionally overrides automatic selection with a client-facing `host[:port]`; omit to retain an override, or send `null` to return to automatic. |
-| `PUT /site/deployment` | `{"revision":1,"nomadUiOrigin":"https://nomad.site.example","sharedWriters":false}`. Each field is optional: an omitted one keeps its value, `null` clears the Nomad web interface. |
+| `PUT /site/deployment` | `{"revision":1,"nomadUiOrigin":"https://nomad.site.example","sharedWriters":false}`. Each field is optional: an omitted one keeps its value; setting `nomadUiOrigin` to `null` restores the cluster address for web links. |
 | `GET /integrations/images` | [Image distribution state and counts](#image-distribution), number of published `images`, manager `source` address and `problems` per client. |
 | `PUT /site/manager` | `{"revision":2,"buildsEnabled":true,"timings":false}`. Turning builds on returns `409 builds_unavailable` when the manager cannot build. `GET /site` reports that as `manager.buildsAvailable`. |
 | `GET /site/environment` | The startup settings from the table in [installation](#installation): each `name`, `value` in effect, and `source` (`environment`, `default` or `unset`). Secrets report only their source. |

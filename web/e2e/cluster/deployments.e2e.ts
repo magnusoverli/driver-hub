@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { ADMIN } from '../environment.mjs';
+import { ADMIN, FAKE_NOMAD_URL } from '../environment.mjs';
 import { createAccount, signIn } from '../support';
 import { changeElsewhere, DEVICES, resetCluster, stubUpdates } from './fixture';
 
@@ -81,6 +81,12 @@ test('a device explains each step to control and shows its Nomad history', async
 	await expect(status).toContainText(/Placed on nomad-client-\d, but not running yet \(pending\)/);
 	await expect(status).toContainText('This release declares no control check');
 	await expect(status).toContainText('Approval happens in VideoIPath');
+	const allocation = page.getByRole('table', { name: 'Allocations' }).getByRole('row').nth(1);
+	const allocationId = await allocation.locator('code').getAttribute('title');
+	await expect(allocation.getByRole('link', { name: 'Nomad logs' })).toHaveAttribute(
+		'href',
+		`${FAKE_NOMAD_URL}/ui/allocations/${allocationId}/driver/logs?namespace=default`
+	);
 
 	await page.getByRole('tab', { name: /Scheduler evaluations/ }).click();
 	const evaluations = page.getByRole('table', { name: 'Scheduler evaluations' });

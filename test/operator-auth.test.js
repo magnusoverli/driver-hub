@@ -74,13 +74,18 @@ test('the default password stays restricted across restarts and cannot be reused
   const other = (await login()).headers.get('set-cookie').split(';')[0];
   assert.equal((await first.json()).mustChangePassword, true);
   assert.equal((await (await send('/auth/session', cookie)).json()).mustChangePassword, true);
-  assert.equal((await send('/auth/password', cookie, { currentPassword: password, newPassword: password })).status, 400);
+  assert.equal((await send('/auth/password', cookie, { newPassword: password })).status, 400);
   for (const response of [await send('/users', cookie), await send('/api-tokens', cookie, { name: 'test', role: 'admin' })]) {
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'password_change_required');
   }
   const newPassword = randomUUID();
-  assert.equal((await send('/auth/password', cookie, { currentPassword: password, newPassword })).status, 200);
+  const changed = await send('/auth/password', cookie, { newPassword });
+  assert.equal(changed.status, 200);
+  assert.deepEqual(await changed.json(), { username: 'admin', role: 'admin', provider: 'local' });
+  const renewed = changed.headers.get('set-cookie').split(';')[0];
+  assert.equal((await send('/users', renewed)).status, 200);
+  assert.equal((await send('/auth/session', cookie)).status, 401);
   assert.equal((await send('/auth/session', other)).status, 401);
   assert.equal((await login()).status, 401);
   const reopened = await LocalUsers.open(directory);
@@ -127,6 +132,7 @@ test('local accounts, browser sessions, service tokens and role changes through 
   assert.equal((await (await send('/capabilities', 'GET', undefined, userCookie)).json()).access, 'viewer');
   assert.equal((await send('/users', 'GET', undefined, userCookie)).status, 403);
   assert.equal((await send('/builds', 'POST', {}, userCookie)).status, 403);
+  assert.equal((await send('/auth/password', 'POST', { newPassword: randomUUID() }, userCookie)).status, 401);
   assert.equal((await send('/auth/password', 'POST', { currentPassword: 'wrong', newPassword: randomUUID() }, userCookie)).status, 401);
   const replacement = randomUUID();
   assert.equal((await send('/auth/password', 'POST', { currentPassword: viewer.password, newPassword: replacement }, userCookie)).status, 200);

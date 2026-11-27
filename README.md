@@ -14,7 +14,7 @@ On a fresh installation, open [http://localhost:8080](http://localhost:8080) on 
 | --- | --- |
 | `admin` | `LicenseToDeploy!` |
 
-**You must change the password on first login.** Choose a different password of at least 12 characters, then sign in again. Restarting or upgrading an existing installation does not reset its password.
+**You must change the password on first login.** Enter the default password once, then choose and confirm a new password of at least 12 characters. Hub confirms the change and keeps you signed in. Restarting or upgrading an existing installation does not reset its password.
 
 ## Deploy with Docker Compose
 
@@ -51,7 +51,9 @@ docker compose up -d
 
 4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup.
 
-Under **Settings → Nomad cluster**, enter the Nomad API address (your cluster VIP) and ACL token, then **Check and save**. Leave **Hub download address** blank. Hub sets up image distribution automatically. Check **Image distribution** for the selected address and healthy clients. Clients need TCP `5481` to the manager and TCP `5480` to each other.
+Under **Settings → Nomad cluster**, enter the Nomad API address (your cluster VIP) and ACL token, then **Check and save**. Allocation log links use this same address. If your browser reaches Nomad through a different URL, set the web interface override under **Jobs**.
+
+Leave **Hub download address** blank for automatic setup. Hub registers `driverhub-images`, a Nomad system job that caches and serves driver images on each eligible client. Check **Image distribution** for the selected Hub address and healthy clients. Clients need TCP `5481` to the manager and TCP `5480` to each other.
 
 By default Hub is reachable at `http://<host>:8080` and accepts sign-in over plain HTTP on a trusted network. For anything else, put an HTTPS reverse proxy in front (see [remote access](OPERATIONS.md#installation)). Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 

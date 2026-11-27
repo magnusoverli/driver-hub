@@ -42,10 +42,10 @@ assert.equal((await signIn(currentPassword)).mustChangePassword, true);
 assert.equal((await fetch(`${api}/site`, { headers })).status, 403);
 const newPassword = randomUUID();
 const changed = await fetch(`${api}/auth/password`, { method: 'POST', headers,
-  body: JSON.stringify({ currentPassword, newPassword }) });
+  body: JSON.stringify({ newPassword }) });
 assert.equal(changed.status, 200);
 assert.equal((await fetch(`${api}/site`, { headers })).status, 401);
-await signIn(newPassword);
+headers.Cookie = changed.headers.get('set-cookie').split(';')[0];
 const site = await (await fetch(`${api}/site`, { headers })).json();
 assert.equal(site.nomad.address, null, 'Only use a fresh smoke-test installation');
 assert.equal(site.manager.buildsAvailable, true);

@@ -11,7 +11,7 @@ function fakeAuth(overrides: Partial<AuthService> = {}): AuthService {
 		current: vi.fn(() => Promise.resolve(null)),
 		signIn: vi.fn(() => Promise.resolve(admin)),
 		signOut: vi.fn(() => Promise.resolve()),
-		changePassword: vi.fn(() => Promise.resolve()),
+		changePassword: vi.fn(() => Promise.resolve(null)),
 		...overrides
 	};
 }
