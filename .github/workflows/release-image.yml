@@ -55,6 +55,9 @@ jobs:
     if: github.event_name == 'release'
     needs: verify
     runs-on: ubuntu-24.04
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+      digest: ${{ steps.build.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -100,3 +103,33 @@ jobs:
           IMAGE: ${{ steps.image.outputs.ref }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: printf 'Digest-pinned Compose setting for .env:\n\n    DRIVER_HUB_IMAGE=%s@%s\n' "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+  attach-images:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: read
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Export and attach the published platform image
+        shell: bash
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          TAG: ${{ github.event.release.tag_name }}
+          ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          archive="driver-hub-$TAG-linux-$ARCH.tar.gz"
+          docker pull --platform "linux/$ARCH" "$IMAGE@$DIGEST"
+          docker tag "$IMAGE@$DIGEST" "$IMAGE"
+          docker image save --platform "linux/$ARCH" "$IMAGE" | gzip -1n > "$archive"
+          gh release upload "$TAG" "$archive" --repo "$GITHUB_REPOSITORY" --clobber
