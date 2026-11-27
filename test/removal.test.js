@@ -51,6 +51,7 @@ async function retain(store, version) {
 function fakeNomad() {
   const jobs = new Map();
   const variables = new Map();
+  const allocations = new Map();
   let index = 10;
   const request = async (url, init) => {
     const path = url.pathname;
@@ -67,6 +68,8 @@ function fakeNomad() {
     }
     const variable = /^\/v1\/var\/(.+)$/.exec(path)?.[1];
     if (variable) {
+      if (method !== 'GET' && Number(url.searchParams.get('cas') ?? -1) !== (variables.get(variable)?.ModifyIndex ?? 0))
+        return Response.json({ Items: { foreign: 'private' } }, { status: 409 });
       if (method === 'PUT') variables.set(variable, { Path: variable, ...JSON.parse(init.body), ModifyIndex: ++index });
       if (method === 'DELETE') return variables.delete(variable) ? new Response('', { status: 200 }) : new Response(null, { status: 404 });
       return variables.has(variable) ? Response.json(variables.get(variable)) : new Response(null, { status: 404 });
@@ -77,10 +80,11 @@ function fakeNomad() {
       assert.equal(url.searchParams.get('purge'), 'true');
       return jobs.delete(id) ? Response.json({ EvalID: randomUUID() }) : new Response(null, { status: 404 });
     }
-    if (part === 'allocations' || part === 'evaluations') return Response.json([]);
+    if (part === 'allocations') return Response.json(allocations.get(id) ?? []);
+    if (part === 'evaluations') return Response.json([]);
     return jobs.has(id) ? Response.json(jobs.get(id)) : new Response(null, { status: 404 });
   };
-  return { jobs, variables, request };
+  return { jobs, variables, allocations, request };
 }
 
 test('deployments, VideoIPath tokens and retained releases are removed only when nothing depends on them', async t => {
@@ -129,6 +133,12 @@ test('deployments, VideoIPath tokens and retained releases are removed only when
   assert.equal((await call('DELETE', `/deployments/${a}?revision=${revision}`, undefined, 'reader')).status, 403);
   const registration = `nomad/jobs/driverhub-${a}/device/driver`;
   assert.ok(nomad.variables.has(registration));
+  for (const state of ['running', 'pending', 'unknown', 'lost']) {
+    nomad.allocations.set(`driverhub-${a}`, [{ DesiredStatus: 'stop', ClientStatus: state }]);
+    assert.equal((await call('DELETE', `/deployments/${a}?revision=${revision}`)).body.code, 'allocation_not_stopped');
+    assert.ok(nomad.variables.has(registration));
+  }
+  nomad.allocations.set(`driverhub-${a}`, [{ DesiredStatus: 'stop', ClientStatus: 'complete' }]);
   const deleted = await call('DELETE', `/deployments/${a}?revision=${revision}`);
   assert.deepEqual(deleted.body, { nodeId: a, deleted: true, registrationVariable: 'removed' });
   assert.ok(!nomad.jobs.has(`driverhub-${a}`));
@@ -138,6 +148,8 @@ test('deployments, VideoIPath tokens and retained releases are removed only when
 
   // Its token stays reserved until removed; tokens of existing deployments cannot be removed.
   const b = randomUUID();
+  const bPath = `nomad/jobs/driverhub-${b}/device/driver`;
+  nomad.variables.set(bPath, { Path: bPath, Items: { customer: 'preserve' }, ModifyIndex: 2 });
   await stage(b, 'Meter B');
   let pool = site.describe().videoipath.pool;
   const reservedFor = nodeId => pool.find(entry => entry.nodeId === nodeId).tokenFingerprint;
@@ -161,6 +173,14 @@ test('deployments, VideoIPath tokens and retained releases are removed only when
   const current = await call('DELETE', '/retained/meter/1.0.0');
   assert.equal(current.status, 409);
   assert.deepEqual(current.body.details.deployments, [{ nodeId: b, use: 'current' }]);
+  const original = site.state.nomad;
+  const switchTarget = address => call('PUT', '/site/nomad', { revision: site.describe().revision, address });
+  const parked = new Map(nomad.jobs);
+  assert.equal((await switchTarget('https://second.example')).status, 200);
+  nomad.jobs.clear(); // The second target has no jobs; the first target still needs the image.
+  assert.deepEqual((await call('DELETE', '/retained/meter/1.0.0')).body.details.deployments, [{ nodeId: b, use: 'unconfirmed' }]);
+  assert.equal((await switchTarget(original.address)).status, 200);
+  for (const [id, job] of parked) nomad.jobs.set(id, job);
   revision = (await call('GET', `/deployments/${b}`)).body.revision;
   revision = (await call('POST', `/deployments/${b}/update`, { revision, version: '1.1.0' })).body.revision;
   assert.deepEqual((await call('DELETE', '/retained/meter/1.0.0')).body.details.deployments, [{ nodeId: b, use: 'previous' }]);
@@ -171,9 +191,115 @@ test('deployments, VideoIPath tokens and retained releases are removed only when
 
   // Once nothing uses it, the release and its published image both go.
   assert.equal((await call('DELETE', `/deployments/${b}?revision=${revision}`)).status, 200);
+  assert.deepEqual(nomad.variables.get(bPath).Items, { customer: 'preserve' });
   await access(join(root, 'images', imageKey(first)));
   assert.deepEqual((await call('DELETE', '/retained/meter/1.0.0')).body,
     { driverId: 'meter', version: '1.0.0', removed: true, image: 'removed' });
   await assert.rejects(access(join(root, 'images', imageKey(first))));
   assert.deepEqual((await call('GET', '/retained')).body.releases.map(r => r.version), ['1.1.0']);
+});
+
+test('a staged image remains pullable across simultaneous release removal; purge cannot erase a queued start or restage', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'driverhub-race-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new ReleaseStore(join(root, 'releases')), images = new Images(join(root, 'images'));
+  const record = await retain(store, '1.0.0');
+  const fake = fakeNomad();
+  let gate;
+  function pause(method) {
+    let ready, release;
+    const entered = new Promise(r => { ready = r; }), wait = new Promise(r => { release = r; });
+    gate = { method, ready, wait };
+    return { entered, release };
+  }
+  const nomad = new Nomad('http://localhost', null, 'default', async (url, init) => {
+    if (gate && init.method === gate.method && !url.pathname.endsWith('/plan')) {
+      const barrier = gate;
+      gate = null;
+      barrier.ready();
+      await barrier.wait;
+    }
+    return fake.request(url, init);
+  });
+  const deployments = new Deployments({ store, images, registry: 'images.local', nomad, datacenters: ['dc1'] });
+  const server = createApi(null, store, { deployments, images }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(r => server.close(r)));
+  const base = `http://127.0.0.1:${server.address().port}/api/v1`;
+  const id = randomUUID(), body = { nodeId: id, driverId: 'meter', version: '1.0.0' };
+  const post = (path, data) => fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
+  const del = path => fetch(base + path, { method: 'DELETE' });
+  let barrier = pause('POST');
+  const stage = post('/deployments', body);
+  await barrier.entered;
+  let arrived = once(server, 'request');
+  const removal = del('/retained/meter/1.0.0');
+  await arrived;
+  barrier.release();
+  const { revision } = await (await stage).json();
+  assert.equal((await (await removal).json()).code, 'release_in_use');
+  for (const item of Object.values((await images.info(imageKey(record))).objects))
+    await access(join(images.root, imageKey(record), item.file));
+  barrier = pause('DELETE');
+  const purge = del(`/deployments/${id}?revision=${revision}`);
+  await barrier.entered;
+  arrived = once(server, 'request');
+  const start = post(`/deployments/${id}/start`, { revision, originalStopped: true });
+  await arrived;
+  const restage = post('/deployments', body);
+  barrier.release();
+  assert.equal((await purge).status, 200);
+  assert.equal((await start).status, 404);
+  assert.equal((await restage).status, 200);
+  assert.equal(fake.jobs.get(`driverhub-${id}`).TaskGroups[0].Count, 0);
+});
+
+test('an ambiguous registration replays after restart and CAS cleanup never deletes a rotated Variable', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'driverhub-reconcile-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new ReleaseStore(join(root, 'releases')), images = new Images(join(root, 'images'));
+  await retain(store, '1.0.0');
+  const fake = fakeNomad(), id = randomUUID(), token = randomUUID();
+  const path = `nomad/jobs/driverhub-${id}/device/driver`;
+  let lost = true, rotate = true;
+  const client = n => new Nomad(n.address, n.token, n.namespace, async (url, init) => {
+    if (init.method === 'DELETE' && url.pathname === `/v1/var/${path}` && rotate) {
+      const v = fake.variables.get(path);
+      fake.variables.set(path, { ...v, Items: { ...v.Items, customer: 'new' }, ModifyIndex: v.ModifyIndex + 100 });
+      rotate = false;
+    }
+    const response = await fake.request(url, init);
+    if (lost && url.pathname === '/v1/jobs' && init.method === 'POST') {
+      lost = false;
+      throw new Error('response lost after commit');
+    }
+    return response;
+  });
+  const open = () => Site.open(join(root, 'site'), { address: 'https://nomad.example', namespace: 'default', datacenters: ['dc1'] }, { client });
+  let site = await open();
+  await site.configure('videoipath', { revision: 0, address: 'vip.example', token });
+  const manager = () => Deployments.forSite(site, { store, images, registry: 'images.internal' });
+  const stage = () => manager().stage({ driverId: 'meter', version: '1.0.0' }, false, id);
+  await assert.rejects(stage, e => e.code === 'nomad_write_unconfirmed');
+  site = await open();
+  const replay = await stage();
+  assert.equal(replay.replayed, true);
+  assert.equal(fake.jobs.size, 1);
+  const removed = await manager().remove(id, replay.revision);
+  assert.equal(removed.registrationVariable, 'failed');
+  assert.equal(fake.variables.get(path).Items.customer, 'new');
+  site = await open();
+  await assert.rejects(stage, e => e.code === 'cleanup_pending');
+  assert.equal((await manager().remove(id, replay.revision)).registrationVariable, 'failed');
+  // Operator reconciles only the old registration key; the retry keeps the sibling.
+  for (const key of Object.keys(fake.variables.get(path).Items))
+    if (key.startsWith('vip_')) delete fake.variables.get(path).Items[key];
+  assert.equal((await manager().remove(id, replay.revision)).registrationVariable, 'none');
+  assert.deepEqual(fake.variables.get(path).Items, { customer: 'new' });
+  // An already present, identical credential can be used but is never adopted for deletion.
+  const borrowed = `vip_${site.state.videoipath.id}`;
+  fake.variables.get(path).Items[borrowed] = token;
+  const next = await stage();
+  assert.equal((await manager().remove(id, next.revision)).registrationVariable, 'none');
+  assert.deepEqual(fake.variables.get(path).Items, { customer: 'new', [borrowed]: token });
 });

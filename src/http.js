@@ -7,6 +7,7 @@ import { apiContract } from './openapi.js';
 import { deployForm } from './deployment-inputs.js';
 import { browserWrite } from './operator-sessions.js';
 import { removeRelease } from './retention.js';
+import { nomadTiming } from './nomad.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -59,7 +60,9 @@ function preview(searchParams) {
   return value === 'true';
 }
 
-async function route(request, catalog, store, { deployments, builds, operations, site, localUsers, imports, images }, access) {
+async function route(request, catalog, store, services, access, coordinator) {
+  const { deployments, builds, operations, site, localUsers, imports, images } = services;
+  const write = fn => coordinator.write(() => fn(services.deployments));
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
   const upload = /^\/api\/v1\/imports\/([^/]+)\/([^/]+)$/.exec(pathname);
   if (upload) {
@@ -89,18 +92,22 @@ async function route(request, catalog, store, { deployments, builds, operations,
     expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
     expect(site, 'Site configuration is unavailable', 503);
     expect(request.method === 'DELETE', 'Expected DELETE', 405);
-    return site.removeToken(tokenPath[1], revisionParam(searchParams), async nodeId => {
-      expect(deployments?.nomad.address, 'Hub cannot check whether the device still exists without Nomad', 409,
+    return write(current => site.removeToken(tokenPath[1], revisionParam(searchParams), async nodeId => {
+      expect(current?.nomad.address, 'Hub cannot check whether the device still exists without Nomad', 409,
         'deployment_unknown');
-      return !await deployments.nomad.get(`driverhub-${nodeId}`);
-    });
+      return ![...site.journal.records.values()].some(r => r.nodeId === nodeId &&
+        (r.pending || r.deleting || r.target !== current.identity(nodeId).target)) &&
+        !await current.nomad.get(`driverhub-${nodeId}`);
+    }));
   }
   const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath))?$/.exec(pathname);
   if (sitePath) {
     expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
     expect(site, 'Site configuration is unavailable', 503);
     expect(request.method === (sitePath[1] ? 'PUT' : 'GET'), 'Invalid site request method', 405);
-    return sitePath[1] ? site.configure(sitePath[1], await readSettings(request)) : site.describe();
+    if (!sitePath[1]) return site.describe();
+    const input = await readSettings(request);
+    return write(current => site.configure(sitePath[1], input, () => current.checkpointTarget()));
   }
   if (pathname === '/api/v1/openapi.json') {
     expect(request.method === 'GET', 'Expected GET', 405);
@@ -114,7 +121,7 @@ async function route(request, catalog, store, { deployments, builds, operations,
   }
   if (pathname === '/api/v1/integrations/nomad') {
     expect(request.method === 'GET', 'Expected GET', 405);
-    return deployments ? deployments.nomad.connection() : { state: 'not_configured', namespace: 'default' };
+    return deployments ? coordinator.read('connection', () => deployments.nomad.connection()) : { state: 'not_configured', namespace: 'default' };
   }
   const operation = /^\/api\/v1\/operations(?:\/([^/]+))?$/.exec(pathname);
   if (operation) {
@@ -137,19 +144,32 @@ async function route(request, catalog, store, { deployments, builds, operations,
     expect(deployments, 'Deployments are not configured', 503);
     return { updates: await catalog.updates(await deployments.list()) };
   }
+  if (pathname === '/api/v1/deployments/directory') {
+    expect(request.method === 'GET', 'Expected GET', 405);
+    expect(deployments, 'Deployments are not configured', 503);
+    return { devices: await coordinator.read('directory', async () =>
+      (await deployments.list()).map(({ nodeId, driverId, version }) => ({ nodeId, driverId, version, label: deployments.label(nodeId) }))) };
+  }
   if (pathname === '/api/v1/deployments') {
     expect(deployments, 'Deployments are not configured', 503);
-    if (request.method === 'GET') return { deployments: await deployments.overview() };
+    if (request.method === 'GET') return { deployments: await coordinator.read('overview', () => deployments.overview()) };
     expect(request.method === 'POST', 'Expected GET or POST', 405);
-    return deployments.stage(await readSettings(request), preview(searchParams), request.headers['idempotency-key']);
+    const input = await readSettings(request), dry = preview(searchParams);
+    const stage = current => current.stage(input, dry, request.headers['idempotency-key']);
+    return dry ? stage(deployments) : write(stage);
   }
-  const deployment = /^\/api\/v1\/deployments\/([^/]+)(?:\/(start|stop|update|rollback|evaluations|history|label))?$/.exec(pathname);
+  const deployment = /^\/api\/v1\/deployments\/([^/]+)(?:\/(start|stop|update|rollback|evaluations|history|label|rollout))?$/.exec(pathname);
   if (deployment) {
     expect(deployments, 'Deployments are not configured', 503);
     const [, nodeId, action] = deployment;
+    if (action === 'rollout') {
+      expect(request.method === 'GET', 'Expected GET', 405);
+      return { rollout: await deployments.rollout(nodeId) };
+    }
     if (action === 'label') {
       expect(request.method === 'PUT', 'Expected PUT', 405);
-      return deployments.relabel(nodeId, (await readSettings(request)).label);
+      const { label } = await readSettings(request);
+      return write(current => current.relabel(nodeId, label));
     }
     if (action === 'history') {
       expect(request.method === 'GET', 'Expected GET', 405);
@@ -159,9 +179,12 @@ async function route(request, catalog, store, { deployments, builds, operations,
       expect(request.method === 'GET', 'Expected GET', 405);
       return { evaluations: await deployments.evaluations(nodeId) };
     }
-    if (!action && request.method === 'DELETE') return deployments.remove(nodeId, revisionParam(searchParams));
+    if (!action && request.method === 'DELETE') return write(current => current.remove(nodeId, revisionParam(searchParams)));
     expect(request.method === (action ? 'POST' : 'GET'), 'Invalid deployment request method', 405);
-    return action ? deployments.change(nodeId, action, await readSettings(request), preview(searchParams)) : deployments.status(nodeId);
+    if (!action) return deployments.status(nodeId);
+    const input = await readSettings(request), dry = preview(searchParams);
+    const change = current => current.change(nodeId, action, input, dry);
+    return dry ? change(deployments) : write(change);
   }
   if (pathname === '/api/v1/releases') {
     if (request.method !== 'GET') throw new RequestError(405, 'Expected GET');
@@ -178,7 +201,7 @@ async function route(request, catalog, store, { deployments, builds, operations,
   }
   if (collection === 'retained' && !action && request.method === 'DELETE') {
     expect(access === 'admin', 'Removing releases requires administrator access', 403, 'admin_required');
-    return removeRelease({ store, images, deployments }, driverId, version);
+    return write(current => removeRelease({ store, images, deployments: current }, driverId, version));
   }
   if (collection === 'retained' && !action && request.method === 'PUT') {
     return acquire(request, operations, 'retain', { driverId, version }, async () => {
@@ -230,7 +253,7 @@ async function authorize(request, { token, viewerToken, sessions, localUsers }) 
   return access;
 }
 
-async function dispatch(request, headers, catalog, store, services) {
+async function dispatch(request, headers, catalog, store, services, coordinator) {
   const { pathname } = new URL(request.url, 'http://localhost');
   const { sessions, localUsers } = services;
   if (pathname.startsWith('/api/v1/auth/')) {
@@ -255,10 +278,43 @@ async function dispatch(request, headers, catalog, store, services) {
     throw new RequestError(404, 'Unknown authentication route');
   }
   const access = await authorize(request, services);
-  return route(request, catalog, store, services, access);
+  return route(request, catalog, store, services, access, coordinator);
 }
 
 export function createApi(catalog, store, services = {}) {
+  // Nomad has no conditional purge, and a release can be removed while a different device
+  // is staging it. Serialize manager lifecycle/site/retention writes through cleanup. Reads,
+  // including plans, never wait on a writer and never supply its preconditions.
+  let tail = Promise.resolve();
+  const reads = new Map();
+  const coordinator = {
+    write(fn) {
+      const run = tail.then(async () => {
+        reads.clear();
+        try { return await fn(); } finally { reads.clear(); }
+      });
+      tail = run.catch(() => {});
+      return run;
+    },
+    read(key, fn) {
+      const cached = reads.get(key);
+      if (cached && Date.now() < cached.expires) return cached.promise;
+      const entry = { expires: Infinity };
+      const discard = () => { if (reads.get(key) === entry) reads.delete(key); };
+      entry.promise = fn().then(result => {
+        // Never extend a check's validity by caching its response.
+        let ttl = 1000;
+        if (key === 'overview') for (const row of result) {
+          const at = row.communicationEvidence?.observedAt;
+          if (at) ttl = Math.min(ttl, Date.parse(at) + 30000 - Date.now());
+        }
+        entry.expires = Date.now() + ttl;
+        return result;
+      }, error => { discard(); throw error; });
+      reads.set(key, entry);
+      return entry.promise;
+    }
+  };
   return createServer(async (request, response) => {
     if (services.web && !/^\/api(\/|$)/.test(new URL(request.url, 'http://localhost').pathname)) {
       try { return await services.web.serve(request, response); } catch (error) {
@@ -270,8 +326,10 @@ export function createApi(catalog, store, services = {}) {
     let status = 200;
     let body;
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
+    const metrics = services.timings && { calls: 0, bytes: 0, errors: 0, started: performance.now() };
     try {
-      body = await dispatch(request, headers, catalog, store, services);
+      const run = () => dispatch(request, headers, catalog, store, services, coordinator);
+      body = await (metrics ? nomadTiming.run(metrics, run) : run());
       if (body instanceof Accepted) {
         body = body.operation;
         status = 202;
@@ -286,6 +344,8 @@ export function createApi(catalog, store, services = {}) {
       ({ status, ...body } = publicError(error));
       if (status === 500) console.error('Driver Hub request failed:', error?.code ?? error?.name ?? 'unknown');
     }
+    if (metrics) headers['Server-Timing'] = `hub;dur=${(performance.now() - metrics.started).toFixed(1)}, ` +
+      `nomad;desc="${metrics.calls} calls, ${metrics.bytes} response bytes, ${metrics.errors} errors"`;
     response.writeHead(status, headers);
     response.end(JSON.stringify(body));
   });

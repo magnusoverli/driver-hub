@@ -3,7 +3,8 @@ import { link, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
 import { expect } from './errors.js';
-import { Nomad } from './nomad.js';
+import { Nomad, requireSecureNomad } from './nomad.js';
+import { DeploymentJournal } from './deployment-journal.js';
 
 function endpoint(value, service) {
   expect(typeof value === 'string' && value.length > 0 && value.length <= 2048 &&
@@ -75,6 +76,7 @@ export class Site {
     new Nomad(settings.address, settings.token, settings.namespace) } = {}) {
     const site = new Site();
     site.directory = directory;
+    site.journal = await DeploymentJournal.open(join(directory, 'deployments'));
     site.file = join(directory, 'site.enc');
     site.keyFile = keyFile;
     site.client = client;
@@ -111,7 +113,7 @@ export class Site {
     return update;
   }
 
-  configure(service, input) { return this.serialized(() => this.save(service, input)); }
+  configure(service, input, beforeSwitch) { return this.serialized(() => this.save(service, input, beforeSwitch)); }
 
   // Removes a per-device token from the pool by fingerprint: an unused one, or one reserved for a
   // device whose deployment no longer exists (`released` decides that). Revocation stays in VideoIPath.
@@ -154,7 +156,7 @@ export class Site {
     });
   }
 
-  async save(service, input) {
+  async save(service, input, beforeSwitch) {
     const old = this.state;
     const allowed = service === 'nomad' ? ['namespace', 'datacenters'] : ['tokenMode', 'tokens'];
     expect(Object.keys(input).every(key => ['revision', 'address', 'token', ...allowed].includes(key)),
@@ -176,7 +178,10 @@ export class Site {
       const status = await this.client(next.nomad).connection();
       expect(status.state === 'connected', 'Nomad has no elected leader', 409, 'nomad_not_ready');
       // Never carry the VideoIPath credential to a different configured cluster/namespace.
-      if (old.nomad.address && !same) next.videoipath = null;
+      if (old.nomad.address && !same) {
+        await beforeSwitch?.();
+        next.videoipath = null;
+      }
     } else {
       expect(service === 'videoipath', 'Unknown site setting', 404);
       next.videoipath = videoProfile(old, input, address);
@@ -198,10 +203,4 @@ export class Site {
     } finally { await rm(tmp, { force: true }); }
     this.state = next;
   }
-}
-
-export function requireSecureNomad(address) {
-  const url = new URL(address);
-  expect(url.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname),
-    'Use HTTPS to send credentials to a remote Nomad endpoint', 422);
 }

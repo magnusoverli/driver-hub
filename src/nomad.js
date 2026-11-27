@@ -1,4 +1,16 @@
 import { RequestError, expect } from './errors.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+// Optional request-level counters; never record paths, tokens or request/response bodies.
+export const nomadTiming = new AsyncLocalStorage();
+
+export function requireSecureNomad(address) {
+  let url;
+  try { url = new URL(address); } catch { /* rejected below */ }
+  expect(url && !url.username && !url.password && (url.protocol === 'https:' ||
+    (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))),
+  'Use HTTPS to send credentials to a remote Nomad endpoint', 422);
+}
 
 export class Nomad {
   constructor(address, token, namespace = 'default', request = fetch) {
@@ -6,14 +18,17 @@ export class Nomad {
     this.token = token;
     this.namespace = namespace;
     this.request = request;
+    if (token) requireSecureNomad(address);
   }
 
-  async call(path, { body, allowMissing = false, method = body ? 'POST' : 'GET' } = {}) {
+  async call(path, { body, allowMissing = false, valid, method = body ? 'POST' : 'GET' } = {}) {
     expect(this.address, 'Nomad integration is not configured', 503);
     const url = new URL(`/v1/${path}`, this.address);
     url.searchParams.set('namespace', this.namespace);
     const headers = { 'Content-Type': 'application/json' };
     if (this.token) headers['X-Nomad-Token'] = this.token;
+    const metrics = nomadTiming.getStore();
+    if (metrics) metrics.calls++;
     try {
       const response = await this.request(url, {
         headers, method, body: body && JSON.stringify(body),
@@ -21,39 +36,58 @@ export class Nomad {
       });
       if (allowMissing && response.status === 404) return null;
       if (!response.ok) {
-        const reason = (await response.text()).slice(0, 1024);
-        if (/Enforcing job modify index/i.test(reason) || response.status === 409) {
+        const text = await response.text();
+        if (metrics) metrics.bytes += Buffer.byteLength(text);
+        const reason = text.slice(0, 1024);
+        if (path.startsWith('var/') && response.status === 409)
+          throw new RequestError(409, 'Nomad Variable changed; inspect its current state', 'variable_conflict');
+        if (path === 'jobs' && (/Enforcing job modify index/i.test(reason) || response.status === 409)) {
           throw new RequestError(409, 'Deployment changed; reload its revision', 'revision_conflict');
         }
-        throw new RequestError(502, `Nomad rejected the request (HTTP ${response.status})`);
+        const code = [401, 403].includes(response.status) ? 'nomad_access_denied' :
+          response.status === 429 ? 'nomad_busy' : response.status < 500 ? 'nomad_rejected' : 'nomad_unavailable';
+        throw new RequestError(502, `Nomad rejected the request (HTTP ${response.status})`, code);
       }
       // Deletions may answer without a body.
       const text = await response.text();
-      return text ? JSON.parse(text) : null;
+      if (metrics) metrics.bytes += Buffer.byteLength(text);
+      const result = text ? JSON.parse(text) : null;
+      if (valid) expect(valid(result), 'Invalid Nomad response; inspect state before retrying', 502,
+        method === 'GET' ? 'nomad_invalid_response' : 'nomad_write_unconfirmed');
+      return result;
     } catch (error) {
+      if (metrics) metrics.errors++;
       if (error instanceof RequestError) throw error;
-      throw new RequestError(502, 'Nomad request failed; read deployment state before retrying');
+      throw new RequestError(502, 'Nomad request failed; read deployment state before retrying',
+        method === 'GET' || path.endsWith('/plan') ? 'nomad_unavailable' : 'nomad_write_unconfirmed');
     }
   }
 
-  get(id) { return this.call(`job/${id}`, { allowMissing: true }); }
-  list() { return this.call('jobs?prefix=driverhub-&meta=true'); }
-  allocations(id) { return this.call(`job/${id}/allocations`); }
-  evaluations(id) { return this.call(`job/${id}/evaluations`); }
+  get(id) { return this.call(`job/${id}`, { allowMissing: true, valid: job => job?.ID === id }); }
+  async collection(path) {
+    const result = await this.call(path);
+    expect(Array.isArray(result), 'Invalid Nomad collection response', 502);
+    return result;
+  }
+  list() { return this.collection('jobs?prefix=driverhub-&meta=true'); }
+  allocations(id) { return this.collection(`job/${id}/allocations`); }
+  evaluations(id) { return this.collection(`job/${id}/evaluations`); }
   versions(id) { return this.call(`job/${id}/versions?diffs=false`); }
   checks(id) { return this.call(`client/allocation/${encodeURIComponent(id)}/checks`, { allowMissing: true }); }
   // Purging removes the job and its version history, so a deleted deployment is not listed again.
   // Nomad's deregistration has no modify-index check; callers compare revisions just before.
-  deregister(id) { return this.call(`job/${id}?purge=true`, { method: 'DELETE' }); }
-  variable(path) { return this.call(`var/${path}`, { allowMissing: true }); }
-  deleteVariable(path) { return this.call(`var/${path}`, { method: 'DELETE', allowMissing: true }); }
+  deregister(id) { return this.call(`job/${id}?purge=true`, { method: 'DELETE',
+    valid: result => typeof result?.EvalID === 'string' && result.EvalID.length > 0 }); }
+  variable(path) { return this.call(`var/${path}`, { allowMissing: true, valid: variable =>
+    variable?.Path === path && Number.isSafeInteger(variable.ModifyIndex) && variable.ModifyIndex > 0 &&
+    variable.Items && typeof variable.Items === 'object' && !Array.isArray(variable.Items) }); }
 
   async connection() {
     if (!this.address) return { state: 'not_configured', namespace: this.namespace };
     const leader = await this.call('status/leader');
     if (typeof leader !== 'string') throw new RequestError(502, 'Invalid Nomad leader response');
     if (!leader) return { state: 'no_leader', namespace: this.namespace };
-    expect(Array.isArray(await this.list()), 'Invalid Nomad job list', 502);
+    await this.collection('jobs?prefix=driverhub-&per_page=1');
     return { state: 'connected', namespace: this.namespace };
   }
 
@@ -67,22 +101,37 @@ export class Nomad {
   async ensureRegistrationToken(jobId, key, token) {
     const path = `nomad/jobs/${jobId}/device/driver`;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const variable = await this.call(`var/${path}`, { allowMissing: true });
-      expect(!variable || (variable.Path === path && Number.isSafeInteger(variable.ModifyIndex) &&
-        variable.Items && typeof variable.Items === 'object'), 'Invalid Nomad Variable response', 502);
+      const variable = await this.variable(path);
       if (Object.hasOwn(variable?.Items ?? {}, key)) {
         expect(variable.Items[key] === token, 'Registration variable key already has different content', 409);
-        return;
+        return null; // Identical content is usable, but not proof of ownership.
       }
       try {
-        await this.call(`var/${path}?cas=${variable?.ModifyIndex ?? 0}`, {
+        const saved = await this.call(`var/${path}?cas=${variable?.ModifyIndex ?? 0}`, {
           method: 'PUT', body: { Path: path, Items: { ...variable?.Items, [key]: token } }
         });
-        return;
+        expect(saved?.Path === path && Number.isSafeInteger(saved.ModifyIndex) && saved.ModifyIndex > 0,
+          'Unconfirmed Nomad Variable write; inspect state before retrying', 502, 'nomad_write_unconfirmed');
+        return String(saved.ModifyIndex);
       } catch (error) {
         if (error.status !== 409 || attempt === 2) throw error;
       }
     }
+  }
+
+  async removeRegistrationToken(job, key) {
+    if (job.Meta.registration_index === 'borrowed') return 'none';
+    const path = `nomad/jobs/${job.ID}/device/driver`;
+    const current = await this.variable(path);
+    if (!current || !Object.hasOwn(current.Items ?? {}, key)) return 'none';
+    // Legacy jobs, pre-existing keys and changed/recreated Variables are left for the operator.
+    const index = current.ModifyIndex;
+    if (!Number.isSafeInteger(index) || index <= 0 || job.Meta.registration_index !== String(index)) return 'failed';
+    const items = { ...current.Items };
+    delete items[key];
+    await this.call(`var/${path}?cas=${index}`, Object.keys(items).length
+      ? { method: 'PUT', body: { Path: path, Items: items } } : { method: 'DELETE' });
+    return 'removed';
   }
 
   async submit(job, revision, beforeRegister) {
@@ -91,6 +140,9 @@ export class Nomad {
     expect(plan.schedulable, 'Nomad could not place the driver', 409, 'placement_failed', plan);
     if (beforeRegister) await beforeRegister();
     const result = await this.call('jobs', { body: { Job: job, EnforceIndex: true, JobModifyIndex: revision } });
+    expect(Number.isSafeInteger(result?.JobModifyIndex) && result.JobModifyIndex > 0 &&
+      typeof result.EvalID === 'string' && result.EvalID.length > 0,
+    'Unconfirmed Nomad registration; inspect deployment state before retrying', 502, 'nomad_write_unconfirmed');
     return { revision: result.JobModifyIndex, evaluationId: result.EvalID };
   }
 }

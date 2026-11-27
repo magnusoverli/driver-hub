@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
@@ -188,7 +188,18 @@ export class Images {
 
   async publish(record, archive) {
     const key = imageKey(record);
-    if (await this.info(key)) return key;
+    const published = await this.info(key);
+    if (published) {
+      requireRelease(published.digest === record.image.digest && published.objects?.[published.digest],
+        'Invalid published image index');
+      for (const item of Object.values(published.objects)) {
+        const file = await stat(join(this.root, key, item.file)).catch(error => {
+          if (error.code !== 'ENOENT') throw error;
+        });
+        requireRelease(file?.isFile() && file.size === item.size, 'Published image is incomplete; restore the verified image store');
+      }
+      return key;
+    }
     await mkdir(this.root, { recursive: true });
     const staging = await mkdtemp(join(this.root, '.verify-'));
     try {

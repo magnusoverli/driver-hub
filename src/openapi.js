@@ -19,7 +19,7 @@ const settings = { type: 'object', additionalProperties: {
 } };
 const deviceLabel = { type: ['string', 'null'], maxLength: 80,
   description: 'Operator-facing device name kept by Hub, not by Nomad. Null when unnamed.' };
-const allocation = object({ id: str, host: str, desired: str, status: str, jobVersion: integer, taskState: str, restarts: integer },
+const allocation = object({ id: str, host: str, desired: str, status: str, jobVersion: integer, taskState: str, restarts: integer, lastEvent: str, logsUrl: str },
   ['id', 'desired', 'status']);
 const observation = {
   communication: values('unknown', 'driver-reports-connected', 'check-failed'), approval: { const: 'unknown' },
@@ -155,6 +155,12 @@ const paths = {
     post: endpoint('stageDeployment', submitted, { parameters: [preview, { name: 'Idempotency-Key', in: 'header',
       schema: uuid, description: 'For a new device only: use this random UUID as its nodeId and safely retry staging.' }], body: ref('Stage') })
   },
+  '/deployments/directory': { get: endpoint('listDeviceDirectory', object({ devices: array(object({
+    ...identity, nodeId: uuid, label: deviceLabel
+  })) })) },
+  '/deployments/{nodeId}/rollout': { get: endpoint('getCurrentRollout', object({ rollout: { oneOf: [
+    object({ id: str, status: str, jobVersion: integer }), { type: 'null' }
+  ] } }), { parameters: [path('nodeId')] }) },
   '/deployments/{nodeId}': { get: endpoint('getDeployment', ref('Deployment'), { parameters: [path('nodeId')] }),
     delete: { ...endpoint('deleteDeployment', object({ nodeId: uuid, deleted: { const: true },
       registrationVariable: { ...values('removed', 'none', 'failed'),

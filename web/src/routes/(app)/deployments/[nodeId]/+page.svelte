@@ -14,6 +14,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { getApi } from '#lib/api/context.js';
+	import { unwrap } from '#lib/api/client.js';
 	import { isApiError } from '#lib/api/errors.js';
 	import { retainedQuery } from '#lib/catalog/queries.js';
 	import AllocationsTable from '#lib/deployments/AllocationsTable.svelte';
@@ -34,7 +35,8 @@
 	import SettingsList from '#lib/deployments/SettingsList.svelte';
 	import StatusHops from '#lib/deployments/StatusHops.svelte';
 	import { secretReferences } from '#lib/deployments/settings-form.js';
-	import { detailStatusInput } from '#lib/deployments/status-path.js';
+	import { detailStatusInput, freshStatus } from '#lib/deployments/status-path.js';
+	import { getClock } from '#lib/time/clock.svelte.js';
 	import { deviceName, updateTargets } from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
@@ -60,12 +62,29 @@
 	const validId = $derived(UUID.test(nodeId));
 	const detail = createQuery(() => ({ ...deploymentQuery(api, nodeId), enabled: validId }));
 	const loaded = $derived(validId && detail.data !== undefined);
-	const history = createQuery(() => ({ ...historyQuery(api, nodeId), enabled: loaded }));
-	const evaluations = createQuery(() => ({ ...evaluationsQuery(api, nodeId), enabled: loaded }));
+	let tab = $state('allocations');
+	const history = createQuery(() => ({
+		...historyQuery(api, nodeId),
+		enabled: loaded && (tab === 'history' || detail.data?.requested === 'stopped'),
+		refetchInterval: tab === 'history' ? 30_000 : false
+	}));
+	const evaluations = createQuery(() => ({
+		...evaluationsQuery(api, nodeId),
+		enabled: loaded && tab === 'evaluations'
+	}));
+	const rollout = createQuery(() => ({
+		queryKey: [...deploymentKeys.device(nodeId), 'rollout', detail.data?.revision],
+		queryFn: async () =>
+			(await unwrap(api.GET('/deployments/{nodeId}/rollout', { params: { path: { nodeId } } })))
+				.rollout,
+		enabled: loaded && tab === 'evaluations',
+		refetchInterval: 30_000
+	}));
 	const retained = createQuery(() => ({ ...retainedQuery(api), enabled: loaded }));
 	const updates = createQuery(() => ({ ...updatesQuery(api), enabled: loaded }));
 
-	const deployment = $derived(detail.data);
+	const clock = getClock();
+	const deployment = $derived(detail.data && freshStatus(detail.data, clock.now));
 	const notFound = $derived(!validId || (isApiError(detail.error) && detail.error.status === 404));
 	const targets = $derived(deployment ? updateTargets(deployment, retained.data ?? []) : []);
 	// A newer upstream version worth mentioning only while it still has to be downloaded.
@@ -268,6 +287,7 @@
 
 			<Card flush>
 				<Tabs
+					bind:value={tab}
 					label={m.deployment_diagnostics_label()}
 					tabs={[
 						{
@@ -347,6 +367,12 @@
 	{/snippet}
 
 	{#snippet evaluationsPanel()}
+		{#if rollout.data}<p class="panel-note">
+				{m.deployment_rollout({ version: rollout.data.jobVersion, status: rollout.data.status })}
+			</p>
+		{:else if rollout.error}<p class="panel-note">
+				{m.deployment_panel_error({ detail: rollout.error.message })}
+			</p>{/if}
 		{#if evaluations.data?.length}
 			<EvaluationsTable evaluations={evaluations.data} />
 		{:else if evaluations.error}

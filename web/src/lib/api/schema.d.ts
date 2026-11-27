@@ -327,6 +327,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deployments/directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listDeviceDirectory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deployments/{nodeId}/rollout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getCurrentRollout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deployments/{nodeId}": {
         parameters: {
             query?: never;
@@ -807,6 +839,8 @@ export interface components {
                 jobVersion?: number;
                 taskState?: string;
                 restarts?: number;
+                lastEvent?: string;
+                logsUrl?: string;
             }[];
         };
         DeploymentSummary: {
@@ -844,6 +878,8 @@ export interface components {
                 jobVersion?: number;
                 taskState?: string;
                 restarts?: number;
+                lastEvent?: string;
+                logsUrl?: string;
             } | null;
         };
     };
@@ -1689,6 +1725,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Submission"] | components["schemas"]["Preview"];
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDeviceDirectory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        devices: {
+                            driverId: string;
+                            version: string;
+                            /** Format: uuid */
+                            nodeId: string;
+                            /** @description Operator-facing device name kept by Hub, not by Nomad. Null when unnamed. */
+                            label: string | null;
+                        }[];
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCurrentRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        rollout: {
+                            id: string;
+                            status: string;
+                            jobVersion: number;
+                        } | null;
+                    };
                 };
             };
             /** @description Request failed */

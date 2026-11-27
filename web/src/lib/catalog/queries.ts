@@ -99,7 +99,7 @@ export function retainedQuery(api: ApiClient) {
 	});
 }
 
-export type ReleaseUse = { nodeId: string; use: 'current' | 'previous' };
+export type ReleaseUse = { nodeId: string; use: 'current' | 'previous' | 'unconfirmed' };
 
 /** Removes a retained release and its verified image, unless a deployment still needs it. */
 export function removeRelease(api: ApiClient, { driverId, version }: Identity) {

@@ -78,7 +78,11 @@
 						<a href={resolve('/(app)/deployments/[nodeId]', { nodeId: use.nodeId })}>
 							{device ? deviceName(device) : shortId(use.nodeId)}
 						</a>
-						{use.use === 'current' ? m.release_use_current() : m.release_use_previous()}
+						{use.use === 'unconfirmed'
+							? m.release_use_unconfirmed()
+							: use.use === 'current'
+								? m.release_use_current()
+								: m.release_use_previous()}
 					</li>
 				{/each}
 			</ul>

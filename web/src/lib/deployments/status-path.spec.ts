@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	currentAllocation,
 	detailStatusInput,
+	freshStatus,
 	statusPath,
 	type DeploymentSummary
 } from './status-path.js';
@@ -22,6 +23,23 @@ const base: DeploymentSummary = {
 };
 
 describe('status path', () => {
+	it('expires cached success and failure without a successful refresh', () => {
+		const now = Date.now();
+		for (const communication of ['driver-reports-connected', 'check-failed'] as const) {
+			const row = {
+				...base,
+				communication,
+				communicationEvidence: {
+					state: communication,
+					reason: 'fresh_observation',
+					observedAt: new Date(now).toISOString()
+				}
+			};
+			expect(freshStatus(row, now + 29999).communication).toBe(communication);
+			expect(freshStatus(row, now + 30000).communication).toBe('unknown');
+			expect(freshStatus(row, now - 1).communication).toBe('unknown');
+		}
+	});
 	it('never claims control from a running allocation alone, nor approval at all', () => {
 		expect(statusPath(base)).toEqual({
 			requested: 'verified',
