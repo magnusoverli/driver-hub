@@ -122,7 +122,7 @@
 			</p>
 			{#snippet actions()}
 				{#if session.isAdmin}
-					<Button variant="primary" href={resolve('/(app)/site/nomad')}>
+					<Button variant="primary" href={resolve('/(app)/settings/nomad')}>
 						{m.deployments_no_cluster_action()}
 					</Button>
 				{/if}

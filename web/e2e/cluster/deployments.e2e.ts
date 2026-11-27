@@ -94,7 +94,7 @@ test('a device explains each step to control and shows its Nomad history', async
 	await expect(history.getByRole('row')).toHaveCount(3);
 	await expect(history.getByRole('row').nth(1)).toContainText('Current');
 
-	await expect(page.getByRole('region', { name: 'Settings' })).toContainText(
+	await expect(page.getByRole('region', { name: 'Configuration' })).toContainText(
 		'gw-rack-b.site.example'
 	);
 });
@@ -122,7 +122,7 @@ test('an administrator stops and starts a driver, reviewing Nomad’s plan first
 	await expect(statusOf(page)).toContainText('reported VideoIPath and the device connected');
 });
 
-test('an update keeps the previous version and settings for rollback', async ({ page }) => {
+test('an update keeps the previous version and configuration for rollback', async ({ page }) => {
 	await signIn(page, ADMIN, detail(studio.nodeId));
 	await page.getByRole('button', { name: 'Update…' }).click();
 	const dialog = page.getByRole('dialog');
@@ -143,19 +143,21 @@ test('an update keeps the previous version and settings for rollback', async ({ 
 	await expect(device).toContainText('Previous: 1.4.0');
 });
 
-test('an update that needs new settings is refused with the missing fields', async ({ page }) => {
+test('an update that needs new configuration is refused with the missing fields', async ({
+	page
+}) => {
 	await signIn(page, ADMIN, detail(gateway.nodeId));
 	await page.getByRole('button', { name: 'Update…' }).click();
 	const dialog = page.getByRole('dialog');
 	await dialog.getByRole('button', { name: 'Preview update' }).click();
 	await expect(dialog.getByRole('alert')).toContainText(
-		'The target version needs settings this deployment does not have.'
+		'The target version needs configuration this deployment does not have.'
 	);
 	await expect(dialog.getByRole('alert')).toContainText('region is required');
 	await expect(dialog.getByRole('button', { name: /Update to/ })).toHaveCount(0);
 
-	// Back to the settings the new version needs, starting from the current ones.
-	await dialog.getByRole('button', { name: 'Change settings' }).click();
+	// Back to the configuration the new version needs, starting from the current one.
+	await dialog.getByRole('button', { name: 'Change configuration' }).click();
 	await expect(dialog.getByLabel('deviceHost')).toHaveValue('gw-rack-b.site.example');
 	await expect(dialog.getByLabel('port (optional)')).toHaveValue('9001');
 	await expect(dialog.getByLabel('region')).toHaveAccessibleDescription(/Required\./);
@@ -163,9 +165,9 @@ test('an update that needs new settings is refused with the missing fields', asy
 	await dialog.getByRole('button', { name: 'Preview update' }).click();
 	await dialog.getByRole('button', { name: 'Update to 2.1.0' }).click();
 	await expect(page.getByText(/^Update to 2\.1\.0 submitted/)).toBeVisible();
-	const settings = page.getByRole('region', { name: 'Settings' });
-	await expect(settings).toContainText('eu-north');
-	await expect(settings).toContainText('9001');
+	const configuration = page.getByRole('region', { name: 'Configuration' });
+	await expect(configuration).toContainText('eu-north');
+	await expect(configuration).toContainText('9001');
 });
 
 test('a migrated device starts only once the original driver is confirmed stopped', async ({

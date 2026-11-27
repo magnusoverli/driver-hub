@@ -13,13 +13,13 @@
 	let { items, routeId, counts = {} }: Props = $props();
 
 	const sections = $derived(
-		(['main', 'site'] as NavSection[])
+		(['main', 'settings'] as NavSection[])
 			.map((section) => ({ section, items: items.filter((item) => item.section === section) }))
 			.filter((group) => group.items.length > 0)
 	);
 	const headings: Record<NavSection, (() => string) | null> = {
 		main: null,
-		site: m.nav_section_site
+		settings: m.nav_section_settings
 	};
 </script>
 

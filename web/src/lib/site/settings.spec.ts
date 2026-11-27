@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
 	canKeepNomadToken,
 	datacentersProblem,
+	deploymentInput,
+	imageHostProblem,
 	namespaceProblem,
 	nomadInput,
 	nomadOrigin,
+	nomadUiOrigin,
 	parseDatacenters,
 	parseTokens,
+	revisionFor,
 	videoIPathEndpoint,
 	type Site
 } from './settings';
@@ -19,6 +23,8 @@ const site: Site = {
 		datacenters: ['dc1'],
 		tokenConfigured: true
 	},
+	deployment: { imageHost: null, nomadUiOrigin: null, sharedWriters: false },
+	manager: { buildsEnabled: false, buildsAvailable: false, timings: false },
 	videoipath: {
 		url: null,
 		tokenMode: 'per-device',
@@ -97,5 +103,53 @@ describe('Nomad connection form', () => {
 
 	it('reads pasted driver tokens one per line, once each', () => {
 		expect(parseTokens('a\n b  \n\na\r\nc')).toEqual(['a', 'b', 'c']);
+	});
+});
+
+describe('jobs and images form', () => {
+	it('accepts an image host as the manager does', () => {
+		for (const host of [
+			'',
+			'images.site.example',
+			'images.site.example:5000',
+			'10.0.0.5',
+			'localhost'
+		])
+			expect(imageHostProblem(host), host).toBeNull();
+		for (const host of ['images', 'https://images.site', 'images.site/path', 'images.site:port'])
+			expect(imageHostProblem(host), host).not.toBeNull();
+	});
+
+	it('accepts only an HTTPS origin for the Nomad web interface', () => {
+		expect(nomadUiOrigin('https://nomad.site.example/')).toBe('https://nomad.site.example');
+		expect(nomadUiOrigin('http://nomad.site.example')).toBeNull();
+		expect(nomadUiOrigin('https://nomad.site.example/ui')).toBeNull();
+		expect(nomadUiOrigin('https://user:pw@nomad.site.example')).toBeNull();
+	});
+
+	it('clears empty fields instead of saving blanks', () => {
+		expect(
+			deploymentInput(7, { imageHost: '  ', nomadUiOrigin: ' ', sharedWriters: true })
+		).toEqual({ revision: 7, imageHost: null, nomadUiOrigin: null, sharedWriters: true });
+		expect(
+			deploymentInput(7, {
+				imageHost: ' images.site ',
+				nomadUiOrigin: 'https://nomad.site/',
+				sharedWriters: false
+			})
+		).toEqual({
+			revision: 7,
+			imageHost: 'images.site',
+			nomadUiOrigin: 'https://nomad.site',
+			sharedWriters: false
+		});
+	});
+});
+
+describe('saving one form of several', () => {
+	it('uses the current revision while its own part is unchanged', () => {
+		const later = { ...site, revision: 5, manager: { ...site.manager, timings: true } };
+		expect(revisionFor(site, later, 'deployment')).toBe(5);
+		expect(revisionFor(site, later, 'manager')).toBe(4);
 	});
 });

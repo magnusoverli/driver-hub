@@ -11,7 +11,8 @@ const capabilities: Capabilities = {
 	siteSetupEnabled: true,
 	videoIPathConfigured: true,
 	nomadConfigured: true,
-	imageHostConfigured: true
+	imageHostConfigured: true,
+	sharedWriters: false
 };
 
 const states = (items: ReturnType<typeof siteReadiness>) =>
@@ -67,13 +68,13 @@ describe('site readiness', () => {
 		expect(nomad.detail).toContain('Nomad request failed');
 	});
 
-	it('links only items configured in Hub to their settings', () => {
+	it('links every item to the settings page where it is changed', () => {
 		const items = siteReadiness({ capabilities, nomad: undefined, nomadError: null });
 		expect(items.map((item) => item.settingsRoute)).toEqual([
-			'/(app)/site/nomad',
-			'/(app)/site/videoipath',
-			undefined,
-			undefined
+			'/(app)/settings/nomad',
+			'/(app)/settings/videoipath',
+			'/(app)/settings/nomad',
+			'/(app)/settings/manager'
 		]);
 	});
 });

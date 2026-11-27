@@ -5,14 +5,14 @@
 	import { resolve } from '$app/paths';
 	import { getApi } from '#lib/api/context.js';
 	import { deploymentKeys } from '#lib/deployments/queries.js';
-	import SettingsFields from '#lib/deployments/SettingsFields.svelte';
+	import ConfigurationFields from '#lib/deployments/ConfigurationFields.svelte';
 	import {
 		fieldProblems,
 		initialValues,
 		secretReferences,
 		settingsFromValues,
 		type SettingValues
-	} from '#lib/deployments/settings-form.js';
+	} from '#lib/deployments/configuration-form.js';
 	import {
 		deployForm,
 		nodeIdProblem,
@@ -123,7 +123,7 @@
 			if (!checked.validation.valid) {
 				problem = {
 					kind: 'settings',
-					message: m.stage_problem_settings(),
+					message: m.stage_problem_configuration(),
 					fields: checked.validation.errors
 				};
 				return;
@@ -244,7 +244,7 @@
 			{#if problem}
 				<Callout tone={problem.kind === 'uncertain' ? 'warn' : 'fail'} title={problem.message} live>
 					{#if problem.kind === 'pool'}
-						<a href={resolve('/(app)/site/videoipath')}>{m.stage_problem_pool_link()}</a>
+						<a href={resolve('/(app)/settings/videoipath')}>{m.stage_problem_pool_link()}</a>
 					{/if}
 				</Callout>
 			{/if}
@@ -267,7 +267,7 @@
 			{#if problem}
 				<Callout tone="fail" title={problem.message} live>
 					{#if problem.kind === 'pool'}
-						<a href={resolve('/(app)/site/videoipath')}>{m.stage_problem_pool_link()}</a>
+						<a href={resolve('/(app)/settings/videoipath')}>{m.stage_problem_pool_link()}</a>
 					{/if}
 				</Callout>
 			{/if}
@@ -300,8 +300,8 @@
 				<p class="note">{m.stage_connection_unavailable()}</p>
 			{/if}
 			<fieldset class="settings">
-				<legend>{m.stage_settings()}</legend>
-				<SettingsFields
+				<legend>{m.stage_configuration()}</legend>
+				<ConfigurationFields
 					form={form.data}
 					bind:values
 					{problems}

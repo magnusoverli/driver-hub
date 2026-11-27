@@ -143,7 +143,7 @@ export function actionProblem(error: unknown, stage: 'preview' | 'apply'): Actio
 		case 'invalid_settings':
 			return {
 				kind: 'settings',
-				message: m.action_problem_settings(),
+				message: m.action_problem_configuration(),
 				fields: settingsErrors(error.details)
 			};
 		case 'admin_required':
@@ -160,14 +160,14 @@ export function actionProblem(error: unknown, stage: 'preview' | 'apply'): Actio
 }
 
 const settingsCodes: Record<string, () => string> = {
-	required: m.settings_error_required,
-	wrong_type: m.settings_error_wrong_type,
-	too_short: m.settings_error_too_short,
-	out_of_range: m.settings_error_out_of_range,
-	secret_reference_required: m.settings_error_secret_reference,
-	unknown_input: m.settings_error_unknown_input,
-	site_input_override: m.settings_error_site_input,
-	identity_override: m.settings_error_identity
+	required: m.configuration_error_required,
+	wrong_type: m.configuration_error_wrong_type,
+	too_short: m.configuration_error_too_short,
+	out_of_range: m.configuration_error_out_of_range,
+	secret_reference_required: m.configuration_error_secret_reference,
+	unknown_input: m.configuration_error_unknown_input,
+	site_input_override: m.configuration_error_site_input,
+	identity_override: m.configuration_error_identity
 };
 
 export function settingsErrorText(code: string): string {
@@ -192,6 +192,7 @@ export function deletionProblem(error: unknown): string {
 	if (error instanceof ApiError) {
 		if (error.code === 'revision_conflict') return m.delete_problem_conflict();
 		if (error.code === 'deployment_running') return m.delete_problem_running();
+		if (error.code === 'shared_writers') return m.delete_problem_shared_writers();
 	}
 	return errorMessage(error);
 }

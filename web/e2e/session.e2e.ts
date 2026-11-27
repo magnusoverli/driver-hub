@@ -69,7 +69,7 @@ test('viewers see no site administration and cannot open it directly', async ({
 	await expect(page.getByText('An administrator needs to complete the items below')).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Open settings' })).toHaveCount(0);
 
-	await page.goto('/site/users');
+	await page.goto('/settings/users');
 	await expect(page.getByRole('heading', { name: 'Administrator access required' })).toBeVisible();
 
 	await page.keyboard.press('Control+k');

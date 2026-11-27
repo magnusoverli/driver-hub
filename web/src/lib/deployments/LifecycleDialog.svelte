@@ -24,13 +24,13 @@
 	} from './lifecycle';
 	import PlacementFailures from './PlacementFailures.svelte';
 	import type { Deployment } from './queries';
-	import SettingsFields from './SettingsFields.svelte';
+	import ConfigurationFields from './ConfigurationFields.svelte';
 	import {
 		fieldProblems,
 		initialValues,
 		settingsFromValues,
 		type SettingValues
-	} from './settings-form';
+	} from './configuration-form';
 	import { deployForm } from './stage';
 	import { deviceName, imageDigest, shortDigest, type UpdateTarget } from './view';
 
@@ -272,8 +272,8 @@
 				</Callout>
 			{/if}
 			{#if targets.length}
-				<Checkbox bind:checked={changeSettings} hint={m.update_change_settings_hint()}>
-					{m.update_change_settings()}
+				<Checkbox bind:checked={changeSettings} hint={m.update_change_configuration_hint()}>
+					{m.update_change_configuration()}
 				</Checkbox>
 			{/if}
 			{#if changeSettings && version}
@@ -285,11 +285,11 @@
 					<Loading label={m.stage_form_loading()} />
 				{:else}
 					<fieldset class="settings">
-						<legend>{m.update_settings_legend({ version })}</legend>
+						<legend>{m.update_configuration_legend({ version })}</legend>
 						{#if problem?.kind === 'settings'}
 							<Callout tone="fail" title={problem.message} live />
 						{/if}
-						<SettingsFields
+						<ConfigurationFields
 							form={settingsForm.data}
 							bind:values
 							problems={settingProblems}
@@ -299,7 +299,7 @@
 					</fieldset>
 				{/if}
 			{:else}
-				<p class="note">{m.update_settings_note()}</p>
+				<p class="note">{m.update_configuration_note()}</p>
 			{/if}
 		</form>
 	{:else}
@@ -384,7 +384,7 @@
 								<li><code>{field.field}</code> {settingsErrorText(field.code)}</li>
 							{/each}
 						</ul>
-						<p>{m.action_problem_settings_next()}</p>
+						<p>{m.action_problem_configuration_next()}</p>
 					{:else if problem.kind === 'placement' && problem.failures.length}
 						<PlacementFailures failures={problem.failures} />
 					{/if}
@@ -406,7 +406,7 @@
 		{:else}
 			{#if action === 'update'}
 				<Button variant="ghost" class="back" onclick={back}>
-					{problem?.kind === 'settings' ? m.update_fix_settings() : m.common_back()}
+					{problem?.kind === 'settings' ? m.update_fix_configuration() : m.common_back()}
 				</Button>
 			{/if}
 			<Button variant="ghost" onclick={() => (open = false)}>

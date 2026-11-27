@@ -52,9 +52,11 @@ test('no tab bar, table or panel scrolls by a stray pixel', async ({ page }) => 
 			'/catalog?tab=build',
 			'/catalog/exampleco-meter/1.4.0',
 			'/activity',
-			'/site/users',
-			'/site/nomad',
-			'/site/videoipath'
+			'/settings/users',
+			'/settings/nomad',
+			'/settings/videoipath',
+			'/settings/api-tokens',
+			'/settings/manager'
 		]) {
 			await page.goto(path);
 			await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
@@ -95,9 +97,11 @@ for (const colorScheme of ['light', 'dark'] as const) {
 				['/', 'Overview'],
 				['/catalog/exampleco-meter/1.4.0', 'ExampleCo Meter'],
 				['/activity', 'Activity'],
-				['/site/users', 'Users'],
-				['/site/nomad', 'Nomad cluster'],
-				['/site/videoipath', 'VideoIPath']
+				['/settings/users', 'Users'],
+				['/settings/nomad', 'Nomad cluster'],
+				['/settings/videoipath', 'VideoIPath'],
+				['/settings/api-tokens', 'API tokens'],
+				['/settings/manager', 'Manager']
 			]) {
 				await page.goto(path);
 				await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
@@ -105,7 +109,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 				expect(await audit(page), path).toEqual([]);
 			}
 
-			await page.goto('/site/users');
+			await page.goto('/settings/users');
 			await page.getByRole('button', { name: 'Add account' }).click();
 			await expect(page.getByRole('dialog')).toBeVisible();
 			expect(await audit(page)).toEqual([]);

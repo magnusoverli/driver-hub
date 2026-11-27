@@ -8,7 +8,7 @@
 		type DeployForm,
 		type FormField,
 		type SettingValues
-	} from './settings-form';
+	} from './configuration-form';
 
 	type Props = {
 		form: DeployForm;
@@ -27,14 +27,14 @@
 
 	function label(field: FormField): string {
 		const optional = !field.required || field.default !== undefined;
-		return optional ? m.settings_label_optional({ name: field.name }) : field.name;
+		return optional ? m.configuration_label_optional({ name: field.name }) : field.name;
 	}
 
 	function booleanOptions(field: FormField) {
 		const unset =
 			field.default !== undefined
-				? m.settings_boolean_default({ value: field.default ? m.common_yes() : m.common_no() })
-				: m.settings_boolean_unset();
+				? m.configuration_boolean_default({ value: field.default ? m.common_yes() : m.common_no() })
+				: m.configuration_boolean_unset();
 		return [
 			...(field.required && field.default === undefined ? [] : [{ value: '', label: unset }]),
 			{ value: 'true', label: m.common_yes() },
@@ -80,22 +80,22 @@
 			/>
 		{/if}
 	{:else}
-		<p class="none">{m.settings_form_none()}</p>
+		<p class="none">{m.configuration_form_none()}</p>
 	{/each}
 
 	{#if supplied.length}
 		<div class="supplied">
-			<p class="title">{m.settings_supplied_title()}</p>
+			<p class="title">{m.configuration_supplied_title()}</p>
 			<ul>
 				{#each supplied as field (field.name)}
 					<li>
 						<code>{suppliedName(field)}</code>
 						<span>
 							{field.source === 'identity'
-								? m.settings_supplied_identity()
+								? m.configuration_supplied_identity()
 								: field.secret
-									? m.settings_supplied_site_token()
-									: m.settings_supplied_site_url()}
+									? m.configuration_supplied_site_token()
+									: m.configuration_supplied_site_url()}
 						</span>
 					</li>
 				{/each}

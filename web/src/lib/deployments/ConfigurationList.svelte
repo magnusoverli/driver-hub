@@ -18,7 +18,7 @@
 				<dt class="mono">{name}</dt>
 				<dd>
 					{#if typeof value === 'object'}
-						<Badge>{m.settings_secret_reference()}</Badge>
+						<Badge>{m.configuration_secret_reference()}</Badge>
 						<code>{value.secretRef}</code>
 					{:else if typeof value === 'boolean'}
 						{value ? m.common_yes() : m.common_no()}
@@ -30,7 +30,7 @@
 		{/each}
 	</dl>
 {:else}
-	<p class="none">{m.settings_none()}</p>
+	<p class="none">{m.configuration_none()}</p>
 {/if}
 
 <style>

@@ -10,6 +10,9 @@ import { createApi } from '../src/http.js';
 import { Operations } from '../src/operations.js';
 import { InvalidRelease } from '../src/release.js';
 
+// Stands in for the API token store; the HTTP layer only asks for a bearer token's role.
+const viewerTokens = (...tokens) => ({ role: header => tokens.some(t => header === `Bearer ${t}`) ? 'viewer' : null });
+
 async function fixture(t, services = {}, catalog = null) {
   const root = await mkdtemp(join(tmpdir(), 'driverhub-operations-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -76,7 +79,7 @@ test('viewers discover capabilities and preview changes but cannot apply them', 
   const viewerToken = randomUUID();
   const previewFlags = [];
   const deployments = { nomad: {}, async stage(input, dryRun) { previewFlags.push(dryRun); return { preview: dryRun }; } };
-  const { base } = await fixture(t, { token: randomUUID(), viewerToken, deployments });
+  const { base } = await fixture(t, { token: randomUUID(), apiTokens: viewerTokens(viewerToken), deployments });
   const headers = { Authorization: `Bearer ${viewerToken}`, 'Content-Type': 'application/json' };
   assert.equal((await fetch(`${base}/capabilities`)).status, 401);
   assert.equal((await (await fetch(`${base}/capabilities`, { headers })).json()).access, 'viewer');
@@ -101,7 +104,7 @@ test('viewer deploy form handles mapped site and identity inputs without contact
   ] };
   const viewerToken = randomUUID();
   const profile = { id: 'testprofile', url: 'wss://vip.example/x-driver/v1' };
-  const { base } = await fixture(t, { deployments: { profile }, token: randomUUID(), viewerToken }, { load: () => ({ configuration }) });
+  const { base } = await fixture(t, { deployments: { profile }, token: randomUUID(), apiTokens: viewerTokens(viewerToken) }, { load: () => ({ configuration }) });
   const post = body => fetch(`${base}/releases/meter/1.0.0/deploy-form`, { method: 'POST',
     headers: { Authorization: `Bearer ${viewerToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const res = await post({});

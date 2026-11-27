@@ -150,6 +150,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/site/deployment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["configureDeployment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site/manager": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Turning builds on is refused with 409 builds_unavailable when the manager cannot build. */
+        put: operations["configureManager"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site/environment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Startup settings the manager reads from its environment. They change only with a restart. */
+        get: operations["getManagerEnvironment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listApiTokens"];
+        put?: never;
+        /** @description Refused with 409 token_name_taken for a name already in use. */
+        post: operations["createApiToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api-tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteApiToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/site/videoipath/tokens/{fingerprint}": {
         parameters: {
             query?: never;
@@ -618,6 +701,27 @@ export interface components {
             role: "admin" | "viewer";
             enabled: boolean;
         };
+        ApiToken: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            role: "admin" | "viewer";
+            /** Format: date-time */
+            createdAt: string;
+            /** @description The operator who created it; null when created with a token. */
+            createdBy: string | null;
+        };
+        EnvironmentSetting: {
+            name: string;
+            secret: boolean;
+            /**
+             * @description Set in the manager's environment, using the built-in default, or unset without a default.
+             * @enum {string}
+             */
+            source: "environment" | "default" | "unset";
+            /** @description The value in effect. Always null for a secret. */
+            value: string | null;
+        };
         Site: {
             revision: number;
             nomad: {
@@ -625,6 +729,20 @@ export interface components {
                 namespace: string;
                 datacenters: string[];
                 tokenConfigured: boolean;
+            };
+            deployment: {
+                /** @description Host, optionally with a port, Nomad clients pull driver images from. */
+                imageHost: string | null;
+                /** @description HTTPS origin of the Nomad web interface, for log links. */
+                nomadUiOrigin: string | null;
+                /** @description Other processes may edit Hub's Nomad jobs, so Hub never purges a job when a deployment is deleted. */
+                sharedWriters: boolean;
+            };
+            manager: {
+                buildsEnabled: boolean;
+                timings: boolean;
+                /** @description Whether this manager can run source builds at all. */
+                buildsAvailable: boolean;
             };
             videoipath: {
                 url: string | null;
@@ -1298,6 +1416,230 @@ export interface operations {
             };
         };
     };
+    configureDeployment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    imageHost?: string | null;
+                    nomadUiOrigin?: string | null;
+                    sharedWriters?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    configureManager: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    buildsEnabled?: boolean;
+                    timings?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getManagerEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        settings: components["schemas"]["EnvironmentSetting"][];
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listApiTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tokens: components["schemas"]["ApiToken"][];
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createApiToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    /** @enum {string} */
+                    role: "admin" | "viewer";
+                };
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiToken"] & {
+                        /** @description The bearer token. Returned only here; Hub keeps only its hash. */
+                        token: string;
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteApiToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required when using an operator session cookie. */
+                "X-Driver-Hub-Request"?: "1";
+            };
+            path: {
+                tokenId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        /** @constant */
+                        deleted: true;
+                    };
+                };
+            };
+            /** @description Request failed */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     removeVideoIPathToken: {
         parameters: {
             query: {
@@ -1391,6 +1733,8 @@ export interface operations {
                         videoIPathConfigured: boolean;
                         nomadConfigured: boolean;
                         imageHostConfigured: boolean;
+                        /** @description Hub never purges Nomad jobs, so deployments cannot be deleted. */
+                        sharedWriters: boolean;
                     };
                 };
             };

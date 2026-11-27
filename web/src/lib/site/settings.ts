@@ -6,10 +6,16 @@ import { m } from '#lib/paraglide/messages.js';
 export type Site = Schema<'Site'>;
 export type NomadInput = RequestBody<'/site/nomad', 'put'>;
 export type VideoIPathInput = RequestBody<'/site/videoipath', 'put'>;
+export type DeploymentInput = RequestBody<'/site/deployment', 'put'>;
+export type ManagerInput = RequestBody<'/site/manager', 'put'>;
+export type EnvironmentSetting = Schema<'EnvironmentSetting'>;
+/** The parts of the site settings that are saved separately. */
+export type SitePart = 'nomad' | 'videoipath' | 'deployment' | 'manager';
 
 export const siteKeys = {
 	all: ['site'] as const,
-	settings: () => [...siteKeys.all, 'settings'] as const
+	settings: () => [...siteKeys.all, 'settings'] as const,
+	environment: () => [...siteKeys.all, 'environment'] as const
 };
 
 export function siteQuery(api: ApiClient) {
@@ -19,8 +25,36 @@ export function siteQuery(api: ApiClient) {
 	});
 }
 
+/** Startup settings from the manager's environment. They change only when it restarts. */
+export function environmentQuery(api: ApiClient) {
+	return queryOptions({
+		queryKey: siteKeys.environment(),
+		queryFn: async () => (await unwrap(api.GET('/site/environment'))).settings,
+		staleTime: Infinity
+	});
+}
+
 export function configureNomad(api: ApiClient, input: NomadInput): Promise<Site> {
 	return unwrap(api.PUT('/site/nomad', { body: input }));
+}
+
+export function configureDeployment(api: ApiClient, input: DeploymentInput): Promise<Site> {
+	return unwrap(api.PUT('/site/deployment', { body: input }));
+}
+
+export function configureManager(api: ApiClient, input: ManagerInput): Promise<Site> {
+	return unwrap(api.PUT('/site/manager', { body: input }));
+}
+
+/**
+ * The revision to save a form with. One revision covers all site settings, so saving one form
+ * moves it on for the others. A form filled from `basis` may use the current revision as long as
+ * its own part is unchanged; otherwise it keeps the old one and the manager reports the conflict.
+ */
+export function revisionFor(basis: Site, current: Site, part: SitePart): number {
+	return JSON.stringify(basis[part]) === JSON.stringify(current[part])
+		? current.revision
+		: basis.revision;
 }
 
 export function configureVideoIPath(api: ApiClient, input: VideoIPathInput): Promise<Site> {
@@ -67,6 +101,41 @@ export function videoIPathEndpoint(value: string): string | null {
 	if (!url || !['wss:', 'https:'].includes(url.protocol)) return null;
 	if (url.pathname !== '/' && url.pathname !== '/x-driver/v1') return null;
 	return `wss://${url.host}/x-driver/v1`;
+}
+
+/** Mirrors the manager: a host name or IP address, optionally with a port, and nothing else. */
+export function imageHostProblem(value: string): string | null {
+	const host = value.trim();
+	if (!host) return null;
+	const valid =
+		host.length <= 253 &&
+		/^[a-zA-Z0-9.-]+(?::[0-9]{1,5})?$/.test(host) &&
+		(host === 'localhost' || /[.:]/.test(host));
+	return valid ? null : m.nomad_error_image_host();
+}
+
+/** The HTTPS origin the manager saves for the Nomad web interface, or null when it would refuse. */
+export function nomadUiOrigin(value: string): string | null {
+	try {
+		const url = new URL(value.trim());
+		const bare = url.pathname === '/' && !url.search && !url.hash;
+		return url.protocol === 'https:' && !url.username && !url.password && bare ? url.origin : null;
+	} catch {
+		return null;
+	}
+}
+
+export function deploymentInput(
+	revision: number,
+	form: { imageHost: string; nomadUiOrigin: string; sharedWriters: boolean }
+): DeploymentInput {
+	const ui = form.nomadUiOrigin.trim();
+	return {
+		revision,
+		imageHost: form.imageHost.trim() || null,
+		nomadUiOrigin: ui ? nomadUiOrigin(ui) : null,
+		sharedWriters: form.sharedWriters
+	};
 }
 
 const NAMESPACE = /^[a-zA-Z0-9_-]+$/;

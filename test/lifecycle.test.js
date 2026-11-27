@@ -18,6 +18,9 @@ import { Builds } from '../src/builds.js';
 import { Site } from '../src/site.js';
 import { DeploymentLabels } from '../src/labels.js';
 
+// Stands in for the API token store; the HTTP layer only asks for a bearer token's role.
+const viewerTokens = (...tokens) => ({ role: header => tokens.some(t => header === `Bearer ${t}`) ? 'viewer' : null });
+
 const hash = b => createHash('sha256').update(b).digest('hex');
 const encode = obj => Buffer.from(JSON.stringify(obj));
 const nodeId = '087aa0f0-8ee9-49f0-aa74-127014499fc1';
@@ -74,7 +77,7 @@ async function listen(t, server) {
 test('post-start site setup assigns separate durable registration tokens without embedding them in jobs', async t => {
   const { root, store, images } = await setup(t);
   await retain(store, '1.0.0');
-  const defaults = { namespace: 'default', datacenters: ['dc1'] };
+  const defaults = { nomad: { namespace: 'default', datacenters: ['dc1'] }, deployment: { imageHost: 'images.internal' } };
   const dir = join(root, 'site');
   const jobs = new Map();
   const variables = new Map();
@@ -105,9 +108,9 @@ test('post-start site setup assigns separate durable registration tokens without
     return job ? Response.json(job) : new Response(null, { status: 404 });
   });
   let site = await Site.open(dir, defaults, { client });
-  const base = `${await listen(t, createApi(null, store, { token: 'admin', viewerToken: 'reader',
+  const base = `${await listen(t, createApi(null, store, { token: 'admin', apiTokens: viewerTokens('reader'),
     get site() { return site; }, get deployments() {
-      return Deployments.forSite(site, { store, images, registry: 'images.internal' });
+      return Deployments.forSite(site, { store, images });
     }
   }))}/api/v1`;
   const headers = { Authorization: 'Bearer admin', 'Content-Type': 'application/json' };

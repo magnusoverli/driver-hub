@@ -29,6 +29,52 @@ function credential(value) {
 
 const tokenKey = value => createHash('sha256').update(value).digest('hex');
 
+// A site that has never been saved: no cluster, no VideoIPath target, every optional behaviour off.
+const initialState = () => ({
+  revision: 0, videoipath: null, used: {},
+  nomad: { address: null, token: null, namespace: 'default', datacenters: ['dc1'] },
+  deployment: { imageHost: null, nomadUiOrigin: null, sharedWriters: false },
+  manager: { buildsEnabled: false, timings: false }
+});
+
+// The fields each part of the site settings accepts, besides the revision.
+const fields = {
+  nomad: ['address', 'token', 'namespace', 'datacenters'],
+  videoipath: ['address', 'token', 'tokenMode', 'tokens'],
+  deployment: ['imageHost', 'nomadUiOrigin', 'sharedWriters'],
+  manager: ['buildsEnabled', 'timings']
+};
+
+// Host name or IP address, optionally with a port, that Nomad clients pull driver images from.
+export function validImageHost(value) {
+  return typeof value === 'string' && value.length <= 253 && /^[a-zA-Z0-9.-]+(?::[0-9]{1,5})?$/.test(value) &&
+    (value === 'localhost' || /[.:]/.test(value));
+}
+
+function imageHost(value) {
+  expect(validImageHost(value), 'Expected an image host name or IP address, optionally with a port');
+  return value;
+}
+
+function uiOrigin(value) {
+  let url;
+  try { url = new URL(value); } catch { expect(false, 'Expected an HTTPS address for the Nomad web interface'); }
+  expect(url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search &&
+    !url.hash, 'Expected an HTTPS address for the Nomad web interface, without a path');
+  return url.origin;
+}
+
+function flag(value) {
+  expect(typeof value === 'boolean', 'Expected true or false');
+  return value;
+}
+
+// Undefined keeps the saved value; null clears an optional one.
+function choose(input, old, key, parse) {
+  if (input[key] === undefined) return old[key];
+  return input[key] === null && parse !== flag ? null : parse(input[key]);
+}
+
 function videoProfile(old, input, url) {
   const prior = old.videoipath?.url === url ? old.videoipath : null;
   const mode = input.tokenMode ?? prior?.mode ?? 'per-device';
@@ -72,7 +118,9 @@ async function keyFor(directory, mountedKey, create) {
 }
 
 export class Site {
-  static async open(directory, defaults, { keyFile, client = settings =>
+  // `initial` overrides parts of the state of a site that has never been saved.
+  // `buildsAvailable` says whether this manager's image can run source builds at all.
+  static async open(directory, initial = {}, { keyFile, buildsAvailable = false, client = settings =>
     new Nomad(settings.address, settings.token, settings.namespace) } = {}) {
     const site = new Site();
     site.directory = directory;
@@ -80,24 +128,29 @@ export class Site {
     site.file = join(directory, 'site.enc');
     site.keyFile = keyFile;
     site.client = client;
+    site.buildsAvailable = buildsAvailable;
     site.pending = Promise.resolve();
     let bytes;
     try { bytes = await readFile(site.file); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    const fresh = initialState();
     if (bytes) {
       const decipher = createDecipheriv('aes-256-gcm', await keyFor(directory, keyFile, false), bytes.subarray(0, 12));
       decipher.setAuthTag(bytes.subarray(12, 28));
-      site.state = JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]));
+      site.state = { ...fresh, ...JSON.parse(Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()])) };
     } else {
-      site.state = { revision: 0, nomad: defaults, videoipath: null, used: {} };
+      site.state = { ...fresh, ...Object.fromEntries(Object.entries(initial).map(([part, values]) =>
+        [part, { ...fresh[part], ...values }])) };
     }
     return site;
   }
 
   describe() {
-    const { revision, nomad, videoipath, used } = this.state;
+    const { revision, nomad, videoipath, used, deployment, manager } = this.state;
     const tokens = videoipath?.tokens;
     return { revision, nomad: { address: nomad.address ?? null, namespace: nomad.namespace,
       datacenters: nomad.datacenters, tokenConfigured: Boolean(nomad.token) },
+    deployment: { ...deployment },
+    manager: { ...manager, buildsAvailable: this.buildsAvailable },
     videoipath: { url: videoipath?.url ?? null, tokenMode: videoipath?.mode ?? 'per-device',
       tokenConfigured: Boolean(videoipath?.token || tokens?.length),
       assignments: (tokens ?? []).map(tokenKey).filter(hash => used[hash]).map(hash => ({
@@ -158,13 +211,23 @@ export class Site {
 
   async save(service, input, beforeSwitch) {
     const old = this.state;
-    const allowed = service === 'nomad' ? ['namespace', 'datacenters'] : ['tokenMode', 'tokens'];
-    expect(Object.keys(input).every(key => ['revision', 'address', 'token', ...allowed].includes(key)),
+    expect(Object.hasOwn(fields, service), 'Unknown site setting', 404);
+    expect(Object.keys(input).every(key => key === 'revision' || fields[service].includes(key)),
       'Unknown site configuration field');
     expect(input.revision === old.revision, 'Reload the current site settings', 409, 'revision_conflict',
       { currentRevision: old.revision });
     const next = { ...old, revision: old.revision + 1 };
-    const address = endpoint(input.address, service);
+    if (service === 'deployment') {
+      next.deployment = { imageHost: choose(input, old.deployment, 'imageHost', imageHost),
+        nomadUiOrigin: choose(input, old.deployment, 'nomadUiOrigin', uiOrigin),
+        sharedWriters: choose(input, old.deployment, 'sharedWriters', flag) };
+    } else if (service === 'manager') {
+      expect(input.buildsEnabled !== true || this.buildsAvailable,
+        'This manager cannot build: its image has no Docker Buildx or reaches no Docker daemon', 409, 'builds_unavailable');
+      next.manager = { buildsEnabled: choose(input, old.manager, 'buildsEnabled', flag),
+        timings: choose(input, old.manager, 'timings', flag) };
+    }
+    const address = ['nomad', 'videoipath'].includes(service) && endpoint(input.address, service);
     if (service === 'nomad') {
       const namespace = input.namespace ?? old.nomad.namespace;
       const datacenters = input.datacenters ?? old.nomad.datacenters;
@@ -182,8 +245,7 @@ export class Site {
         await beforeSwitch?.();
         next.videoipath = null;
       }
-    } else {
-      expect(service === 'videoipath', 'Unknown site setting', 404);
+    } else if (service === 'videoipath') {
       next.videoipath = videoProfile(old, input, address);
       if (next.videoipath.mode === 'shared') next.used = { ...old.used, [tokenKey(next.videoipath.token)]: 'shared' };
     }

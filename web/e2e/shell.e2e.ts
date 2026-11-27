@@ -41,9 +41,11 @@ test('every section deep-links, and unknown addresses get a not-found page', asy
 		['/deployments', 'Deployments'],
 		['/catalog', 'Catalog'],
 		['/activity', 'Activity'],
-		['/site/nomad', 'Nomad cluster'],
-		['/site/videoipath', 'VideoIPath'],
-		['/site/users', 'Users']
+		['/settings/nomad', 'Nomad cluster'],
+		['/settings/videoipath', 'VideoIPath'],
+		['/settings/users', 'Users'],
+		['/settings/api-tokens', 'API tokens'],
+		['/settings/manager', 'Manager']
 	];
 	for (const [path, heading] of sections) {
 		await page.goto(path);
@@ -58,10 +60,10 @@ test('the overview reports what the site still needs', async ({ page }) => {
 	await signIn(page, ADMIN);
 	const readiness = page.getByRole('region', { name: 'Site readiness' });
 	await expect(readiness.getByText('No cluster address is configured yet.')).toBeVisible();
-	await expect(readiness.getByText('Set DRIVER_HUB_IMAGE_HOST')).toBeVisible();
+	await expect(readiness.getByText('No image host is set.')).toBeVisible();
 	await expect(page.getByText('Setup needs attention (3)')).toBeVisible();
 	await readiness.getByRole('link', { name: 'Open settings' }).first().click();
-	await expect(page).toHaveURL('/site/nomad');
+	await expect(page).toHaveURL('/settings/nomad');
 });
 
 test('on a narrow screen the navigation opens from a menu and closes after choosing', async ({
@@ -95,6 +97,6 @@ test('running downloads and builds are counted beside Activity on every page', a
 			}
 		})
 	);
-	await signIn(page, ADMIN, '/site/users');
+	await signIn(page, ADMIN, '/settings/users');
 	await expect(page.getByRole('link', { name: 'Activity 1 running' })).toBeVisible();
 });

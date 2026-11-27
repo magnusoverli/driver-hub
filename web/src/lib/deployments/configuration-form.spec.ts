@@ -8,7 +8,7 @@ import {
 	settingsFromValues,
 	type DeployForm,
 	type FormField
-} from './settings-form';
+} from './configuration-form';
 
 const field = (overrides: Partial<FormField>): FormField => ({
 	name: 'input',
