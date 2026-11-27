@@ -2,11 +2,17 @@
 
 **Deploy and monitor VideoIPath external drivers on your own Nomad cluster.** Download a release once, reuse it across devices, and see which drivers are running and which report a working connection.
 
-[Deploy with Docker Compose](#deploy-with-docker-compose) · [Product tour](#product-tour) · [Device status](#how-status-is-reported) · [Operations guide](OPERATIONS.md) · [Development](#development)
+[Deploy with Docker Compose](#deploy-with-docker-compose) · [Default admin login](#default-admin-login) · [Product tour](#product-tour) · [Device status](#how-status-is-reported) · [Operations guide](OPERATIONS.md) · [Development](#development)
 
-![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
+## Default admin login
 
-*The overview brings device health, available updates and site readiness into one view. Screenshots use six demo devices and illustrative release, activity and image-status data.*
+On a fresh installation, open [http://localhost:8080](http://localhost:8080) on the Docker host and sign in with:
+
+| Username | Default password |
+| --- | --- |
+| `admin` | `LicenseToDeploy!` |
+
+**You must change the password on first login.** Choose a different password of at least 12 characters, then sign in again. Restarting or upgrading an existing installation does not reset its password.
 
 ## Deploy with Docker Compose
 
@@ -27,13 +33,17 @@ docker compose pull
 docker compose up -d
 ```
 
-**First login:** Open **[localhost:8080](http://localhost:8080)** on the Docker host. Sign in as `admin` with `LicenseToDeploy!`, choose a new password (at least 12 characters), then sign in again. Existing installations keep their passwords.
+4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup.
 
 For remote browser access, use an HTTPS reverse proxy after first login. Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
 To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), select a new release and repeat the pull and start commands with the same volume. `docker compose down` stops Hub and keeps its data. Adding `-v` deletes accounts, settings, releases and images in the local volume; it does not remove Nomad jobs.
 
 ## Product tour
+
+![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
+
+*The overview brings device health, available updates and site readiness into one view. Screenshots use six demo devices and illustrative release, activity and image-status data.*
 
 | In Hub | What you can do |
 | --- | --- |
