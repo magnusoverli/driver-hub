@@ -6,6 +6,7 @@ import { publicError } from './public-error.js';
 import { apiContract } from './openapi.js';
 import { deployForm } from './deployment-inputs.js';
 import { browserWrite } from './operator-sessions.js';
+import { removeRelease } from './retention.js';
 
 async function readSettings(request) {
   if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
@@ -32,10 +33,22 @@ class Accepted {
   constructor(operation) { this.operation = operation; }
 }
 
+class Imported {
+  constructor(result) { Object.assign(this, result); }
+}
+
 async function acquire(request, operations, kind, input, run) {
   if (!request.headers.prefer?.split(',').some(value => value.trim() === 'respond-async')) return run();
   expect(operations, 'Background operations are not configured', 503);
   return new Accepted(await operations.start(kind, input, request.headers['idempotency-key'], run));
+}
+
+// Deletions carry the revision the client reviewed, so a concurrent change is not overwritten.
+function revisionParam(searchParams) {
+  const value = searchParams.get('revision');
+  expect([...searchParams.keys()].every(key => key === 'revision') && searchParams.getAll('revision').length === 1 &&
+    /^\d{1,15}$/.test(value), 'Supply the current revision as ?revision=', 400);
+  return Number(value);
 }
 
 function preview(searchParams) {
@@ -46,16 +59,41 @@ function preview(searchParams) {
   return value === 'true';
 }
 
-async function route(request, catalog, store, { deployments, builds, operations, site, localUsers }, access) {
+async function route(request, catalog, store, { deployments, builds, operations, site, localUsers, imports, images }, access) {
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
+  const upload = /^\/api\/v1\/imports\/([^/]+)\/([^/]+)$/.exec(pathname);
+  if (upload) {
+    expect(access === 'admin', 'Image imports require administrator access', 403, 'admin_required');
+    expect(request.method === 'PUT', 'Expected PUT', 405);
+    expect(imports, 'Image imports are unavailable', 503);
+    let version;
+    try { version = decodeURIComponent(upload[2]); } catch { throw new RequestError(400, 'Malformed release version'); }
+    return new Imported(await imports.upload(request, upload[1], version));
+  }
   const usersPath = /^\/api\/v1\/users(?:\/([^/]+))?$/.exec(pathname);
   if (usersPath) {
     expect(access === 'admin', 'Account management requires administrator access', 403, 'admin_required');
     expect(localUsers, 'Local accounts are not configured', 503);
     if (!usersPath[1] && request.method === 'GET') return { users: localUsers.list() };
+    if (usersPath[1] && request.method === 'DELETE') {
+      expect(request.operator?.username !== usersPath[1].toLowerCase(),
+        'Sign in as another administrator to delete your own account', 409, 'own_account');
+      return localUsers.remove(usersPath[1]);
+    }
     expect(request.method === (usersPath[1] ? 'PATCH' : 'POST'), 'Invalid account request method', 405);
     const input = await readSettings(request);
     return usersPath[1] ? localUsers.update(usersPath[1], input) : localUsers.create(input);
+  }
+  const tokenPath = /^\/api\/v1\/site\/videoipath\/tokens\/([0-9a-f]{64})$/.exec(pathname);
+  if (tokenPath) {
+    expect(access === 'admin', 'Site configuration requires administrator access', 403, 'admin_required');
+    expect(site, 'Site configuration is unavailable', 503);
+    expect(request.method === 'DELETE', 'Expected DELETE', 405);
+    return site.removeToken(tokenPath[1], revisionParam(searchParams), async nodeId => {
+      expect(deployments?.nomad.address, 'Hub cannot check whether the device still exists without Nomad', 409,
+        'deployment_unknown');
+      return !await deployments.nomad.get(`driverhub-${nodeId}`);
+    });
   }
   const sitePath = /^\/api\/v1\/site(?:\/(nomad|videoipath))?$/.exec(pathname);
   if (sitePath) {
@@ -121,6 +159,7 @@ async function route(request, catalog, store, { deployments, builds, operations,
       expect(request.method === 'GET', 'Expected GET', 405);
       return { evaluations: await deployments.evaluations(nodeId) };
     }
+    if (!action && request.method === 'DELETE') return deployments.remove(nodeId, revisionParam(searchParams));
     expect(request.method === (action ? 'POST' : 'GET'), 'Invalid deployment request method', 405);
     return action ? deployments.change(nodeId, action, await readSettings(request), preview(searchParams)) : deployments.status(nodeId);
   }
@@ -136,6 +175,10 @@ async function route(request, catalog, store, { deployments, builds, operations,
     version = decodeURIComponent(rawVersion);
   } catch {
     throw new RequestError(400, 'Malformed release version');
+  }
+  if (collection === 'retained' && !action && request.method === 'DELETE') {
+    expect(access === 'admin', 'Removing releases requires administrator access', 403, 'admin_required');
+    return removeRelease({ store, images, deployments }, driverId, version);
   }
   if (collection === 'retained' && !action && request.method === 'PUT') {
     return acquire(request, operations, 'retain', { driverId, version }, async () => {
@@ -163,7 +206,9 @@ async function authorize(request, { token, viewerToken, sessions, localUsers }) 
     expect(viewerToken && timingSafeEqual(provided, digest(`Bearer ${viewerToken}`)), 'Authorization required', 401);
     access = 'viewer';
   } else if (sessions) {
-    access = (await sessions.current(request)).role;
+    // Kept for rules about the operator's own account, such as not deleting it.
+    request.operator = await sessions.current(request);
+    access = request.operator.role;
     if (request.method !== 'GET') browserWrite(request);
   } else {
     expect(!localUsers, 'Operator session authentication is required', 503);
@@ -232,6 +277,10 @@ export function createApi(catalog, store, services = {}) {
         status = 202;
         headers.Location = `/api/v1/operations/${body.id}`;
         headers['Preference-Applied'] = 'respond-async';
+      } else if (body instanceof Imported) {
+        status = body.created ? 201 : 200;
+        body = body.detail;
+        headers.Location = `/api/v1/retained/${body.record.driverId}/${encodeURIComponent(body.record.version)}`;
       }
     } catch (error) {
       ({ status, ...body } = publicError(error));

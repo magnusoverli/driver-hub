@@ -27,7 +27,9 @@ export class Nomad {
         }
         throw new RequestError(502, `Nomad rejected the request (HTTP ${response.status})`);
       }
-      return await response.json();
+      // Deletions may answer without a body.
+      const text = await response.text();
+      return text ? JSON.parse(text) : null;
     } catch (error) {
       if (error instanceof RequestError) throw error;
       throw new RequestError(502, 'Nomad request failed; read deployment state before retrying');
@@ -40,6 +42,11 @@ export class Nomad {
   evaluations(id) { return this.call(`job/${id}/evaluations`); }
   versions(id) { return this.call(`job/${id}/versions?diffs=false`); }
   checks(id) { return this.call(`client/allocation/${encodeURIComponent(id)}/checks`, { allowMissing: true }); }
+  // Purging removes the job and its version history, so a deleted deployment is not listed again.
+  // Nomad's deregistration has no modify-index check; callers compare revisions just before.
+  deregister(id) { return this.call(`job/${id}?purge=true`, { method: 'DELETE' }); }
+  variable(path) { return this.call(`var/${path}`, { allowMissing: true }); }
+  deleteVariable(path) { return this.call(`var/${path}`, { method: 'DELETE', allowMissing: true }); }
 
   async connection() {
     if (!this.address) return { state: 'not_configured', namespace: this.namespace };

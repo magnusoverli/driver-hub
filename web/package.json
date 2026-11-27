@@ -20,6 +20,7 @@
 		"api:check": "node scripts/api-types.mjs --check",
 		"test:unit": "vitest",
 		"test:e2e": "playwright test",
+		"demo": "npm run build && node e2e/serve-manager.mjs --cluster",
 		"test": "vitest run && playwright test",
 		"verify": "npm run api:check && npm run lint && npm run check && npm test"
 	},

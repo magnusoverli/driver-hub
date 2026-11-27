@@ -4,6 +4,7 @@ import { createApi } from './http.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ReleaseStore } from './release-store.js';
+import { Imports } from './imports.js';
 import { Builds } from './builds.js';
 import { Deployments } from './deployments.js';
 import { Images } from './images.js';
@@ -19,6 +20,7 @@ import { WebApp } from './web.js';
 const port = Number(process.env.PORT ?? 8080);
 const dataDir = process.env.DRIVER_HUB_DATA_DIR ?? join(homedir(), '.driver-hub');
 const store = new ReleaseStore(join(dataDir, 'releases'));
+const imports = await Imports.open(store);
 const web = await WebApp.open(process.env.DRIVER_HUB_WEB_DIR ?? fileURLToPath(new URL('../web/build', import.meta.url)));
 const site = await Site.open(join(dataDir, 'site'), {
   address: process.env.NOMAD_ADDR, token: process.env.NOMAD_TOKEN, namespace: process.env.NOMAD_NAMESPACE ?? 'default',
@@ -41,7 +43,7 @@ const builds = process.env.DRIVER_HUB_BUILDS === 'true' ? new Builds(store) : nu
 const operations = new Operations(join(dataDir, 'operations'));
 const server = createApi(new Catalog(new GitHubReleases()), store, {
   get deployments() { return Deployments.forSite(site, deploymentServices); }, site, builds, operations, token, viewerToken,
-  sessions, localUsers, web
+  sessions, localUsers, web, imports, images: deploymentServices.images
 });
 server.listen(port, host, () => {
   const origin = `http://${host}:${server.address().port}`;

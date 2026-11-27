@@ -39,14 +39,22 @@ export function parseJson(bytes, label) {
   }
 }
 
+export function checkSource(source, optional) {
+  if (optional && source === undefined) return;
+  requireRelease(source !== null && typeof source === 'object' && !Array.isArray(source), 'Invalid release source');
+  if (!optional || source.commit !== undefined)
+    requireRelease(typeof source.commit === 'string' && /^[0-9a-f]{40}$/.test(source.commit), 'Expected a full lowercase Git commit');
+  if (!optional || source.directory !== undefined)
+    requireRelease(typeof source.directory === 'string' && source.directory.trim(), 'Expected a source directory');
+}
+
 export function readRecord(bytes, identity) {
   const record = parseJson(bytes, 'Release record');
   requireRelease(record?.schemaVersion === 1, 'Unsupported release record');
   requireRelease(record.driverId === identity.driverId && record.version === identity.version,
     'Release identity does not match the tag');
   requireRelease(typeof record.displayName === 'string' && record.displayName.trim(), 'Missing display name');
-  requireRelease(typeof record.source?.commit === 'string' && /^[0-9a-f]{40}$/.test(record.source.commit) &&
-    typeof record.source?.directory === 'string' && record.source.directory.trim(), 'Invalid source revision or directory');
+  checkSource(record.source, record.origin === 'customer');
   requireRelease(record.configuration?.file === 'driver-config.json' &&
     typeof record.configuration.sha256 === 'string' && hashPattern.test(record.configuration.sha256),
   'Invalid configuration reference');

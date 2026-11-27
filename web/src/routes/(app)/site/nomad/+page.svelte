@@ -1,12 +1,285 @@
 <script lang="ts">
-	import Server from '@lucide/svelte/icons/server';
+	import { untrack } from 'svelte';
+	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { getApi } from '#lib/api/context.js';
+	import { deploymentKeys } from '#lib/deployments/queries.js';
 	import { m } from '#lib/paraglide/messages.js';
-	import ComingSoon from '#lib/ui/ComingSoon.svelte';
+	import { siteProblem, type SiteProblem } from '#lib/site/problems.js';
+	import {
+		canKeepNomadToken,
+		configureNomad,
+		datacentersProblem,
+		namespaceProblem,
+		nomadInput,
+		nomadOrigin,
+		siteKeys,
+		siteQuery,
+		type NomadTokenChoice,
+		type Site
+	} from '#lib/site/settings.js';
+	import { nomadConnectionQuery, systemKeys } from '#lib/system/queries.js';
+	import Badge from '#lib/ui/Badge.svelte';
+	import Button from '#lib/ui/Button.svelte';
+	import Callout from '#lib/ui/Callout.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Facts from '#lib/ui/Facts.svelte';
+	import Freshness from '#lib/ui/Freshness.svelte';
+	import Loading from '#lib/ui/Loading.svelte';
+	import PageHeader from '#lib/ui/PageHeader.svelte';
+	import RadioGroup from '#lib/ui/RadioGroup.svelte';
+	import TextField from '#lib/ui/TextField.svelte';
+
+	const api = getApi();
+	const queryClient = useQueryClient();
+	const site = createQuery(() => siteQuery(api));
+	const connection = createQuery(() => nomadConnectionQuery(api));
+
+	let address = $state('');
+	let namespace = $state('default');
+	let datacenters = $state('dc1');
+	let tokenChoice = $state<NomadTokenChoice>('replace');
+	let token = $state('');
+	/** The revision the form was filled from; saving with it detects concurrent changes. */
+	let revision = $state<number | null>(null);
+	let attempted = $state(false);
+	let busy = $state(false);
+	let problem = $state<SiteProblem | null>(null);
+	let saved = $state(false);
+
+	function fill(settings: Site) {
+		address = settings.nomad.address ?? '';
+		namespace = settings.nomad.namespace;
+		datacenters = settings.nomad.datacenters.join(', ');
+		tokenChoice = settings.nomad.tokenConfigured
+			? 'keep'
+			: settings.nomad.address
+				? 'none'
+				: 'replace';
+		token = '';
+		revision = settings.revision;
+		attempted = false;
+	}
+
+	$effect(() => {
+		const settings = site.data;
+		if (settings && revision === null) untrack(() => fill(settings));
+	});
+
+	const origin = $derived(nomadOrigin(address));
+	const keepAvailable = $derived(
+		site.data ? canKeepNomadToken(site.data, origin, namespace) : false
+	);
+	// A token is only kept for the cluster and namespace it was saved for.
+	$effect(() => {
+		if (!keepAvailable && tokenChoice === 'keep') untrack(() => (tokenChoice = 'replace'));
+	});
+	const targetChanges = $derived(
+		Boolean(site.data?.nomad.address) &&
+			origin !== null &&
+			(origin !== site.data?.nomad.address || namespace.trim() !== site.data?.nomad.namespace)
+	);
+
+	const addressError = $derived(attempted && !origin ? m.nomad_error_address() : null);
+	const namespaceError = $derived(attempted ? namespaceProblem(namespace) : null);
+	const datacentersError = $derived(attempted ? datacentersProblem(datacenters) : null);
+	const tokenError = $derived(
+		attempted && tokenChoice === 'replace' && !token.trim() ? m.nomad_error_token() : null
+	);
+
+	const tokenOptions = $derived([
+		{
+			value: 'keep' as const,
+			label: m.nomad_token_keep(),
+			description: keepAvailable
+				? m.nomad_token_keep_description()
+				: m.nomad_token_keep_unavailable(),
+			disabled: !keepAvailable
+		},
+		{ value: 'replace' as const, label: m.nomad_token_replace() },
+		{
+			value: 'none' as const,
+			label: m.nomad_token_none(),
+			description: m.nomad_token_none_description()
+		}
+	]);
+
+	async function submit(event: SubmitEvent) {
+		event.preventDefault();
+		attempted = true;
+		problem = null;
+		saved = false;
+		if (!origin || namespaceProblem(namespace) || datacentersProblem(datacenters)) return;
+		if (tokenChoice === 'replace' && !token.trim()) return;
+		if (revision === null) return;
+		busy = true;
+		try {
+			const result = await configureNomad(
+				api,
+				nomadInput(revision, { address, namespace, datacenters, tokenChoice, token })
+			);
+			queryClient.setQueryData(siteKeys.settings(), result);
+			fill(result);
+			saved = true;
+			void queryClient.invalidateQueries({ queryKey: systemKeys.all });
+			void queryClient.invalidateQueries({ queryKey: deploymentKeys.all });
+		} catch (error) {
+			problem = siteProblem(error);
+			if (problem.kind === 'conflict') {
+				const fresh = await site.refetch();
+				if (fresh.data) fill(fresh.data);
+			}
+		} finally {
+			busy = false;
+		}
+	}
 </script>
 
-<ComingSoon
-	icon={Server}
-	title={m.nav_nomad()}
-	description={m.nomad_description()}
-	planned={m.site_planned()}
-/>
+<PageHeader title={m.nav_nomad()} description={m.nomad_description()}>
+	{#snippet meta()}
+		<Freshness updatedAt={connection.dataUpdatedAt} fetching={connection.isFetching} />
+	{/snippet}
+</PageHeader>
+
+{#if site.error}
+	<Callout tone="fail" title={m.site_error_title()} live>{site.error.message}</Callout>
+{:else if !site.data}
+	<Card><Loading label={m.site_loading()} /></Card>
+{:else}
+	<div class="layout">
+		<Card title={m.nomad_current_title()}>
+			<Facts>
+				<dt>{m.nomad_state()}</dt>
+				<dd>
+					{#if connection.error}
+						<Badge tone="fail">{m.nomad_state_error()}</Badge>
+						<span class="detail">{connection.error.message}</span>
+					{:else if connection.data?.state === 'connected'}
+						<Badge tone="ok">{m.nomad_state_connected()}</Badge>
+					{:else if connection.data?.state === 'no_leader'}
+						<Badge tone="warn">{m.nomad_state_no_leader()}</Badge>
+					{:else if connection.data}
+						<Badge>{m.nomad_state_not_configured()}</Badge>
+					{:else}
+						<span class="detail">{m.readiness_checking()}</span>
+					{/if}
+				</dd>
+				<dt>{m.nomad_address()}</dt>
+				<dd>
+					{#if site.data.nomad.address}<code>{site.data.nomad.address}</code>
+					{:else}{m.site_not_set()}{/if}
+				</dd>
+				<dt>{m.nomad_namespace()}</dt>
+				<dd><code>{site.data.nomad.namespace}</code></dd>
+				<dt>{m.nomad_datacenters()}</dt>
+				<dd><code>{site.data.nomad.datacenters.join(', ')}</code></dd>
+				<dt>{m.nomad_token()}</dt>
+				<dd>{site.data.nomad.tokenConfigured ? m.site_token_saved() : m.site_token_none()}</dd>
+			</Facts>
+			<p class="footnote">{m.nomad_current_note()}</p>
+		</Card>
+
+		<Card title={m.nomad_form_title()} description={m.nomad_form_description()}>
+			<form class="form" onsubmit={submit} novalidate>
+				{#if saved}<Callout tone="ok" title={m.nomad_saved()} live />{/if}
+				{#if problem}
+					<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
+						{problem.message}
+					</Callout>
+				{/if}
+				<TextField
+					label={m.nomad_address()}
+					bind:value={address}
+					placeholder="nomad.site.example"
+					autocomplete="off"
+					spellcheck={false}
+					hint={origin ? m.nomad_address_resolved({ origin }) : m.nomad_address_hint()}
+					error={addressError}
+				/>
+				<div class="pair">
+					<TextField
+						label={m.nomad_namespace()}
+						bind:value={namespace}
+						autocomplete="off"
+						spellcheck={false}
+						error={namespaceError}
+					/>
+					<TextField
+						label={m.nomad_datacenters()}
+						bind:value={datacenters}
+						autocomplete="off"
+						spellcheck={false}
+						hint={m.nomad_datacenters_hint()}
+						error={datacentersError}
+					/>
+				</div>
+				<RadioGroup legend={m.nomad_token()} options={tokenOptions} bind:value={tokenChoice} />
+				{#if tokenChoice === 'replace'}
+					<TextField
+						label={m.nomad_token_field()}
+						type="password"
+						autocomplete="off"
+						bind:value={token}
+						hint={m.nomad_token_field_hint()}
+						error={tokenError}
+					/>
+				{/if}
+				{#if targetChanges && site.data.videoipath.url}
+					<Callout tone="warn" title={m.nomad_target_change_title()}>
+						{m.nomad_target_change_body()}
+					</Callout>
+				{/if}
+				<div class="submit">
+					<Button variant="primary" type="submit" {busy}>{m.nomad_submit()}</Button>
+					<span class="note">{m.nomad_submit_note()}</span>
+				</div>
+			</form>
+		</Card>
+	</div>
+{/if}
+
+<style>
+	.layout {
+		display: grid;
+		grid-template-columns: minmax(18rem, 1fr) minmax(0, 1.6fr);
+		align-items: start;
+		gap: var(--space-5);
+	}
+
+	@media (max-width: 68rem) {
+		.layout {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	.form {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.pair {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+		gap: var(--space-4);
+	}
+
+	.submit {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-3);
+	}
+
+	.note,
+	.footnote,
+	.detail {
+		color: var(--text-2);
+		font-size: var(--text-sm);
+	}
+
+	.footnote {
+		margin-top: var(--space-4);
+		padding-top: var(--space-3);
+		border-top: 1px solid var(--border);
+	}
+</style>

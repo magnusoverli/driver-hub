@@ -15,6 +15,7 @@
     "web:verify": "npm --prefix web run verify"
   },
   "dependencies": {
+    "@fastify/busboy": "3.2.6",
     "tar-stream": "3.3.0"
   }
 }

@@ -12,10 +12,13 @@ import type { Role } from '#lib/session/auth-service.js';
 
 export type NavSection = 'main' | 'site';
 
+/** Routes that can be linked without parameters, such as every top-level section. */
+export type StaticRouteId = Exclude<RouteId, `${string}[${string}`>;
+
 export interface NavItem {
 	id: string;
 	/** A SvelteKit route ID, so links are checked against the routes that exist. */
-	route: RouteId;
+	route: StaticRouteId;
 	label: () => string;
 	icon: LucideIcon;
 	section: NavSection;
@@ -25,7 +28,7 @@ export interface NavItem {
 	keywords?: string[];
 }
 
-const HOME: RouteId = '/(app)';
+const HOME: StaticRouteId = '/(app)';
 
 export const NAVIGATION: readonly NavItem[] = [
 	{

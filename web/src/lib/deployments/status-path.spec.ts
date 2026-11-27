@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { statusPath, type DeploymentSummary } from './status-path.js';
+import {
+	currentAllocation,
+	detailStatusInput,
+	statusPath,
+	type DeploymentSummary
+} from './status-path.js';
 
 const base: DeploymentSummary = {
 	nodeId: '11111111-1111-4111-8111-111111111111',
@@ -62,5 +67,40 @@ describe('status path', () => {
 			communication: 'driver-reports-connected'
 		});
 		expect(Object.values(path)).toEqual(['unknown', 'unknown', 'unknown', 'unknown']);
+	});
+});
+
+describe('current allocation', () => {
+	const allocation = (id: string, desired: string, jobVersion?: number) => ({
+		id,
+		desired,
+		status: 'running',
+		jobVersion
+	});
+
+	it('is the one Nomad wants running for the newest job version', () => {
+		expect(
+			currentAllocation([
+				allocation('old', 'run', 2),
+				allocation('stopped', 'stop', 4),
+				allocation('new', 'run', 3)
+			])?.id
+		).toBe('new');
+		expect(currentAllocation([allocation('gone', 'stop', 1)])).toBeNull();
+	});
+
+	it('feeds the detail view the same status path as the list', () => {
+		const detail = {
+			...base,
+			allocation: undefined,
+			inheritsSite: false,
+			requested: 'running' as const,
+			settings: {},
+			image: 'i',
+			previousVersion: null,
+			allocations: [allocation('a', 'stop', 1), allocation('b', 'run', 2)]
+		};
+		expect(detailStatusInput(detail).allocation?.id).toBe('b');
+		expect(statusPath(detailStatusInput(detail)).allocation).toBe('verified');
 	});
 });

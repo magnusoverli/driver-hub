@@ -1,12 +1,10 @@
 import { queryOptions } from '@tanstack/svelte-query';
 import { unwrap, type ApiClient } from '#lib/api/client.js';
-import type { paths } from '#lib/api/schema.js';
+import type { ResponseBody } from '#lib/api/types.js';
 import { POLL_INTERVAL_MS } from '#lib/query/client.js';
 
-type Json<T> = T extends { content: { 'application/json': infer Body } } ? Body : never;
-
-export type Capabilities = Json<paths['/capabilities']['get']['responses'][200]>;
-export type NomadConnection = Json<paths['/integrations/nomad']['get']['responses'][200]>;
+export type Capabilities = ResponseBody<'/capabilities', 'get'>;
+export type NomadConnection = ResponseBody<'/integrations/nomad', 'get'>;
 
 export const systemKeys = {
 	all: ['system'] as const,

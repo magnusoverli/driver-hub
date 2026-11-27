@@ -1,11 +1,13 @@
 <script lang="ts">
 	import type { HTMLInputAttributes } from 'svelte/elements';
+	import HelpLabel from './HelpLabel.svelte';
 
 	type Props = Omit<HTMLInputAttributes, 'value'> & {
 		label: string;
 		value?: string;
 		/** Shown under the field and announced with it. */
 		hint?: string;
+		help?: string;
 		/** Marks the field invalid; replaces the hint while present. */
 		error?: string | null;
 		ref?: HTMLInputElement | null;
@@ -15,6 +17,7 @@
 		label,
 		value = $bindable(''),
 		hint,
+		help,
 		error = null,
 		ref = $bindable(null),
 		type = 'text',
@@ -23,11 +26,16 @@
 	}: Props = $props();
 
 	const id = $props.id();
-	const describedBy = $derived(error ? `${id}-error` : hint ? `${id}-hint` : undefined);
+	// The error replaces the hint while present; help text is always available.
+	const describedBy = $derived(
+		[help && `${id}-help`, error ? `${id}-error` : hint && `${id}-hint`]
+			.filter(Boolean)
+			.join(' ') || undefined
+	);
 </script>
 
 <div class={['field', className]}>
-	<label for={id}>{label}</label>
+	{#if help}<HelpLabel field={id} {label} {help} />{:else}<label for={id}>{label}</label>{/if}
 	<input
 		{...rest}
 		{id}

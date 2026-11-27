@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -18,7 +18,7 @@ export function imageKey(record) {
   return hash(JSON.stringify([record.driverId, record.version, record.image.digest]));
 }
 
-async function unpack(archive, dir) {
+async function unpack(archive, dir, signal) {
   const entries = new Map();
   const extract = tar.extract();
   async function* bounded(source) {
@@ -56,24 +56,28 @@ async function unpack(archive, dir) {
     }
   }
   try {
-    await Promise.all([pipeline(createReadStream(archive), createGunzip(), bounded, extract), consume()]);
+    await Promise.all([pipeline(createReadStream(archive), createGunzip(), bounded, extract, { signal }), consume()]);
   } catch (error) {
     extract.destroy();
+    signal?.throwIfAborted();
     if (error instanceof InvalidRelease || ['ENOSPC', 'EACCES', 'ENOENT'].includes(error.code)) throw error;
     throw new InvalidRelease('Invalid compressed OCI archive', { cause: error });
   }
   return entries;
 }
 
-async function verifyGraph(dir, entries, record) {
+async function verifyGraph(dir, entries, image, signal) {
   const metadata = async file => parseJson(await readFile(join(dir, file)), 'OCI metadata');
   requireRelease(entries.has('oci-layout') && entries.has('index.json'), 'Missing OCI layout');
   requireRelease((await metadata('oci-layout'))?.imageLayoutVersion === '1.0.0', 'Unsupported OCI layout');
   const index = await metadata('index.json');
-  const target = record.image.digest;
   const indexEntry = entries.get('index.json');
   const indexDigest = `sha256:${indexEntry.hex}`;
-  requireRelease(index?.schemaVersion === 2 && Array.isArray(index.manifests), 'Invalid OCI index');
+  requireRelease(index?.schemaVersion === 2 && Array.isArray(index.manifests) && index.manifests.length, 'Invalid OCI index');
+  // Published records pin their root. For imports, infer one image, never choose an
+  // arbitrary tag from an archive containing several images.
+  if (!image && index.manifests.length > 1) requirePlatformIndex(index.manifests);
+  const target = image?.digest ?? (index.manifests.length === 1 ? index.manifests[0]?.digest : indexDigest);
   const root = indexDigest === target
     ? { mediaType: indexType, digest: target, size: indexEntry.size }
     : index.manifests.find(item => item?.digest === target);
@@ -82,7 +86,9 @@ async function verifyGraph(dir, entries, record) {
   // Persist only descriptors reachable from the selected image in the serving index.
   const objects = {};
   const platforms = new Set();
+  const configPlatforms = new Map();
   async function visit(descriptor, role, depth) {
+    signal?.throwIfAborted();
     requireRelease(depth <= 8 && digestPattern.test(descriptor?.digest) &&
       typeof descriptor.mediaType === 'string' && /^[\w.+/-]+$/.test(descriptor.mediaType), 'Invalid OCI descriptor');
     const { digest, size, mediaType } = descriptor;
@@ -99,24 +105,58 @@ async function verifyGraph(dir, entries, record) {
     requireRelease(size <= maxMetadata, 'Oversized OCI metadata');
     const object = await metadata(file);
     if (role === 'config') {
-      requireRelease(typeof object?.os === 'string' && typeof object.architecture === 'string', 'Missing image platform');
+      requireRelease(typeof object?.os === 'string' && object.os && typeof object.architecture === 'string' &&
+        object.architecture && (object.variant === undefined || typeof object.variant === 'string'), 'Missing image platform');
       const platform = `${object.os}/${object.architecture}`;
       platforms.add(platform);
       if (object.variant) platforms.add(`${platform}/${object.variant}`);
+      if (!image) configPlatforms.set(digest, { os: object.os, architecture: object.architecture, variant: object.variant });
       return;
     }
     requireRelease(object?.schemaVersion === 2, 'Invalid OCI manifest schema');
     if (mediaType === indexType && Array.isArray(object.manifests)) {
+      if (!image) {
+        requireRelease(object.manifests.length, 'Empty OCI index');
+        if (object.manifests.length > 1) requirePlatformIndex(object.manifests);
+      }
       for (const child of object.manifests) await visit(child, 'manifest', depth + 1);
     } else {
       requireRelease(mediaType === manifestType && Array.isArray(object.layers), 'Unsupported OCI manifest');
       await visit(object.config, 'config', depth + 1);
+      if (!image && descriptor.platform) {
+        const actual = configPlatforms.get(object.config.digest);
+        const { os, architecture, variant } = descriptor.platform;
+        requireRelease(os === actual.os && architecture === actual.architecture && (!variant || variant === actual.variant),
+          'OCI platform does not match the image configuration');
+      }
       for (const layer of object.layers) await visit(layer, 'layer', depth + 1);
     }
   }
   await visit(root, 'manifest', 0);
-  requireRelease(record.image.platforms.every(p => platforms.has(p)), 'Image does not contain declared platforms');
-  return { digest: target, objects };
+  requireRelease(platforms.size && (!image || image.platforms.every(p => platforms.has(p))), 'Image does not contain declared platforms');
+  return { digest: target, objects, platforms: [...platforms].sort() };
+}
+
+function requirePlatformIndex(descriptors) {
+  const names = new Set(), platforms = new Set(), digests = new Set();
+  for (const d of descriptors) {
+    requireRelease(d?.mediaType === manifestType && d.platform?.os && d.platform.architecture,
+      'Expected one image or a platform-indexed image');
+    names.add(d.annotations?.['org.opencontainers.image.ref.name'] ?? '');
+    platforms.add(JSON.stringify([d.platform.os, d.platform.architecture, d.platform.variant]));
+    digests.add(d.digest);
+  }
+  requireRelease(names.size === 1 && platforms.size === descriptors.length && digests.size === descriptors.length,
+    'Ambiguous OCI archive: export a single image');
+}
+
+// Verify actual uploaded bytes, even if a published image with this digest already exists.
+export async function inspectArchive(archive, workspace, signal) {
+  const staging = await mkdtemp(join(workspace, '.verify-'));
+  try {
+    const { digest, platforms } = await verifyGraph(staging, await unpack(archive, staging, signal), undefined, signal);
+    return { digest, platforms };
+  } finally { await rm(staging, { recursive: true, force: true }); }
 }
 
 export class Images {
@@ -132,6 +172,20 @@ export class Images {
     }
   }
 
+  // Only for a release no deployment uses: serving replicas then have nothing to pull.
+  async remove(record) {
+    const key = imageKey(record);
+    const trash = join(this.root, `.removing-${randomUUID()}`);
+    try {
+      await rename(join(this.root, key), trash);
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+    await rm(trash, { recursive: true, force: true });
+    return true;
+  }
+
   async publish(record, archive) {
     const key = imageKey(record);
     if (await this.info(key)) return key;
@@ -139,7 +193,7 @@ export class Images {
     const staging = await mkdtemp(join(this.root, '.verify-'));
     try {
       const entries = await unpack(archive, staging);
-      const verified = await verifyGraph(staging, entries, record);
+      const verified = await verifyGraph(staging, entries, record.image);
       await writeFile(join(staging, 'verified.json'), JSON.stringify(verified));
       try {
         await rename(staging, join(this.root, key));

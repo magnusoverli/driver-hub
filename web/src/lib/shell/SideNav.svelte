@@ -3,7 +3,14 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import { isActive, type NavItem, type NavSection } from './navigation';
 
-	let { items, routeId }: { items: NavItem[]; routeId: string | null } = $props();
+	type Props = {
+		items: NavItem[];
+		routeId: string | null;
+		/** Work in progress per item, such as running downloads on Activity. */
+		counts?: Partial<Record<string, number>>;
+	};
+
+	let { items, routeId, counts = {} }: Props = $props();
 
 	const sections = $derived(
 		(['main', 'site'] as NavSection[])
@@ -33,6 +40,12 @@
 						>
 							<Icon size={16} aria-hidden="true" />
 							<span>{item.label()}</span>
+							{#if counts[item.id]}
+								<span class="count" aria-hidden="true">{counts[item.id]}</span>
+								<span class="visually-hidden">
+									{m.nav_running({ count: counts[item.id] ?? 0 })}
+								</span>
+							{/if}
 						</a>
 					</li>
 				{/each}
@@ -95,6 +108,19 @@
 		background: var(--accent-soft);
 		color: var(--accent-text);
 		font-weight: var(--weight-semibold);
+	}
+
+	.count {
+		margin-left: auto;
+		min-width: 1.25rem;
+		padding: 0 var(--space-1);
+		border-radius: var(--radius-pill);
+		background: var(--accent);
+		color: var(--accent-ink);
+		font-size: var(--text-xs);
+		font-weight: var(--weight-semibold);
+		font-variant-numeric: tabular-nums;
+		text-align: center;
 	}
 
 	a:focus-visible {
