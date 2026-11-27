@@ -1,6 +1,6 @@
 # Running Driver Hub
 
-The manager is an HTTP API. Operators and the future UI use the same endpoints. The customer owns Nomad; device approval remains in VideoIPath.
+Operators use the manager's web app; scripts use the same `/api/v1` endpoints. The customer operates Nomad, and device approval remains in VideoIPath.
 
 ## Installation
 
@@ -23,7 +23,7 @@ Saved in the site settings instead:
 
 | Setting | In the web interface | Purpose |
 | --- | --- | --- |
-| Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint in production. The ACL identity needs listing, reading, planning and submitting service jobs and reading allocation checks. Use a namespace dedicated to Driver Hub. |
+| Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Change the connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint and a dedicated namespace in production. The ACL must cover driver service jobs, the image system job, allocation checks and the Variables below. |
 | Nomad web interface | Settings > Nomad, Jobs | Optional operator-facing HTTPS origin of the target Nomad UI. Adds allocation log links using the operator’s own Nomad login; leave empty if targets do not share that UI. |
 | Shared writers | Settings > Nomad, Jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so deployments cannot be deleted. |
 | Source builds | Settings > Manager | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
@@ -33,23 +33,35 @@ Saved in the site settings instead:
 
 ### Image distribution
 
-Driver Hub delivers driver images to the Nomad clients itself; there is nothing to configure and no separate image service to run. When the Nomad connection is saved, Hub registers a system job, `driverhub-images`, in the same namespace and datacenters. It runs a small image service on every eligible Linux client:
+After the Nomad connection is saved, the manager writes the desired image list to `nomad/jobs/driverhub-images`, then registers the `driverhub-images` system job in that namespace and its configured datacenters. No customer registry is needed. Use the Hub container for this workflow: a source checkout without the packaged image service reports `unavailable` with `reason: "no_package"`.
 
 - **Pulls stay on the machine.** Driver jobs pull from `127.0.0.1:5480`, the copy on their own client. Docker accepts plain HTTP from a registry in `127.0.0.0/8` without configuration. Docker documents this, but advises against relying on it; a daemon configured otherwise needs `127.0.0.1:5480` in its `insecure-registries`.
-- **Every client keeps a copy.** Each copy fetches every image Hub has staged at least once, ahead of time, from the manager or from the copies on other clients. A driver that Nomad moves to another client therefore starts even while the manager is down. A pull for an image a copy does not have yet is fetched on demand.
+- **Every client keeps a copy.** The service copies the published images on Hub's list from the manager or a peer. If Docker asks for a pinned root manifest before a newly staged image appears on the local list, the service can fetch it on demand and keeps the fresh copy through a one-hour grace period. With the manager down, a replacement driver needs a running local image service and either a local copy or a reachable peer with the complete image.
 - **Content is verified.** Hub lists each image's root digest in the job's Nomad Variable, `nomad/jobs/driverhub-images`; copies check every file against its SHA-256, and driver jobs pin the digest, so a source cannot substitute an image.
-- **The image service delivers itself.** Its own image is a `docker save` archive built into Hub's container image. Clients fetch it once from the manager as the job's artifact, checked against the SHA-256 in the job, and Docker keeps it cached. Clients need no registry or internet access.
-- **Status.** Settings > Nomad and the overview show on how many clients the service runs and how many hold every image.
+- **Package upgrades.** The service itself ships as a gzipped `docker save` archive in the Hub container. On installation or upgrade, Nomad fetches `/_hub/image-service-<sha256>.tar.gz` from the manager's distribution port, verifies the job's checksum, and Docker loads that exact filename. A shorter replacement never overwrites an older archive in the retained task directory. Once running, the service removes old package archives and keeps the current one for restart. A client that has never obtained the package needs the manager to bootstrap.
+
+**Reading image status:** Open **Settings → Nomad → Image distribution**, or request `GET /api/v1/integrations/images` as a viewer or administrator. `running` is the number of running current allocations. `upToDate` counts those with a passing `images-copied` check for the list rendered on that client. These counts do not measure driver or device health.
+
+| State | Meaning or next check |
+| --- | --- |
+| `not_configured` | Save a Nomad connection first. |
+| `unavailable` | The manager has no image-service package. Use the packaged Hub container. |
+| `starting` | Hub has not finished its first reconciliation, or clients are still starting. Two healthy copies and one pending download can correctly show `running: 2`, `upToDate: 2`, `state: "starting"`. |
+| `copying` | Some services are running, but checks or other current allocations are not healthy yet. Look at `problems` and the `images-copied` checks. |
+| `ready` | At least one current allocation is running and all current allocations wanted by Nomad pass their copy check. Compare `running` with your expected client count. |
+| `failing` | Hub could not reconcile the job or its Variable, or no copy is running and an allocation reported a problem. Check the returned `reason`/`detail` or the task events on the named client. Superseded allocation failures are excluded. |
 
 What it needs from the cluster:
 
 - Port `5480` free on every client. Nomad reserves it for the job, and the service listens on every interface so other clients can copy from it.
 - The Docker driver's defaults: host networking and loading an image from a file.
 - Disk for the images in use, in the allocation's data directory; it is kept when Nomad replaces the allocation on the same client.
-- Clients must reach the manager's `DRIVER_HUB_DISTRIBUTION_PORT` (default `5481`) and each other's port `5480`. Both serve only verified images by digest, with no upload or delete API; restrict them to the client network.
+- Clients must reach the manager's distribution listener (default TCP `5481`) for package and image downloads, and each other's TCP `5480` for peer copies. Both are read-only HTTP listeners: restrict them to the client network. For `Failed Artifact Download`, compare the job's artifact URL and checksum with what the client can fetch at the advertised address. Do not disable checksum verification.
 - The clients' CPU architecture must match the manager image's (the job is constrained to it).
 
 Back up retained releases, `DRIVER_HUB_DATA_DIR/images` and `DRIVER_HUB_DATA_DIR/labels` (operator-entered device names); use the customer's normal Nomad backup process for jobs and Variables. Do not delete a published digest needed by a running deployment or its rollback version.
+
+**Upgrading from the separate image host:** Remove `imageHost` from scripts that call `PUT /site/deployment`; that field is no longer accepted. Upgrading the manager does not rewrite existing driver jobs. Before retiring the old host, inspect the pinned `image` in `GET /api/v1/deployments/{nodeId}` for each device. For jobs still pointing there, preview a start or version update as appropriate and apply it during the device's maintenance window. Confirm the job now pins `127.0.0.1:5480/driverhub/…@sha256:…` and verify the driver check.
 
 ## Operator sign-in
 
@@ -87,7 +99,7 @@ Start the manager with a durable directory writable by UID 1000, then sign in an
 
 ```sh
 docker run -d --name driverhub --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 -p 5481:5481 \
+  -p 127.0.0.1:8080:8080 -p 5481:5481 -e HOST=0.0.0.0 \
   -v /srv/driverhub/bootstrap-password:/run/secrets/initial-password:ro \
   -e DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE=/run/secrets/initial-password \
   -e DRIVER_HUB_DISTRIBUTION_ADDRESS=driverhub.site.example \
@@ -96,18 +108,20 @@ docker run -d --name driverhub --restart unless-stopped \
 
 With host networking (`--network host`) instead, leave `DRIVER_HUB_DISTRIBUTION_ADDRESS` unset and set `HOST=127.0.0.1` to keep the API on loopback.
 
-The web interface uses these admin-only JSON endpoints under `/api/v1`; scripts can too. Supply the latest `revision` on each PUT; it covers all site settings. Tokens are write-only.
+The site endpoints below are admin-only; integration status is also readable by viewers. Paths are relative to `/api/v1`. Supply the latest site `revision` on each PUT; it covers all site settings. Tokens are write-only.
 
 | Request | Input and result |
 | --- | --- |
-| `GET /site` | Returns revision, addresses, namespace, datacenters, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
+| `GET /site` | Returns revision, addresses, namespace, datacenters, `nomad.plainHttp`, token availability and per-device assignments (UUID and SHA-256 token fingerprint). No credential values. |
 | `PUT /site/nomad` | `{"revision":0,"address":"nomad.site.example","namespace":"default","datacenters":["dc1"],"token":"<Nomad ACL token>"}`. A bare IP or DNS name uses HTTPS on 4646; an explicit API URL can specify another port. Hub checks the leader and job-list access before saving. Omit the token to keep it on the same target, or send `null` for an ACL-disabled cluster. |
 | `PUT /site/deployment` | `{"revision":1,"nomadUiOrigin":"https://nomad.site.example","sharedWriters":false}`. Each field is optional: an omitted one keeps its value, `null` clears the Nomad web interface. |
-| `GET /integrations/images` | Any signed-in operator. Image distribution status: `state` (`not_configured`, `unavailable`, `starting`, `copying`, `ready` or `failing`), `running` and `upToDate` client counts, the number of `images`, the manager `source` address and `problems` per client. |
+| `GET /integrations/images` | [Image distribution state and counts](#image-distribution), number of published `images`, manager `source` address and `problems` per client. |
 | `PUT /site/manager` | `{"revision":2,"buildsEnabled":true,"timings":false}`. Turning builds on returns `409 builds_unavailable` when the manager cannot build. `GET /site` reports that as `manager.buildsAvailable`. |
 | `GET /site/environment` | The startup settings from the table in [installation](#installation): each `name`, `value` in effect, and `source` (`environment`, `default` or `unset`). Secrets report only their source. |
 | `PUT /site/videoipath` | `{"revision":1,"address":"vip.site.example","tokens":["<driver token A>","<driver token B>"]}`. Hub normalizes the address to `wss://vip.site.example/x-driver/v1`. The default `tokenMode` is `per-device`. Repeat with the current revision to add more pre-issued tokens. Saving does not open a driver session. |
 | `DELETE /site/videoipath/tokens/{fingerprint}?revision=N` | Removes a per-device token from the pool, identified by the SHA-256 fingerprint that `GET /site` lists under `videoipath.pool`. Allowed for an unused token, or one reserved for a device whose deployment no longer exists; a token of an existing deployment returns `409 token_in_use`. Revoke removed tokens in VideoIPath. |
+
+**Trusted development networks:** Hub defaults to HTTPS for credentials sent to a remote Nomad API. If a development cluster serves only HTTP, enter an explicit address such as `http://nomad.dev.example:4646` and select **Send the token over plain HTTP** when keeping or supplying an ACL token. In `PUT /site/nomad`, send `"plainHttp": true`; the saved flag defaults to `false`. Without permission Hub returns `422 nomad_plain_http` before sending the credential. The exception also permits site-managed driver registration over that unencrypted connection. Use HTTPS in production. This setting affects the manager's connection to Nomad, not browser sessions, driver connections to VideoIPath, or the image listener ports.
 
 **Token ownership:** Create external-driver bearer tokens in the VideoIPath CLI. Hub reserves one distinct token per device UUID when actually staging. A preview consumes none. An empty pool returns `409 driver_token_pool_empty`; it never falls back to sharing. Retrying a failed stage with the same UUID reuses its reservation. Rescheduling, restarting, updating and rolling back an existing device do not claim another token. To deliberately share one token among future deployments, set `"tokenMode":"shared"` and supply `"token"` instead of `"tokens"`. Revocation remains in VideoIPath. Match the admin-visible fingerprint to your issuance record; the logged fingerprint should be computed on the exact token bytes without a newline.
 
@@ -295,6 +309,10 @@ Use the returned local version in the stage request. Set `backendUrl` to the tes
 
 `node --test test/active-nomad.test.js` exercises an **active Docker allocation** on an explicitly supplied test cluster. Set `DRIVER_HUB_TEST_ACTIVE_NOMAD` to its API URL, `DRIVER_HUB_TEST_IMAGE_HOST` to the address of its test distribution service, and `DRIVER_HUB_TEST_IMAGES_DIR` to that service's writable image directory. Optional settings: `DRIVER_HUB_TEST_NOMAD_TOKEN`, `DRIVER_HUB_TEST_NAMESPACE`, `DRIVER_HUB_TEST_DATACENTER`, `DRIVER_HUB_TEST_PLATFORM`. A Docker/Buildx-capable test runner builds two small HTTP probe images. The suite creates a unique job-scoped Nomad Variable containing a public marker, checks env and file delivery and the exact node UUID, waits for current-allocation check results after start/update/rollback, verifies stop, and removes its own job, Variable and images. It needs test-only Variable write/delete permissions in addition to the manager permissions. Run it only on a dedicated test installation. The synthetic probe makes no VideoIPath or device requests.
 
+This standalone test constructs its own Nomad client; it does not inherit the site's `plainHttp` opt-in. Use HTTPS or a loopback address when passing a test token.
+
 **Site acceptance:** use a test device and two eligible Nomad clients. Stage and start one approved driver, verify a real control read, update it and roll back with the same UUID. With the manager host powered off, fail the active driver host and verify that the cold client pulls the exact digest, reads its configuration and restores actual device communication. Record recovery time. Separately partition the old host's management network while its device network remains reachable and test site fencing. Only then claim the site meets its HA target.
 
 **Backend handoff evidence:** a disposable Linux Nomad 1.10.5 client with Docker ran the synthetic active-allocation suite, including both forms of Variable delivery and check transitions for two image versions. The complete suite passed with the runtime tests enabled and run serially. Earlier lab runs also encountered intermittent staging/image-pull failures on the Windows/Docker Desktop shared-filesystem setup; their cause was not established. The passing run is a single-client lifecycle result, not a storage availability or partition-fencing qualification.
+
+**Three-client development trial:** With the manager stopped, Nomad rescheduled a synthetic driver to a different client and its HTTP control check passed. After the manager returned, successively smaller image-service packages rolled out across all three clients. Hub reported `starting` while a client was downloading and `ready` with all three checks passing. Each client served the second probe's exact manifest digest, and its running allocation passed the control check. This exercise used a stopped manager and a rescheduled probe, not a powered-off driver host, a proven empty Docker cache, or a physical device. Those cases remain part of site acceptance.

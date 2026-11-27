@@ -9,9 +9,9 @@ services:
     build: .
     image: driver-hub:local
     ports:
-      # Plain HTTP is only accepted on localhost; the session cookie is Secure.
+      # Browser/API listener for the local trial. The browser session cookie is Secure.
       - '127.0.0.1:8080:8080'
-      # Nomad clients fetch driver images from the manager here. It serves only verified images.
+      # Nomad clients fetch the image-service package and verified driver images here (read-only HTTP).
       - '5481:5481'
     # The settings the manager needs before its web interface runs, set to their defaults. Everything
     # else (the Nomad cluster, VideoIPath, source builds, API tokens) is set in the web
