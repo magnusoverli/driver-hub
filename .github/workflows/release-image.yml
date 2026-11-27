@@ -36,13 +36,12 @@ jobs:
           DRIVER_HUB_IMAGE: driver-hub:verify
           COMPOSE_PROJECT_NAME: hub-smoke
         run: |
-          DRIVER_HUB_INITIAL_PASSWORD="$(openssl rand -hex 24)"
-          export DRIVER_HUB_INITIAL_PASSWORD
           trap 'docker compose down --volumes' EXIT
+          trap 'docker compose logs --tail=50 buildkit' ERR
           docker compose pull buildkit
           docker compose up --detach --no-build --pull never
           curl --fail --silent --show-error --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:8080/ | grep -i '<!doctype html>'
-          docker compose exec -T -e DRIVER_HUB_INITIAL_PASSWORD manager node --input-type=module - < .github/tests/compose-smoke.mjs
+          docker compose exec -T manager node --input-type=module - < .github/tests/compose-smoke.mjs
 
   publish:
     if: github.event_name == 'release'

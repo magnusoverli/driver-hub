@@ -52,7 +52,7 @@ function endpoint(operationId, result, { parameters, body, async = false } = {})
 }
 
 const schemas = {
-  Operator: object({ username: str, role, provider: str }),
+  Operator: object({ username: str, role, provider: str, mustChangePassword: bool }, ['username', 'role', 'provider']),
   LocalAccount: object({ username: str, role, enabled: bool }),
   ApiToken: object({ id: str, name: str, role, createdAt: date,
     createdBy: { type: ['string', 'null'], description: 'The operator who created it; null when created with a token.' } }),

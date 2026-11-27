@@ -16,7 +16,7 @@ For a private GHCR package, run `docker login ghcr.io --username YOUR_GITHUB_USE
 
 Back up the manager data, keep the Compose project name and data volume, and take the `compose.yaml` from the new release. Set `DRIVER_HUB_IMAGE` in `.env` to the new versioned image (or its `tag@sha256:…` reference), then run `docker compose pull` and `docker compose up -d`. This recreates the manager and signs operators out. Reconciliation rolls out a changed image-service package to Nomad; check **Settings → Nomad → Image distribution** and the expected client count. Keep the previous image reference and backup for rollback. Do not use `down -v` during an upgrade.
 
-The supplied project name remains `driver-hub-trial` for compatibility. For an installation previously built by `docker compose up --build`, add `DRIVER_HUB_IMAGE` to its existing `.env` before using the new Compose file. Keep the existing password setting and any site-specific override file. To continue building locally with the bundled Buildx tools, follow the [local image build](README.md#build-the-manager-image-locally).
+The supplied project name remains `driver-hub-trial` for compatibility. For an installation previously built by `docker compose up --build`, add `DRIVER_HUB_IMAGE` to its existing `.env` before using the new Compose file. Keep any site-specific override file. Accounts are stored in the data volume; the new Compose file does not read the old `DRIVER_HUB_INITIAL_PASSWORD` variable. To continue building locally with the bundled Buildx tools, follow the [local image build](README.md#build-the-manager-image-locally).
 
 ### Publishing a manager release
 
@@ -85,7 +85,9 @@ Back up retained releases, `DRIVER_HUB_DATA_DIR/images` and `DRIVER_HUB_DATA_DIR
 
 ## Operator sign-in
 
-**First administrator:** on the first start, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected UTF-8 file containing the initial password (one trailing line ending is ignored). In Docker, mount it read-only, readable by UID 1000. The initial username is `admin`, or set `DRIVER_HUB_BOOTSTRAP_USERNAME`. Remove the bootstrap mount and setting after provisioning. Restarting with an existing account store never resets a password. Alternatively, an installation with `DRIVER_HUB_ADMIN_TOKEN` can create its first admin via `POST /api/v1/users` using the bearer token. There is no public sign-up or default password.
+**First administrator:** on a fresh installation, sign in locally as `admin` with `LicenseToDeploy!`. A session using this default can only check its identity, change the password or sign out. Choose a different password of at least 12 characters and sign in again. Changing it invalidates every session for the account. Restarting or upgrading with the existing data volume never resets the password.
+
+For unattended provisioning, set `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` to a protected UTF-8 file containing a private initial password (one trailing line ending is ignored). In Docker, mount the file read-only, readable by UID 1000. A distinct private password bypasses the default-password prompt. Set `DRIVER_HUB_BOOTSTRAP_USERNAME` to choose another username. Alternatively, setting only `DRIVER_HUB_ADMIN_TOKEN` preserves token-only bootstrap: create the first admin via `POST /api/v1/users` with the bearer token.
 
 ### API tokens
 
@@ -101,7 +103,7 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 
 | API | Behavior |
 | --- | --- |
-| `POST /auth/login` | `{ "username": "...", "password": "..." }`. Sets an 8-hour session cookie and returns `{username, role, provider}`. Bad credentials and disabled accounts return the same 401. Repeated failures or too many concurrent verifications return 429. |
+| `POST /auth/login` | `{ "username": "...", "password": "..." }`. Sets an 8-hour session cookie and returns `{username, role, provider}`. If login or `GET /auth/session` also returns `mustChangePassword: true`, use `POST /auth/password` before accessing management routes (`403 password_change_required`). Bad credentials and disabled accounts return the same 401. Repeated failures or too many concurrent verifications return 429. |
 | `GET /auth/session` | Returns the current operator; use `role` (`admin` or `viewer`) to choose which controls to display. The API also enforces permissions. |
 | `POST /auth/logout` | Revokes the current session and clears the cookie. Restarting the manager signs everyone out. |
 | `POST /auth/password` | A local user supplies `currentPassword` and `newPassword`. Success invalidates all their sessions; sign in again. |
@@ -115,7 +117,7 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 
 ## Site setup after container startup
 
-The supplied Compose file mounts the named data volume at `/data` and the bootstrap secret at `/run/secrets/initial-password`. Set `DRIVER_HUB_DISTRIBUTION_ADDRESS` in `.env` to the Docker host address the clients can reach; inside the bridge network Hub may see only a container address. Once running, enter the Nomad cluster and VideoIPath target under **Settings**.
+The supplied Compose file mounts the named data volume at `/data`. Set `DRIVER_HUB_DISTRIBUTION_ADDRESS` in `.env` to the Docker host address the clients can reach; inside the bridge network Hub may see only a container address. After first login, enter the Nomad cluster and VideoIPath target under **Settings**.
 
 The site endpoints below are admin-only; integration status is also readable by viewers. Paths are relative to `/api/v1`. Supply the latest site `revision` on each PUT; it covers all site settings. Tokens are write-only.
 

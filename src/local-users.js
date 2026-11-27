@@ -7,6 +7,7 @@ import { expect } from './errors.js';
 const derive = promisify(scrypt);
 const usernamePattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const roles = ['admin', 'viewer'];
+export const initialAdminPassword = 'LicenseToDeploy!';
 const normalize = value => typeof value === 'string' ? value.toLowerCase() : '';
 const visible = ({ username, role, enabled }) => ({ username, role, enabled });
 
@@ -41,6 +42,7 @@ export class LocalUsers {
     for (const record of store.users) {
       if (typeof record.username !== 'string' || !usernamePattern.test(record.username) || users.records.has(record.username) ||
           !roles.includes(record.role) || typeof record.enabled !== 'boolean' || !Number.isSafeInteger(record.revision) ||
+          (record.mustChangePassword !== undefined && typeof record.mustChangePassword !== 'boolean') ||
           !/^[0-9a-f]{32}$/.test(record.salt) || !/^[0-9a-f]{64}$/.test(record.hash)) throw new Error('Invalid local account record');
       users.records.set(record.username, record);
     }
@@ -52,7 +54,8 @@ export class LocalUsers {
 
   resolve(username) {
     const user = this.records.get(username);
-    if (user?.enabled) return { username, role: user.role, provider: 'local', revision: user.revision };
+    if (user?.enabled) return { username, role: user.role, provider: 'local', revision: user.revision,
+      mustChangePassword: user.mustChangePassword === true };
     return null;
   }
 
@@ -109,6 +112,8 @@ export class LocalUsers {
       const password = changes.password;
       expect(typeof password === 'string' && [...password].length >= 12 && Buffer.byteLength(password) <= 1024,
         'Passwords must contain at least 12 characters and at most 1024 UTF-8 bytes');
+      expect(create || password !== initialAdminPassword, 'Choose a password different from the default password');
+      next.mustChangePassword = password === initialAdminPassword;
       next.salt = randomBytes(16).toString('hex');
       next.hash = (await hash(password, next.salt)).toString('hex');
     }

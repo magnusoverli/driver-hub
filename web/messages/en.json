@@ -32,6 +32,7 @@
 
 	"password_title": "Change password",
 	"password_description": "Changing your password signs you out everywhere, including here.",
+	"password_first_login": "Choose a new password before using Driver Hub. Then sign in again with your new password.",
 	"password_current": "Current password",
 	"password_new": "New password",
 	"password_confirm": "Confirm new password",

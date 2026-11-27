@@ -3,6 +3,7 @@
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import { page } from '$app/state';
 	import { m } from '#lib/paraglide/messages.js';
+	import ChangePasswordDialog from '#lib/session/ChangePasswordDialog.svelte';
 	import ReauthDialog from '#lib/session/ReauthDialog.svelte';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import AppShell from '#lib/shell/AppShell.svelte';
@@ -18,7 +19,9 @@
 	const forbidden = $derived(Boolean(navItemFor(page.route.id)?.adminOnly) && !session.isAdmin);
 </script>
 
-{#if session.operator}
+{#if session.operator?.mustChangePassword}
+	<ChangePasswordDialog open required />
+{:else if session.operator}
 	<AppShell operator={session.operator}>
 		{#if forbidden}
 			<Card>

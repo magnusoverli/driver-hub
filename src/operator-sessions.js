@@ -5,7 +5,9 @@ const cookie = '__Host-driverhub_session';
 const attributes = 'Path=/; HttpOnly; Secure; SameSite=Strict';
 const lifetime = 8 * 60 * 60 * 1000;
 const digest = id => createHash('sha256').update(id).digest('hex');
-const publicUser = ({ username, role, provider }) => ({ username, role, provider });
+const publicUser = ({ username, role, provider, mustChangePassword }) => ({
+  username, role, provider, ...(mustChangePassword && { mustChangePassword: true })
+});
 
 function sessionKey(request) {
   const value = request.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith(`${cookie}=`));

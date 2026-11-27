@@ -51,6 +51,42 @@ test('manager bootstraps once from a file and still requires sign-in on loopback
   }
 });
 
+test('the default password stays restricted across restarts and cannot be reused after rotation', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'driverhub-first-login-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const password = 'LicenseToDeploy!';
+  const setup = await LocalUsers.open(directory);
+  await setup.create({ username: 'admin', role: 'admin', password });
+  const users = await LocalUsers.open(directory);
+  const sessions = new OperatorSessions(users);
+  const server = createApi(null, null, { localUsers: users, sessions }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}/api/v1`;
+  const send = (path, cookie = '', body) => fetch(base + path, {
+    method: body ? 'POST' : 'GET', headers: { Cookie: cookie, 'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1' },
+    body: JSON.stringify(body)
+  });
+  const login = () => send('/auth/login', '', { username: 'admin', password });
+  const first = await login();
+  const cookie = first.headers.get('set-cookie').split(';')[0];
+  const other = (await login()).headers.get('set-cookie').split(';')[0];
+  assert.equal((await first.json()).mustChangePassword, true);
+  assert.equal((await (await send('/auth/session', cookie)).json()).mustChangePassword, true);
+  assert.equal((await send('/auth/password', cookie, { currentPassword: password, newPassword: password })).status, 400);
+  for (const response of [await send('/users', cookie), await send('/api-tokens', cookie, { name: 'test', role: 'admin' })]) {
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, 'password_change_required');
+  }
+  const newPassword = randomUUID();
+  assert.equal((await send('/auth/password', cookie, { currentPassword: password, newPassword })).status, 200);
+  assert.equal((await send('/auth/session', other)).status, 401);
+  assert.equal((await login()).status, 401);
+  const reopened = await LocalUsers.open(directory);
+  assert.equal((await reopened.authenticate('admin', newPassword)).mustChangePassword, false);
+  await assert.rejects(reopened.update('admin', { password }), { status: 400 });
+});
+
 test('local accounts, browser sessions, service tokens and role changes through the management API', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'driverhub-users-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

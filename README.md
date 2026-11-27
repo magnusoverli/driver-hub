@@ -13,11 +13,10 @@
 The standard installation is **Docker Compose**. The release image includes the manager, web app, Nomad image-service package, Docker CLI and Buildx. Compose starts a dedicated rootless BuildKit worker alongside the manager. **Driver source builds are off by default**; an administrator can turn them on under **Settings → Manager**, without rebuilding Hub or exposing the host Docker socket.
 
 1. Choose a version from [Driver Hub releases](https://github.com/magnusoverli/driver-hub/releases). From that tag's source tree, download **`compose.yaml`** into an installation directory. Use a release whose **Driver Hub image** workflow has finished successfully. If there is no published image yet, use the [local image build](#build-the-manager-image-locally).
-2. Create `.env` beside `compose.yaml`. Replace `vX.Y.Z` with the **exact release tag** and choose your own initial password (at least 12 characters). For a real cluster, set the distribution address to the Docker host name or IP that the Nomad clients can reach.
+2. Create `.env` beside `compose.yaml`. Replace `vX.Y.Z` with the **exact release tag**. For a real cluster, set the distribution address to the Docker host name or IP that the Nomad clients can reach.
 
 ```dotenv
 DRIVER_HUB_IMAGE=ghcr.io/magnusoverli/driver-hub:vX.Y.Z
-DRIVER_HUB_INITIAL_PASSWORD='replace with your own password'
 # DRIVER_HUB_DISTRIBUTION_ADDRESS=hub.site.example
 ```
 
@@ -28,7 +27,9 @@ docker compose pull
 docker compose up -d
 ```
 
-Open **[localhost:8080](http://localhost:8080)** on the Docker host and sign in as `admin`. The bootstrap password is used only on first start. For remote browser access, use an HTTPS reverse proxy. Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
+**First login:** Open **[localhost:8080](http://localhost:8080)** on the Docker host. Sign in as `admin` with `LicenseToDeploy!`, choose a new password (at least 12 characters), then sign in again. Existing installations keep their passwords.
+
+For remote browser access, use an HTTPS reverse proxy after first login. Under **Settings → Nomad**, save the cluster connection and check **Image distribution**: clients need TCP `5481` to the manager and TCP `5480` to each other. Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
 To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), select a new release and repeat the pull and start commands with the same volume. `docker compose down` stops Hub and keeps its data. Adding `-v` deletes accounts, settings, releases and images in the local volume; it does not remove Nomad jobs.
 
@@ -124,7 +125,7 @@ The Node.js manager serves the SvelteKit web app and `/api/v1` on the same origi
 <details>
 <summary><strong>Running the backend from source</strong></summary>
 
-With Node.js 22+, run `npm ci`. On a new installation, point `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` at a protected file containing the first administrator's password, then run `npm start`. The API defaults to `127.0.0.1:8080`; `PORT` changes the port and `DRIVER_HUB_DATA_DIR` changes the data directory (default `~/.driver-hub`). A source checkout does not include the packaged image service; use the Hub container to exercise real image distribution.
+With Node.js 22+, run `npm ci` and `npm start`. The same first-login credentials apply; to provision a private password instead, see [operator sign-in](OPERATIONS.md#operator-sign-in). The API defaults to `127.0.0.1:8080`; `PORT` changes the port and `DRIVER_HUB_DATA_DIR` changes the data directory (default `~/.driver-hub`). A source checkout does not include the packaged image service; use the Hub container to exercise real image distribution.
 
 For a release's path through the backend, start with [`src/catalog.js`](src/catalog.js) and [`src/images.js`](src/images.js). For a device change, follow [`src/deployments.js`](src/deployments.js) through the [job definition](src/job.js) to the [Nomad client](src/nomad.js).
 

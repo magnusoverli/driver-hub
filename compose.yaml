@@ -1,4 +1,4 @@
-# Deploy Driver Hub from a release image. Set DRIVER_HUB_IMAGE and DRIVER_HUB_INITIAL_PASSWORD
+# Deploy Driver Hub from a release image. Set DRIVER_HUB_IMAGE
 # in .env next to this file, then run: docker compose pull && docker compose up -d
 # Keep the original project name so upgrades reuse the existing data volume.
 name: driver-hub-trial
@@ -51,7 +51,8 @@ services:
       # --- First administrator -------------------------------------------------------------------
       # Used only while there are no accounts yet; it never resets an existing password.
       DRIVER_HUB_BOOTSTRAP_USERNAME: admin
-      DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: /run/secrets/initial-password
+      # Optional alternative to the default password: mount a private file readable by UID 1000.
+      # DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE: /run/secrets/initial-password
 
       # --- Emergency access ----------------------------------------------------------------------
       # A request with "Authorization: Bearer <token>" gets administrator access without signing
@@ -61,11 +62,6 @@ services:
 
       # The builder is available at startup; administrators opt in under Settings > Manager.
       BUILDX_BUILDER: hub-compose
-    secrets:
-      - source: initial-password
-        # Readable by the manager's service user (UID 1000).
-        uid: '1000'
-        mode: 0400
     volumes:
       - data:/data
       - type: volume
@@ -92,12 +88,6 @@ services:
       timeout: 3s
       retries: 6
     restart: unless-stopped
-
-secrets:
-  initial-password:
-    # Copied into the container as a file; the manager never sees it as an environment variable.
-    # Only used to create the first account while the data volume is empty.
-    environment: DRIVER_HUB_INITIAL_PASSWORD
 
 volumes:
   data:

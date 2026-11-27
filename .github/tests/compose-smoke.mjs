@@ -1,6 +1,6 @@
 // Run via stdin inside a fresh, disposable Compose manager (workdir /app).
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,10 +17,22 @@ assert.equal(hash.digest('hex'), pkg.sha256);
 
 const api = 'http://127.0.0.1:8080/api/v1';
 const headers = { 'Content-Type': 'application/json', 'X-Driver-Hub-Request': '1' };
-const login = await fetch(`${api}/auth/login`, { method: 'POST', headers,
-  body: JSON.stringify({ username: 'admin', password: process.env.DRIVER_HUB_INITIAL_PASSWORD }) });
-assert.equal(login.status, 200);
-headers.Cookie = login.headers.get('set-cookie').split(';')[0];
+async function signIn(password) {
+  const login = await fetch(`${api}/auth/login`, { method: 'POST', headers,
+    body: JSON.stringify({ username: 'admin', password }) });
+  assert.equal(login.status, 200);
+  headers.Cookie = login.headers.get('set-cookie').split(';')[0];
+  return login.json();
+}
+const currentPassword = 'LicenseToDeploy!';
+assert.equal((await signIn(currentPassword)).mustChangePassword, true);
+assert.equal((await fetch(`${api}/site`, { headers })).status, 403);
+const newPassword = randomUUID();
+const changed = await fetch(`${api}/auth/password`, { method: 'POST', headers,
+  body: JSON.stringify({ currentPassword, newPassword }) });
+assert.equal(changed.status, 200);
+assert.equal((await fetch(`${api}/site`, { headers })).status, 401);
+await signIn(newPassword);
 const site = await (await fetch(`${api}/site`, { headers })).json();
 assert.equal(site.nomad.address, null, 'Only use a fresh smoke-test installation');
 assert.equal(site.manager.buildsAvailable, true);
