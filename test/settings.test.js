@@ -151,3 +151,10 @@ test('the environment listing says where each startup setting comes from and nev
   assert.equal((await call('GET', '/site/environment')).body.settings.length, entries.length);
   assert.equal((await call('GET', '/site/environment', undefined, 'viewer')).status, 403);
 });
+
+test('sign-in over plain HTTP is on by default and off when set to false', () => {
+  assert.equal(readEnvironment({}).plainHttp, true);
+  assert.equal(readEnvironment({ DRIVER_HUB_ALLOW_PLAIN_HTTP: 'false' }).plainHttp, false);
+  const entry = readEnvironment({}).entries.find(e => e.name === 'DRIVER_HUB_ALLOW_PLAIN_HTTP');
+  assert.deepEqual(entry, { name: 'DRIVER_HUB_ALLOW_PLAIN_HTTP', secret: false, source: 'default', value: 'true' });
+});

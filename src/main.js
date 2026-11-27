@@ -39,7 +39,8 @@ if (!localUsers.list().length && (environment.bootstrapPasswordFile || !token)) 
     : initialAdminPassword;
   await localUsers.create({ username: environment.bootstrapUsername, password, role: 'admin' });
 }
-const sessions = new OperatorSessions(localUsers);
+const sessions = new OperatorSessions(localUsers, Date.now, { plainHttp: environment.plainHttp });
+if (environment.plainHttp) console.warn('Plain HTTP sign-in is allowed: passwords and sessions cross the network unencrypted.');
 const builder = new Builds(store);
 const operations = new Operations(join(dataDir, 'operations'));
 // The copies on the Nomad clients fetch images, and the image service itself, from this

@@ -1,40 +1,52 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { expect } from './errors.js';
 
-const cookie = '__Host-driverhub_session';
-const attributes = 'Path=/; HttpOnly; Secure; SameSite=Strict';
 const lifetime = 8 * 60 * 60 * 1000;
 const digest = id => createHash('sha256').update(id).digest('hex');
 const publicUser = ({ username, role, provider, mustChangePassword }) => ({
   username, role, provider, ...(mustChangePassword && { mustChangePassword: true })
 });
 
-function sessionKey(request) {
-  const value = request.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith(`${cookie}=`));
-  return value && digest(value.slice(cookie.length + 1));
+// By default the session cookie is Secure, which browsers accept over plain HTTP only on localhost.
+// With plain HTTP allowed (DRIVER_HUB_ALLOW_PLAIN_HTTP), it works over HTTP from any host: the
+// __Host- prefix requires Secure, so the cookie is named without it.
+function sessionCookie(plainHttp) {
+  return plainHttp
+    ? { name: 'driverhub_session', attributes: 'Path=/; HttpOnly; SameSite=Strict' }
+    : { name: '__Host-driverhub_session', attributes: 'Path=/; HttpOnly; Secure; SameSite=Strict' };
 }
 
 // Browser writes must be non-simple requests. Keep the API same-origin; never enable arbitrary credentialed CORS.
-export function browserWrite(request) {
+// An http:// origin is accepted for localhost, or for any host when plain HTTP is allowed.
+export function browserWrite(request, plainHttp = false) {
   expect(request.headers['x-driver-hub-request'] === '1', 'Missing browser request header', 403, 'csrf_check_failed');
   expect(request.headers['sec-fetch-site'] !== 'cross-site', 'Cross-site request denied', 403, 'csrf_check_failed');
   const origin = request.headers.origin;
   if (origin) {
     const host = request.headers.host;
-    expect(origin === `https://${host}` || (origin === `http://${host}` && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)),
-      'Unexpected browser origin', 403, 'csrf_check_failed');
+    expect(origin === `https://${host}` || (origin === `http://${host}` &&
+      (plainHttp || /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host))),
+    'Unexpected browser origin', 403, 'csrf_check_failed');
   }
 }
 
 // Providers verify credentials and resolve a current {username, provider, role, revision}.
 // A changed revision invalidates sessions without teaching the HTTP routes about the directory.
 export class OperatorSessions {
-  constructor(provider, now = Date.now) {
+  constructor(provider, now = Date.now, { plainHttp = false } = {}) {
     this.provider = provider;
     this.now = now;
+    this.plainHttp = plainHttp;
+    this.cookie = sessionCookie(plainHttp);
     this.sessions = new Map();
     this.attempts = new Map();
     this.verifying = 0;
+  }
+
+  sessionKey(request) {
+    const { name } = this.cookie;
+    const value = request.headers.cookie?.split(';').map(part => part.trim()).find(part => part.startsWith(`${name}=`));
+    return value && digest(value.slice(name.length + 1));
   }
 
   async verify(request, username, password) {
@@ -59,16 +71,16 @@ export class OperatorSessions {
     const identity = await this.verify(request, input.username, input.password);
     const now = this.now();
     for (const [key, session] of this.sessions) if (session.expires <= now) this.sessions.delete(key);
-    this.sessions.delete(sessionKey(request));
+    this.sessions.delete(this.sessionKey(request));
     expect(this.sessions.size < 10000, 'Session capacity reached', 503);
     const id = randomBytes(32).toString('base64url');
     this.sessions.set(digest(id), { identity, expires: now + lifetime });
-    headers['Set-Cookie'] = `${cookie}=${id}; ${attributes}; Max-Age=${lifetime / 1000}`;
+    headers['Set-Cookie'] = `${this.cookie.name}=${id}; ${this.cookie.attributes}; Max-Age=${lifetime / 1000}`;
     return publicUser(identity);
   }
 
   async current(request) {
-    const key = sessionKey(request);
+    const key = this.sessionKey(request);
     const session = this.sessions.get(key);
     if (session && session.expires > this.now()) {
       const user = await this.provider.resolve(session.identity.username);
@@ -80,8 +92,8 @@ export class OperatorSessions {
   }
 
   logout(request, headers) {
-    this.sessions.delete(sessionKey(request));
-    headers['Set-Cookie'] = `${cookie}=; ${attributes}; Max-Age=0`;
+    this.sessions.delete(this.sessionKey(request));
+    headers['Set-Cookie'] = `${this.cookie.name}=; ${this.cookie.attributes}; Max-Age=0`;
     return { signedOut: true };
   }
 }

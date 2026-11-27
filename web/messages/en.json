@@ -765,6 +765,7 @@
 	"env_DRIVER_HUB_SITE_KEY_FILE": "Site settings key",
 	"env_DRIVER_HUB_BOOTSTRAP_USERNAME": "First administrator's username",
 	"env_DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE": "First administrator's password file",
+	"env_DRIVER_HUB_ALLOW_PLAIN_HTTP": "Sign-in over plain HTTP from other machines",
 	"env_DRIVER_HUB_ADMIN_TOKEN": "Emergency administrator token",
 	"env_unknown": "Other setting",
 

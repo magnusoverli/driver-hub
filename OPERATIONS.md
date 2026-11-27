@@ -6,7 +6,12 @@ Operators use the manager's web app; scripts use the same `/api/v1` endpoints. T
 
 Use the [Docker Compose installation](README.md#deploy-with-docker-compose) with Compose v2.20+ (or newer) and Linux containers. The `linux/amd64` and `linux/arm64` variants each include the manager, built web frontend, Docker CLI/Buildx, and the image-service package for **both** client architectures. Compose selects the platform for the Docker host; the manager's own architecture does not limit which Nomad clients can run drivers.
 
-Compose binds the management UI/API to `127.0.0.1:8080` on the host. For remote browser access, put that listener behind HTTPS and preserve the public `Host` header at the reverse proxy. The manager requires authentication even on loopback. The browser uses a `Secure` session cookie; scripts use [Hub API tokens](#api-tokens).
+Compose publishes the management UI/API on port 8080 on every interface of the host (`DRIVER_HUB_LISTEN_ADDRESS`, default `0.0.0.0`; set `127.0.0.1` to keep it local). Browsers on other machines can use it in one of two ways:
+
+- **Plain HTTP on a trusted network (the default):** open `http://<host>:8080`. `DRIVER_HUB_ALLOW_PLAIN_HTTP` defaults to `true`. The session cookie is then sent without `Secure`, so passwords and sessions cross the network unencrypted. Same-origin and request-header checks still apply.
+- **HTTPS (recommended outside development):** put the listener behind an HTTPS reverse proxy that preserves the public `Host` header. Set `DRIVER_HUB_ALLOW_PLAIN_HTTP=false` so the session cookie is `Secure`, and `DRIVER_HUB_LISTEN_ADDRESS=127.0.0.1` if the proxy runs on the same host.
+
+The manager requires authentication even on loopback. Scripts use [Hub API tokens](#api-tokens).
 
 ### Registry access
 
@@ -51,6 +56,7 @@ The environment holds only what the manager needs before its web interface runs,
 | `DRIVER_HUB_WEB_DIR` | Manager | Built frontend to serve; default `web/build` beside `src/`. Without an `index.html` there, the manager serves only the API. |
 | `DRIVER_HUB_SITE_KEY_FILE` | Manager | Key for the saved site settings; see the end of [site setup](#site-setup-after-container-startup). |
 | `DRIVER_HUB_BOOTSTRAP_USERNAME`, `DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE` | Manager | The first administrator; see [operator sign-in](#operator-sign-in). |
+| `DRIVER_HUB_ALLOW_PLAIN_HTTP` | Manager | Default `true`: browsers on other machines can sign in over plain `http://`, and the session cookie is sent without `Secure`. For trusted networks only. Set `false` behind HTTPS, so the cookie is `Secure` (it then works over HTTP only at `localhost`). In Compose, set it in `.env`. |
 | `DRIVER_HUB_ADMIN_TOKEN` | Manager | Optional emergency administrator bearer token, for when every administrator account is locked out. Prefer API tokens for scripts. |
 
 Saved in the site settings instead:

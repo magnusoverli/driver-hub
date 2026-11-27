@@ -133,3 +133,29 @@ jobs:
           docker tag "$IMAGE@$DIGEST" "$IMAGE"
           docker image save --platform "linux/$ARCH" "$IMAGE" | gzip -1n > "$archive"
           gh release upload "$TAG" "$archive" --repo "$GITHUB_REPOSITORY" --clobber
+
+  attach-compose:
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The attached compose.yaml names this release's image, pinned by digest, so an installation
+      # starts without a .env file. DRIVER_HUB_IMAGE in .env still overrides it.
+      - name: Attach compose.yaml for this release
+        shell: bash
+        env:
+          IMAGE: ${{ needs.publish.outputs.image }}
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir release
+          sed -E "s#^(    image: )\\$\{DRIVER_HUB_IMAGE:\?[^}]*\}#\1\${DRIVER_HUB_IMAGE:-$IMAGE@$DIGEST}#" compose.yaml > release/compose.yaml
+          grep -qF "\${DRIVER_HUB_IMAGE:-$IMAGE@$DIGEST}" release/compose.yaml || { echo "::error::compose.yaml has no DRIVER_HUB_IMAGE line to pin"; exit 1; }
+          resolved=$(cd release && docker compose config --images | grep '^ghcr\.io/')
+          [ "$resolved" = "$IMAGE@$DIGEST" ] || { echo "::error::Resolved $resolved, expected $IMAGE@$DIGEST"; exit 1; }
+          gh release upload "$TAG" release/compose.yaml --repo "$GITHUB_REPOSITORY" --clobber

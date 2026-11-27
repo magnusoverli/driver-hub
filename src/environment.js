@@ -19,6 +19,7 @@ export function readEnvironment(env = process.env) {
     ['DRIVER_HUB_SITE_KEY_FILE', join(siteDir, 'site.key')],
     ['DRIVER_HUB_BOOTSTRAP_USERNAME', 'admin'],
     ['DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE', null],
+    ['DRIVER_HUB_ALLOW_PLAIN_HTTP', 'true'],
     ['DRIVER_HUB_ADMIN_TOKEN', null, true]
   ].map(([name, fallback, secret = false]) => {
     const set = value(name);
@@ -41,6 +42,9 @@ export function readEnvironment(env = process.env) {
     siteKeyFile: value('DRIVER_HUB_SITE_KEY_FILE'),
     bootstrapUsername: effective.DRIVER_HUB_BOOTSTRAP_USERNAME,
     bootstrapPasswordFile: value('DRIVER_HUB_BOOTSTRAP_PASSWORD_FILE'),
+    // Sign-in over plain HTTP from any host, the default while Hub is in development. Set it to
+    // false behind HTTPS so the session cookie is Secure.
+    plainHttp: effective.DRIVER_HUB_ALLOW_PLAIN_HTTP === 'true',
     adminToken: value('DRIVER_HUB_ADMIN_TOKEN')
   };
 }
