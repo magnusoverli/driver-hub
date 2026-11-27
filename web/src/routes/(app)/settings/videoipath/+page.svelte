@@ -51,6 +51,7 @@
 	const devices = $derived(new Map((deployments.data ?? []).map((d) => [d.nodeId, d])));
 
 	let address = $state('');
+	let tls = $state(false);
 	let mode = $state<Mode>('per-device');
 	let tokens = $state('');
 	let sharedToken = $state('');
@@ -120,6 +121,7 @@
 
 	function fill(settings: Site) {
 		address = settings.videoipath.url ?? '';
+		tls = address.startsWith('wss://');
 		mode = settings.videoipath.tokenMode;
 		tokens = sharedToken = '';
 		revision = settings.revision;
@@ -142,7 +144,14 @@
 	const endpointResponded = $derived(
 		check?.state === 'auth_required' || check?.state === 'upgrade_required'
 	);
-	const endpoint = $derived(videoIPathEndpoint(address));
+	const endpoint = $derived(videoIPathEndpoint(address, tls));
+	const secure = $derived(endpoint ? endpoint.startsWith('wss://') : tls);
+
+	function changeTls(enabled: boolean) {
+		tls = enabled;
+		// Preserve an explicit port, even when it was the old scheme's default.
+		address = address.trim().replace(/^(?:https?|wss?):\/\//i, enabled ? 'wss://' : 'ws://');
+	}
 	/** The manager keeps the pool only for the same endpoint and mode; otherwise it starts anew. */
 	const samePool = $derived(
 		current?.url != null && endpoint === current.url && mode === current.tokenMode
@@ -179,7 +188,7 @@
 	function input(): VideoIPathInput {
 		const body: VideoIPathInput = {
 			revision: revision ?? 0,
-			address: address.trim(),
+			address: endpoint ?? address.trim(),
 			tokenMode: mode
 		};
 		if (mode === 'per-device') body.tokens = newTokens;
@@ -370,6 +379,15 @@
 						: m.videoipath_address_hint()}
 					error={addressError}
 				/>
+				<label>
+					<input
+						type="checkbox"
+						checked={secure}
+						onchange={(e) => changeTls(e.currentTarget.checked)}
+					/>
+					{m.videoipath_tls()}
+				</label>
+				<p>{secure ? m.videoipath_tls_on() : m.videoipath_tls_off()}</p>
 				<RadioGroup legend={m.videoipath_mode()} options={modeOptions} bind:value={mode} />
 				{#if mode === 'per-device'}
 					<TextArea

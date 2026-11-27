@@ -41,6 +41,10 @@ test('per-device tokens are added to a pool, and assignments show which device h
 	const form = page.getByRole('region', { name: 'Change the target' });
 	await form.getByLabel('VideoIPath address').fill('vip.site.example');
 	await expect(
+		form.getByText('Drivers will connect to ws://vip.site.example/x-driver/v1.')
+	).toBeVisible();
+	await form.getByLabel('Use TLS (secure WebSocket)').check();
+	await expect(
 		form.getByText('Drivers will connect to wss://vip.site.example/x-driver/v1.')
 	).toBeVisible();
 	const tokens = Array.from({ length: 3 }, (_, i) => `e2e-token-${Date.now()}-${i}`);

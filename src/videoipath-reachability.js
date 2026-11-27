@@ -1,10 +1,13 @@
-import { get } from 'node:https';
+import { get as httpsGet } from 'node:https';
+import { get as httpGet } from 'node:http';
 
 // Ask the saved driver route, not just the TLS listener. No credentials, node_id, upgrade,
 // or redirects: this cannot register a device or displace an existing driver.
 export function checkVideoIPathEndpoint(endpoint, timeoutMs = 4000) {
   const url = new URL(endpoint);
-  url.protocol = 'https:';
+  const secure = url.protocol === 'wss:';
+  url.protocol = secure ? 'https:' : 'http:';
+  const get = secure ? httpsGet : httpGet;
   return new Promise(resolve => {
     const request = get(url, { agent: false, rejectUnauthorized: true }, response => {
       const code = response.statusCode;

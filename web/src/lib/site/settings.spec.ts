@@ -50,14 +50,17 @@ describe('site addresses', () => {
 	});
 
 	it('derives the driver WebSocket endpoint from a VideoIPath address', () => {
-		expect(videoIPathEndpoint('vip.site.example')).toBe('wss://vip.site.example/x-driver/v1');
+		expect(videoIPathEndpoint('vip.site.example')).toBe('ws://vip.site.example/x-driver/v1');
+		expect(videoIPathEndpoint('vip.site.example:8443', true)).toBe(
+			'wss://vip.site.example:8443/x-driver/v1'
+		);
 		expect(videoIPathEndpoint('https://vip.site.example:8443')).toBe(
 			'wss://vip.site.example:8443/x-driver/v1'
 		);
 		expect(videoIPathEndpoint('wss://vip.site.example/x-driver/v1')).toBe(
 			'wss://vip.site.example/x-driver/v1'
 		);
-		expect(videoIPathEndpoint('http://vip.site.example')).toBeNull();
+		expect(videoIPathEndpoint('http://vip.site.example')).toBe('ws://vip.site.example/x-driver/v1');
 		expect(videoIPathEndpoint('wss://vip.site.example/other')).toBeNull();
 	});
 });

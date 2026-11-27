@@ -70,14 +70,17 @@ export function removeToken(api: ApiClient, fingerprint: string, revision: numbe
 	);
 }
 
-function parseEndpoint(value: string): URL | null {
+function parseEndpoint(value: string, scheme = 'https'): URL | null {
 	const trimmed = value.trim();
 	if (!trimmed || /[\s\\?#@]/.test(trimmed)) return null;
 	const explicit = trimmed.includes('://');
 	// A bare IPv6 address needs brackets to become a URL host.
-	const host = !explicit && trimmed.split(':').length > 2 ? `[${trimmed}]` : trimmed;
+	const host =
+		!explicit && !trimmed.startsWith('[') && trimmed.split(':').length > 2
+			? `[${trimmed}]`
+			: trimmed;
 	try {
-		return new URL(explicit ? trimmed : `https://${host}`);
+		return new URL(explicit ? trimmed : `${scheme}://${host}`);
 	} catch {
 		return null;
 	}
@@ -96,11 +99,11 @@ export function nomadOrigin(value: string): string | null {
 }
 
 /** The driver WebSocket endpoint the manager derives from a VideoIPath address. */
-export function videoIPathEndpoint(value: string): string | null {
-	const url = parseEndpoint(value);
-	if (!url || !['wss:', 'https:'].includes(url.protocol)) return null;
+export function videoIPathEndpoint(value: string, tls = false): string | null {
+	const url = parseEndpoint(value, tls ? 'wss' : 'ws');
+	if (!url || !['ws:', 'http:', 'wss:', 'https:'].includes(url.protocol)) return null;
 	if (url.pathname !== '/' && url.pathname !== '/x-driver/v1') return null;
-	return `wss://${url.host}/x-driver/v1`;
+	return `${['https:', 'wss:'].includes(url.protocol) ? 'wss' : 'ws'}://${url.host}/x-driver/v1`;
 }
 
 /** The HTTP(S) origin the manager saves for the Nomad web interface, or null when it would refuse. */

@@ -122,7 +122,7 @@ test('post-start site setup assigns separate durable registration tokens without
   const result = await put('videoipath', vip);
   assert.equal(result.status, 200);
   const view = await result.json();
-  assert.equal(view.videoipath.url, 'wss://vip.example/x-driver/v1');
+  assert.equal(view.videoipath.url, 'ws://vip.example/x-driver/v1');
   assert.equal(view.videoipath.availableTokens, 2);
   assert.equal((await put('videoipath', vip)).status, 409);
   const nodes = [randomUUID(), randomUUID()];
@@ -158,7 +158,7 @@ test('post-start site setup assigns separate durable registration tokens without
   for (const job of jobs.values()) {
     const template = job.TaskGroups[0].Tasks[0].Templates.map(t => t.EmbeddedTmpl).join('\n');
     assert.ok(template.includes(`nomad/jobs/${job.ID}/device/driver`));
-    assert.match(template, /VIDEOIPATH_URL=.*wss:\/\/vip.example\/x-driver\/v1/);
+    assert.match(template, /VIDEOIPATH_URL=.*ws:\/\/vip.example\/x-driver\/v1/);
     assert.match(template, /VIDEOIPATH_TOKEN=.*nomadVar/);
   }
   site = await Site.open(dir, defaults, { client });

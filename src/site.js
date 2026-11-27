@@ -13,11 +13,11 @@ function endpoint(value, service) {
   const explicit = value.includes('://');
   const host = isIP(value) === 6 ? `[${value}]` : value;
   let url;
-  try { url = new URL(explicit ? value : `https://${host}`); } catch { expect(false, 'Invalid endpoint address'); }
   const vip = service === 'videoipath';
-  expect((vip ? ['wss:', 'https:'] : ['http:', 'https:']).includes(url.protocol) &&
+  try { url = new URL(explicit ? value : `${vip ? 'ws' : 'https'}://${host}`); } catch { expect(false, 'Invalid endpoint address'); }
+  expect((vip ? ['ws:', 'http:', 'wss:', 'https:'] : ['http:', 'https:']).includes(url.protocol) &&
     (url.pathname === '/' || (vip && url.pathname === '/x-driver/v1')), 'Invalid endpoint protocol or path');
-  if (vip) return `wss://${url.host}/x-driver/v1`;
+  if (vip) return `${['https:', 'wss:'].includes(url.protocol) ? 'wss' : 'ws'}://${url.host}/x-driver/v1`;
   if (!explicit && !url.port && !host.endsWith(':443')) url.port = '4646';
   return url.origin;
 }
