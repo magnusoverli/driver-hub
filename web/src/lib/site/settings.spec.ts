@@ -50,7 +50,7 @@ describe('site addresses', () => {
 	});
 
 	it('derives the driver WebSocket endpoint from a VideoIPath address', () => {
-		expect(videoIPathEndpoint('vip.site.example')).toBe('ws://vip.site.example/x-driver/v1');
+		expect(videoIPathEndpoint('vip.site.example')).toBe('wss://vip.site.example/x-driver/v1');
 		expect(videoIPathEndpoint('vip.site.example:8443', true)).toBe(
 			'wss://vip.site.example:8443/x-driver/v1'
 		);

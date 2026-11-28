@@ -808,7 +808,7 @@
 	"videoipath_address_hint": "Enter the host and optional port, or paste a ws:// or wss:// driver URL.",
 	"videoipath_tls": "Use TLS (secure WebSocket)",
 	"videoipath_tls_on": "Use the port configured for TLS. The manager verifies the server certificate when checking the endpoint.",
-	"videoipath_tls_off": "Plain WebSocket sends the driver token unencrypted. Use a trusted network and a listener that accepts ws://.",
+	"videoipath_tls_off": "Lab use only: both the driver and the listener must support ws://. The driver token travels unencrypted. The Rust example v0.3.0 requires TLS.",
 	"videoipath_address_resolved": "Drivers will connect to {endpoint}.",
 	"videoipath_tokens_add": "Tokens to add",
 	"videoipath_tokens_new": "Tokens",

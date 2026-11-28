@@ -51,7 +51,7 @@
 	const devices = $derived(new Map((deployments.data ?? []).map((d) => [d.nodeId, d])));
 
 	let address = $state('');
-	let tls = $state(false);
+	let tls = $state(true);
 	let mode = $state<Mode>('per-device');
 	let tokens = $state('');
 	let sharedToken = $state('');
@@ -121,7 +121,7 @@
 
 	function fill(settings: Site) {
 		address = settings.videoipath.url ?? '';
-		tls = address.startsWith('wss://');
+		tls = !address || address.startsWith('wss://');
 		mode = settings.videoipath.tokenMode;
 		tokens = sharedToken = '';
 		revision = settings.revision;

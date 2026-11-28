@@ -14,7 +14,7 @@ function endpoint(value, service) {
   const host = isIP(value) === 6 ? `[${value}]` : value;
   let url;
   const vip = service === 'videoipath';
-  try { url = new URL(explicit ? value : `${vip ? 'ws' : 'https'}://${host}`); } catch { expect(false, 'Invalid endpoint address'); }
+  try { url = new URL(explicit ? value : `${vip ? 'wss' : 'https'}://${host}`); } catch { expect(false, 'Invalid endpoint address'); }
   expect((vip ? ['ws:', 'http:', 'wss:', 'https:'] : ['http:', 'https:']).includes(url.protocol) &&
     (url.pathname === '/' || (vip && url.pathname === '/x-driver/v1')), 'Invalid endpoint protocol or path');
   if (vip) return `${['https:', 'wss:'].includes(url.protocol) ? 'wss' : 'ws'}://${url.host}/x-driver/v1`;

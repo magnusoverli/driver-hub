@@ -40,6 +40,8 @@ test('per-device tokens are added to a pool, and assignments show which device h
 	await signIn(page, ADMIN, '/settings/videoipath');
 	const form = page.getByRole('region', { name: 'Change the target' });
 	await form.getByLabel('VideoIPath address').fill('vip.site.example');
+	await expect(form.getByLabel('Use TLS (secure WebSocket)')).toBeChecked();
+	await form.getByLabel('Use TLS (secure WebSocket)').uncheck();
 	await expect(
 		form.getByText('Drivers will connect to ws://vip.site.example/x-driver/v1.')
 	).toBeVisible();
@@ -94,7 +96,9 @@ test('per-device tokens are added to a pool, and assignments show which device h
 	await page.reload();
 	const released = pool.getByRole('row', { name: /Reserved for a deleted device/ });
 	await released.getByRole('button', { name: /^Remove token/ }).click();
-	await expect(page.getByRole('dialog')).toContainText('whose deployment has been deleted');
+	await expect(page.getByRole('dialog')).toContainText(
+		'reserved for a device that has been deleted'
+	);
 	await page.getByRole('dialog').getByRole('button', { name: 'Remove token' }).click();
 	await expect(released).toHaveCount(0);
 });

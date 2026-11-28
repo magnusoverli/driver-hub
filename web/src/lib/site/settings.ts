@@ -99,7 +99,7 @@ export function nomadOrigin(value: string): string | null {
 }
 
 /** The driver WebSocket endpoint the manager derives from a VideoIPath address. */
-export function videoIPathEndpoint(value: string, tls = false): string | null {
+export function videoIPathEndpoint(value: string, tls = true): string | null {
 	const url = parseEndpoint(value, tls ? 'wss' : 'ws');
 	if (!url || !['ws:', 'http:', 'wss:', 'https:'].includes(url.protocol)) return null;
 	if (url.pathname !== '/' && url.pathname !== '/x-driver/v1') return null;
