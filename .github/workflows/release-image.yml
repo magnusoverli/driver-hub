@@ -91,6 +91,9 @@ jobs:
         with:
           context: .
           target: runtime
+          build-args: |
+            VITE_DRIVER_HUB_VERSION=${{ github.event.release.tag_name }}
+            VITE_DRIVER_HUB_REVISION=${{ github.sha }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.image.outputs.ref }}

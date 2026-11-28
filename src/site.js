@@ -66,7 +66,7 @@ function choose(input, old, key, parse) {
 }
 
 function videoProfile(old, input, url) {
-  const prior = old.videoipath?.url === url ? old.videoipath : null;
+  const prior = old.videoipath;
   const mode = input.tokenMode ?? prior?.mode ?? 'per-device';
   expect(['per-device', 'shared'].includes(mode), 'Invalid token mode');
   const same = prior?.mode === mode;
@@ -75,7 +75,7 @@ function videoProfile(old, input, url) {
     const token = input.token === undefined && same ? prior.token : credential(input.token);
     expect(!old.used[tokenKey(token)] || old.used[tokenKey(token)] === 'shared',
       'A token assigned to an individual device cannot become a shared token', 409);
-    return { mode, token, url, id: same && prior.token === token ? prior.id : randomUUID().replaceAll('-', '') };
+    return { mode, token, url, id: same && prior.url === url && prior.token === token ? prior.id : randomUUID().replaceAll('-', '') };
   }
   expect(input.token === undefined || input.tokens === undefined, 'Supply token or tokens, not both');
   const additions = input.token === undefined ? input.tokens ?? [] : [input.token];
@@ -86,7 +86,7 @@ function videoProfile(old, input, url) {
     expect(old.used[tokenKey(value)] !== 'shared', 'A shared token cannot become a per-device token', 409);
     tokens.add(value);
   }
-  return { mode, tokens: [...tokens], url, id: same ? prior.id : randomUUID().replaceAll('-', '') };
+  return { mode, tokens: [...tokens], url, id: same && prior.url === url ? prior.id : randomUUID().replaceAll('-', '') };
 }
 
 // Link publishes a completely written key without replacing a key won by another writer.

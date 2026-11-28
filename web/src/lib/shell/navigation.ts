@@ -1,5 +1,6 @@
 import type { LucideIcon } from '@lucide/svelte';
 import Activity from '@lucide/svelte/icons/activity';
+import Info from '@lucide/svelte/icons/info';
 import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
 import KeyRound from '@lucide/svelte/icons/key-round';
 import Layers from '@lucide/svelte/icons/layers';
@@ -78,6 +79,14 @@ export const NAVIGATION: readonly NavItem[] = [
 		section: 'site',
 		adminOnly: true,
 		keywords: ['readiness', 'setup', 'site']
+	},
+	{
+		id: 'about',
+		route: '/(app)/about',
+		label: m.nav_about,
+		icon: Info,
+		section: 'site',
+		keywords: ['release', 'version', 'build', 'documentation']
 	},
 	{
 		id: 'setup',

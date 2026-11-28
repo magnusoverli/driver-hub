@@ -154,17 +154,17 @@
 		// Preserve an explicit port, even when it was the old scheme's default.
 		address = address.trim().replace(/^(?:https?|wss?):\/\//i, enabled ? 'wss://' : 'ws://');
 	}
-	/** The manager keeps the pool only for the same endpoint and mode; otherwise it starts anew. */
-	const samePool = $derived(
-		current?.url != null && endpoint === current.url && mode === current.tokenMode
-	);
+	/** Editing the endpoint retains the credentials for the selected mode. */
+	const samePool = $derived(current?.url != null && mode === current.tokenMode);
 	const newTokens = $derived(parseTokens(tokens));
 	const keepsShared = $derived(samePool && mode === 'shared' && current?.tokenConfigured === true);
 	const showTokenField = $derived(
 		!samePool || addingTokens || (current?.pool.length ?? 0) === 0 || newTokens.length > 0
 	);
 	const changed = $derived(
-		!samePool || (mode === 'per-device' ? newTokens.length > 0 : sharedToken.trim() !== '')
+		endpoint !== current?.url ||
+			!samePool ||
+			(mode === 'per-device' ? newTokens.length > 0 : sharedToken.trim() !== '')
 	);
 
 	const addressError = $derived(attempted && !endpoint ? m.videoipath_error_address() : null);
@@ -174,7 +174,9 @@
 		return newTokens.map(tokenProblem).find(Boolean) ?? null;
 	});
 	const sharedError = $derived(
-		attempted && mode === 'shared' && !keepsShared ? tokenProblem(sharedToken.trim()) : null
+		attempted && mode === 'shared' && (!keepsShared || sharedToken.trim() !== '')
+			? tokenProblem(sharedToken.trim())
+			: null
 	);
 
 	const modeOptions = $derived([

@@ -3,6 +3,25 @@ import { ADMIN, FAKE_NOMAD_URL } from '../environment.mjs';
 import { signIn } from '../support';
 import { deleteDeployment, stageWithSite } from './fixture';
 
+test('editing a shared-token endpoint saves without resending the credential', async ({ page }) => {
+	await signIn(page, ADMIN, '/settings/videoipath');
+	await page.getByLabel('VideoIPath address').fill('https://vip.example.test:8443');
+	await page.getByRole('radio', { name: /One shared token/ }).check();
+	await page.getByLabel('Shared token', { exact: true }).fill('fixture-shared-key');
+	const save = page.getByRole('button', { name: 'Save', exact: true });
+	await save.click();
+	await expect(save).toBeDisabled();
+	await page.getByLabel('VideoIPath address').fill('https://vip.example.test:9443');
+	const response = page.waitForResponse(
+		(r) => r.request().method() === 'PUT' && r.url().endsWith('/site/videoipath')
+	);
+	await save.click();
+	const result = await response;
+	expect(result.ok()).toBe(true);
+	expect(result.request().postDataJSON()).not.toHaveProperty('token');
+	await expect(save).toBeDisabled();
+});
+
 test('the Nomad page reports the connection and saves only after reaching the leader', async ({
 	page
 }) => {

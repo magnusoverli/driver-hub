@@ -118,7 +118,7 @@ test('post-start site setup assigns separate durable registration tokens without
   assert.equal((await fetch(`${base}/site`, { headers: { Authorization: 'Bearer reader' } })).status, 403);
   assert.equal((await put('nomad', { revision: 0, address: 'nomad.example', token: 'sample-acl' })).status, 200);
   const values = [randomUUID(), randomUUID()];
-  const plain = await put('videoipath', { revision: 1, address: 'ws://vip.example', tokens: [randomUUID()] });
+  const plain = await put('videoipath', { revision: 1, address: 'ws://vip.example', tokens: [values[0]] });
   assert.equal(plain.status, 200);
   const refused = await fetch(`${base}/deployments`, { method: 'POST',
     headers: { ...headers, 'Idempotency-Key': randomUUID() }, body: JSON.stringify({
@@ -129,7 +129,7 @@ test('post-start site setup assigns separate durable registration tokens without
   assert.equal(jobs.size, 0);
   assert.equal(variables.size, 0);
   assert.equal(site.describe().videoipath.availableTokens, 1);
-  const vip = { revision: (await plain.json()).revision, address: 'vip.example', tokens: values };
+  const vip = { revision: (await plain.json()).revision, address: 'vip.example', tokens: [values[1]] };
   const result = await put('videoipath', vip);
   assert.equal(result.status, 200);
   const view = await result.json();
@@ -192,10 +192,20 @@ test('post-start site setup assigns separate durable registration tokens without
   assert.equal((await stage(retryNode)).status, 200);
   assert.deepEqual(Object.values(variables.get(`/v1/var/nomad/jobs/driverhub-${retryNode}/device/driver`).Items), [extra]);
   assert.equal((await put('videoipath', { revision: site.describe().revision, address: 'next.site', tokenMode: 'shared', token: 'shared-example' })).status, 200);
+  for (const [address, replacement, expected] of [
+    ['next.site:8443', undefined, 'shared-example'], ['new.site', 'replacement-example', 'replacement-example']
+  ]) {
+    const changed = await put('videoipath', { revision: site.describe().revision, address, token: replacement });
+    assert.equal(changed.status, 200);
+    assert.ok(!(await changed.text()).includes(expected));
+    const node = randomUUID();
+    assert.equal((await stage(node)).status, 200);
+    assert.deepEqual(Object.values(variables.get(`/v1/var/nomad/jobs/driverhub-${node}/device/driver`).Items), [expected]);
+  }
   const start = await fetch(`${base}/deployments/${retryNode}/start`, { method: 'POST', headers, body: '{"revision":1}' });
   assert.equal(start.status, 200);
   assert.equal(JSON.parse(jobs.get(`driverhub-${retryNode}`).Meta.spec).videoIPath.url, view.videoipath.url);
-  assert.equal(variables.size, 3);
+  assert.equal(variables.size, 5);
   assert.equal((await stage(randomUUID())).status, 200);
   assert.equal((await stage(randomUUID())).status, 200);
 });

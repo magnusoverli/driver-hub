@@ -7,6 +7,8 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json web/.npmrc ./
 RUN npm ci && npm cache clean --force
 COPY web/ ./
+ARG VITE_DRIVER_HUB_VERSION
+ARG VITE_DRIVER_HUB_REVISION
 RUN npm run build
 
 # The image service Driver Hub runs on every Nomad client: Node.js, Hub's code and its

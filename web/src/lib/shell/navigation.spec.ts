@@ -13,12 +13,14 @@ describe('navigation', () => {
 	it('shows devices and the catalog to everyone, and settings to administrators', () => {
 		expect(sidebarNavigation(visibleNavigation('viewer')).map((item) => item.id)).toEqual([
 			'devices',
-			'catalog'
+			'catalog',
+			'about'
 		]);
 		expect(sidebarNavigation(visibleNavigation('admin')).map((item) => item.id)).toEqual([
 			'devices',
 			'catalog',
-			'settings'
+			'settings',
+			'about'
 		]);
 		expect(visibleNavigation(undefined).some((item) => item.adminOnly)).toBe(false);
 	});
