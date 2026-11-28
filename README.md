@@ -18,6 +18,8 @@ On a fresh installation, open [http://localhost:8080](http://localhost:8080) on 
 
 ## Deploy with Docker Compose
 
+Administrators can check **About → Driver Hub updates**, read the newer release’s notes in the app, or ignore that version. To enable one-click verified updates and rollback for a Linux Compose installation, [set up the optional host updater](OPERATIONS.md#optional-managed-updates-from-about).
+
 The standard installation is **Docker Compose**. The release image includes the manager, web app, Nomad image-service package, Docker CLI and Buildx. Compose starts a dedicated rootless BuildKit worker alongside the manager. **Driver source builds are off by default**; an administrator can turn them on under **Settings → Advanced**, without rebuilding Hub or exposing the host Docker socket.
 
 1. Download **`compose.yaml`** into an installation directory. Either copy works without a `.env`:

@@ -8,6 +8,7 @@
 	import ReauthDialog from '#lib/session/ReauthDialog.svelte';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import AppShell from '#lib/shell/AppShell.svelte';
+	import HubUpdate from '#lib/system/HubUpdate.svelte';
 	import { navItemFor } from '#lib/shell/navigation.js';
 	import Card from '#lib/ui/Card.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
@@ -27,6 +28,7 @@
 	<ChangePasswordDialog open required onChanged={() => (passwordChanged = true)} />
 {:else if session.operator}
 	<AppShell operator={session.operator}>
+		{#if session.isAdmin && page.route.id !== '/(app)/about'}<HubUpdate />{/if}
 		{#if passwordChanged}
 			<Callout tone="ok" live>{m.password_first_login_success()}</Callout>
 		{/if}

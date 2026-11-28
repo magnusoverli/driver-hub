@@ -1,0 +1,22 @@
+[Unit]
+Description=Driver Hub managed Compose updater
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+# Set User, Group, WorkingDirectory and HUB_COMPOSE_PROJECT in a drop-in.
+ExecStart=/usr/bin/node /opt/driver-hub-updater/tools/manage-updates.mjs
+RuntimeDirectory=driver-hub-update
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+StateDirectory=driver-hub-update
+StateDirectoryMode=0700
+UMask=0007
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

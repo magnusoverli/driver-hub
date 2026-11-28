@@ -20,11 +20,16 @@ import { readEnvironment } from './environment.js';
 import { ImageDistribution, packageRoute, readPackages } from './image-distribution.js';
 import { imageHandler } from './distribution.js';
 import { dockerHostFor } from './host-route.js';
+import { HubUpdates } from './hub-updates.js';
 
 // Only what the manager needs before its web interface exists comes from the environment.
 // Everything else is saved in the site settings and changed in the web interface.
 const environment = readEnvironment();
 const { dataDir, host, port, adminToken: token } = environment;
+const build = JSON.parse(await readFile(new URL('../build-info.json', import.meta.url), 'utf8')
+  .catch(e => { if (e.code !== 'ENOENT') throw e; return '{"version":"development","revision":""}'; }));
+const updates = new HubUpdates({ ...build, root: join(dataDir, 'update-preferences'),
+  socket: process.env.DRIVER_HUB_UPDATE_SOCKET });
 const store = new ReleaseStore(join(dataDir, 'releases'));
 const imports = await Imports.open(store);
 const web = await WebApp.open(environment.webDir);
@@ -57,7 +62,7 @@ imageListener.listen(environment.distributionPort, '0.0.0.0', () =>
 distribution.start();
 const server = createApi(new Catalog(new GitHubReleases()), store, {
   get deployments() { return Deployments.forSite(site, deploymentServices); },
-  distribution,
+  distribution, updates,
   get builds() { return site.state.manager.buildsEnabled && site.buildsAvailable ? builder : null; },
   get timings() { return site.state.manager.timings; },
   site, operations, token, apiTokens, sessions, localUsers, web, imports, images: deploymentServices.images,

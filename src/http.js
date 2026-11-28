@@ -68,6 +68,19 @@ async function route(request, catalog, store, services, access, coordinator) {
   const write = fn => coordinator.write(() => fn(services.deployments))
     .finally(() => { services.distribution?.trigger(); });
   const { pathname, searchParams } = new URL(request.url, 'http://localhost');
+  if (pathname === '/api/v1/hub-updates' || pathname.startsWith('/api/v1/hub-updates/')) {
+    expect(access === 'admin', 'Updates require administrator access', 403, 'admin_required');
+    const updates = services.updates, user = request.operator?.username ?? 'api-admin';
+    expect(updates, 'Updates unavailable', 503);
+    if (request.method === 'GET' && pathname.endsWith('/hub-updates')) return updates.status(user);
+    expect(request.method === 'POST', 'Expected POST', 405);
+    if (pathname.endsWith('/check')) return updates.status(user, true);
+    const { version } = await readSettings(request);
+    if (pathname.endsWith('/ignore')) await updates.ignore(user, version);
+    else if (pathname.endsWith('/start')) await updates.start(version, operations);
+    else throw new RequestError(404, 'Unknown update action');
+    return { accepted: true };
+  }
   const upload = /^\/api\/v1\/imports\/([^/]+)\/([^/]+)$/.exec(pathname);
   if (upload) {
     expect(access === 'admin', 'Image imports require administrator access', 403, 'admin_required');
@@ -295,6 +308,9 @@ async function authorize(request, { token, apiTokens, sessions, localUsers }) {
 
 async function dispatch(request, headers, catalog, store, services, coordinator) {
   const { pathname } = new URL(request.url, 'http://localhost');
+  // Public, read-only readiness used by the independent host verifier after boot.
+  if (pathname === '/api/v1/build' && request.method === 'GET')
+    return { version: services.updates?.version ?? 'development', revision: services.updates?.revision ?? '' };
   const { sessions, localUsers } = services;
   if (pathname.startsWith('/api/v1/auth/')) {
     expect(sessions, 'Operator sign-in is not configured', 503);
@@ -314,14 +330,17 @@ async function dispatch(request, headers, catalog, store, services, coordinator)
         await sessions.verify(request, current.username, currentPassword);
       }
       expect(typeof newPassword === 'string', 'Expected newPassword');
-      const updated = await localUsers.changePassword(current.username, newPassword, current.revision);
+      const change = () => localUsers.changePassword(current.username, newPassword, current.revision);
+      const updated = await (services.updates ? services.updates.write(change) : change());
       if (current.mustChangePassword) return sessions.start(request, updated, headers);
       return sessions.logout(request, headers);
     }
     throw new RequestError(404, 'Unknown authentication route');
   }
   const access = await authorize(request, services);
-  return route(request, catalog, store, services, access, coordinator);
+  const run = () => route(request, catalog, store, services, access, coordinator);
+  return services.updates && request.method !== 'GET' && !pathname.startsWith('/api/v1/hub-updates/')
+    ? services.updates.write(run) : run();
 }
 
 export function createApi(catalog, store, services = {}) {

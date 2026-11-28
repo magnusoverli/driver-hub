@@ -41,6 +41,33 @@ The commands recreate the manager and sign operators out. Reconciliation rolls o
 
 The supplied project name remains `driver-hub-trial` for compatibility. For an installation previously built by `docker compose up --build`, add `DRIVER_HUB_IMAGE` to its existing `.env` before using the new Compose file. Keep any site-specific override file. Accounts are stored in the data volume; the new Compose file does not read the old `DRIVER_HUB_INITIAL_PASSWORD` variable. To continue building locally with the bundled Buildx tools, follow the [local image build](README.md#build-the-manager-image-locally).
 
+### Optional: managed updates from About
+
+The manager checks the **Driver Hub** release feed on demand, cached for six hours. **About → Check now** refreshes at most once a minute. Administrators see the *new version's* notes inside the application; **Ignore** hides that version for that administrator only. A development build does not pretend to be a released version. Notifications work without a host updater. Offline installations can continue to use the manual procedure.
+
+**One-time setup (Linux Docker Compose and systemd):** first upgrade manually to a release containing this feature. Back up the data volume, any external site key, `.env` and Compose files. Install Node.js 22+ at `/usr/bin/node` on the Docker host. The updater runs as the existing Docker/Compose owner (Docker access is privileged); it is not part of the web container.
+
+1. From the matching release checkout, install `tools/manage-updates.mjs` and `src/hub-release.js` under `/opt/driver-hub-updater/`, preserving the `tools/` and `src/` directories. Include `package.json` at that root for ES modules. Install `tools/updates/driver-hub-update.service` under `/etc/systemd/system/`.
+2. Run `systemctl edit driver-hub-update` and configure the actual deployment, for example:
+
+   ```ini
+   [Service]
+   User=magnus
+   Group=1000
+   SupplementaryGroups=docker
+   WorkingDirectory=/home/magnus
+   Environment=HUB_COMPOSE_PROJECT=driver-hub-trial
+   Environment=HUB_COMPOSE_FILES=compose.yaml
+   ```
+
+   Use the existing project name, working directory and **every** active Compose file, in order, colon-separated. The socket group must be accessible to the manager container (normally GID 1000). The service account must be able to atomically edit `.env` in that directory. Avoid shell-exported image pins and nonstandard Compose invocation options. Use a normal `.env` file, not a symlink.
+3. `systemctl daemon-reload && systemctl enable --now driver-hub-update`. In the **existing** manager service, add `DRIVER_HUB_UPDATE_SOCKET: /run/driver-hub-update/control.sock` under `environment` and `/run/driver-hub-update:/run/driver-hub-update:ro` under `volumes`. Keep all other settings, including site CA mounts. Recreate only the manager using the same Compose project, files and data volume. Do **not** mount the Docker socket in the manager.
+4. In **About**, check for updates. Update becomes available for stable official images once the release pipeline publishes the architecture/digest manifest. Existing writes or asynchronous operations must finish first. The manager permits reads but gates writes during the update. A configured but unreachable updater blocks writes until restored or disabled. An installation that needs different services, environment files, a host updater change, or an incompatible data migration should be upgraded manually.
+
+The helper independently checks the official release, pulls by digest, writes the exact pin in `.env`, and recreates only `manager` and `host-route`. It does not replace the Compose file, upgrade BuildKit, or call Nomad lifecycle endpoints. Normal manager startup can reconcile `driverhub-images`. Sessions may require sign-in again. **About** retains the last outcome even if the initiating browser is closed.
+
+The previous official image remains local. Failure during replacement or verification triggers rollback to its **exact digest**, not `latest`. If the helper restarts midway through a replacement, it conservatively restores the previous build. It verifies the backend version and frontend before declaring success. If rollback itself cannot be verified, the helper blocks another update: inspect the Compose services and `/var/lib/driver-hub-update/last.json`, perform the manual recovery above, then stop the helper, archive that journal, and restart it. Rollback restores binaries, not data; keep normal backups. For a release that cannot be rolled back safely on the same data, maintainers must bump `formatEpoch` in `src/hub-release.js` before publishing.
+
 ### Publishing a manager release
 
 Publish a **GitHub Release** from a commit containing [the image workflow](.github/workflows/release-image.yml), using a tag such as `v1.2.3` or `v1.2.3-rc.1` (`alpha.N` and `beta.N` are also accepted). A branch push, a bare Git tag, or saving a draft does not publish an image. A published prerelease gets its own exact tag.

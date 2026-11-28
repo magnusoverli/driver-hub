@@ -43,6 +43,9 @@ RUN node tools/pack-image-service.js /rootfs/amd64 /image-service/amd64 amd64 &&
 
 FROM node:22-alpine AS base
 WORKDIR /app
+ARG VITE_DRIVER_HUB_VERSION
+ARG VITE_DRIVER_HUB_REVISION
+RUN node -e 'require("fs").writeFileSync("build-info.json",JSON.stringify({version:process.env.VITE_DRIVER_HUB_VERSION || "development",revision:process.env.VITE_DRIVER_HUB_REVISION || ""}))'
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY src ./src

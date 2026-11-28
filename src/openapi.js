@@ -137,7 +137,17 @@ const schemas = {
   })
 };
 const submitted = { oneOf: [ref('Submission'), ref('Preview')] };
+const nullable = s => ({ oneOf: [s, { type: 'null' }] });
+const updateStatus = object({ installed: str, checked: nullable(integer), checkError: bool, managed: bool, ignored: str,
+  candidate: nullable(object({ version: str, notes: str, readiness: values('ready', 'publishing', 'manual') })),
+  operation: nullable(object({ phase: str, version: str, message: str }, ['phase', 'version'])) });
+const updateAction = { parameters: [browserRequest], body: object({ version: str }) };
 const paths = {
+  '/build': { get: { ...endpoint('getRunningBuild', object({ version: str, revision: str })), security: [] } },
+  '/hub-updates': { get: endpoint('getHubUpdate', updateStatus) },
+  '/hub-updates/check': { post: endpoint('checkHubUpdate', updateStatus, { parameters: [browserRequest] }) },
+  '/hub-updates/start': { post: endpoint('startHubUpdate', object({ accepted: bool }), updateAction) },
+  '/hub-updates/ignore': { post: endpoint('ignoreHubUpdate', object({ accepted: bool }), updateAction) },
   '/auth/login': { post: { ...endpoint('login', ref('Operator'), { parameters: [browserRequest],
     body: object({ username: str, password: secret }) }), security: [] } },
   '/auth/session': { get: { ...endpoint('getSession', ref('Operator')), security: [{ operatorSession: [] }] } },
