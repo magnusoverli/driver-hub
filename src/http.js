@@ -224,7 +224,7 @@ async function route(request, catalog, store, services, access, coordinator) {
   }
   if (pathname === '/api/v1/releases') {
     if (request.method !== 'GET') throw new RequestError(405, 'Expected GET');
-    return { releases: await catalog.list(searchParams.get('prerelease') === 'true') };
+    return { releases: await catalog.list(searchParams.get('prerelease') === 'true', { named: true }) };
   }
   const match = /^\/api\/v1\/(releases|retained)\/([^/]+)\/([^/]+)(?:\/(validate|deploy-form))?$/.exec(pathname);
   if (!match) throw new RequestError(404, 'Unknown route');

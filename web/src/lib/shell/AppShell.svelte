@@ -13,8 +13,14 @@
 	import ChangePasswordDialog from '#lib/session/ChangePasswordDialog.svelte';
 	import type { Operator } from '#lib/session/auth-service.js';
 	import { getSession } from '#lib/session/session.svelte.js';
-	import { capabilitiesQuery, nomadConnectionQuery } from '#lib/system/queries.js';
+	import {
+		capabilitiesQuery,
+		imageDistributionQuery,
+		nomadConnectionQuery
+	} from '#lib/system/queries.js';
+	import { siteReadiness } from '#lib/system/readiness.js';
 	import CommandPalette from './CommandPalette.svelte';
+	import { recordLanding } from './landing';
 	import { paletteNavigation, sidebarNavigation, visibleNavigation } from './navigation';
 	import SideNav from './SideNav.svelte';
 	import TopBar from './TopBar.svelte';
@@ -28,6 +34,16 @@
 	const api = getApi();
 	const nomad = createQuery(() => nomadConnectionQuery(api));
 	const capabilities = createQuery(() => capabilitiesQuery(api));
+	const images = createQuery(() => imageDistributionQuery(api));
+	const siteIssues = $derived(
+		siteReadiness({
+			capabilities: capabilities.data,
+			nomad: nomad.data,
+			nomadError: nomad.error,
+			images: images.data,
+			imagesError: images.error
+		}).filter((item) => item.state === 'attention').length
+	);
 	const navigation = $derived(visibleNavigation(operator.role));
 	const sidebar = $derived(sidebarNavigation(navigation));
 	const shortcut = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? '') ? '⌘ K' : 'Ctrl K';
@@ -67,6 +83,7 @@
 		}))
 	);
 
+	recordLanding(page.route.id);
 	afterNavigate(() => (menuOpen = false));
 
 	function onKeydown(event: KeyboardEvent) {
@@ -88,6 +105,8 @@
 	<TopBar
 		{operator}
 		namespace={nomad.data?.state === 'connected' ? nomad.data.namespace : undefined}
+		{siteIssues}
+		canOpenSettings={session.isAdmin}
 		{shortcut}
 		canChangePassword={session.managesOwnPassword}
 		onSearch={() => (paletteOpen = true)}

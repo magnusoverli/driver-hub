@@ -11,6 +11,10 @@ const NUMBER = /^-?\d+$/;
 
 /** Sentences for a single input, unlike the lists of names and codes in lifecycle messages. */
 const fieldCodes: Record<string, () => string> = {
+	plaintext_not_declared: m.compat_plaintext,
+	unsupported_url_scheme: m.compat_scheme,
+	invalid_url: m.compat_url,
+	not_in_enum: m.compat_enum,
 	required: m.configuration_field_required,
 	wrong_type: m.configuration_field_wrong_type,
 	too_short: m.configuration_field_too_short,
@@ -79,6 +83,7 @@ export function localProblem(field: FormField, value: string): string | null {
 			return fieldErrorText('out_of_range');
 	}
 	if (field.type === 'string') {
+		if (field.enum && !field.enum.includes(value)) return fieldErrorText('not_in_enum');
 		const length = [...value].length;
 		if (field.minLength !== undefined && length < field.minLength)
 			return fieldErrorText('too_short');
@@ -123,9 +128,32 @@ export function secretReferences(settings: Settings): string[] {
 		.map((value) => value.secretRef);
 }
 
+/**
+ * A readable name for an input key, such as "Device host" for deviceHost. The key itself is
+ * still shown beside it, since driver documentation refers to inputs by key.
+ */
+export function fieldLabel(name: string): string {
+	const words = name
+		.replace(/[_-]+/g, ' ')
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+		.trim()
+		.split(/\s+/)
+		.map((word, index) =>
+			/^[A-Z0-9]+$/.test(word) && word.length > 1
+				? word
+				: index === 0
+					? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+					: word.toLowerCase()
+		);
+	return words.join(' ') || name;
+}
+
 /** What an input is for, as its driver describes it, then what it accepts. */
 export function fieldHint(field: FormField, variable: string): string {
 	const parts: string[] = [];
+	if (field.url) parts.push(m.compat_schemes({ values: field.url.schemes.join(', ') }));
+	if (field.enum) parts.push(m.compat_choices({ values: field.enum.join(', ') }));
 	if (field.description) parts.push(field.description.trim());
 	if (field.secret) parts.push(m.configuration_hint_secret({ variable }));
 	if (field.default !== undefined)
@@ -139,10 +167,6 @@ export function fieldHint(field: FormField, variable: string): string {
 	// A secret's length bounds describe its value; the operator only enters the name of its key.
 	const length = field.secret ? null : lengthHint(field);
 	if (length) parts.push(length);
-	parts.push(
-		field.env
-			? m.configuration_hint_env({ name: field.env })
-			: m.configuration_hint_file({ path: field.file ?? '' })
-	);
+	parts.push(m.configuration_hint_key({ name: field.name }));
 	return parts.join(' ');
 }

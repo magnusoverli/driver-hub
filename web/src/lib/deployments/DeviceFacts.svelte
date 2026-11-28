@@ -11,31 +11,22 @@
 	const jobId = $derived(`driverhub-${deployment.nodeId}`);
 </script>
 
+<!-- How Nomad runs this device: for troubleshooting, so it lives under Diagnostics. -->
 <Facts>
-	<dt>{m.facts_node_id()}</dt>
-	<dd>
-		<span class="with-copy">
-			<code>{deployment.nodeId}</code>
-			<CopyButton value={deployment.nodeId} label={m.facts_copy_node_id()} />
-		</span>
-	</dd>
-	<dt>{m.facts_driver()}</dt>
-	<dd><code>{deployment.driverId}</code></dd>
-	<dt>{m.facts_version()}</dt>
-	<dd>
-		<span class="mono">{deployment.version}</span>
-		{#if deployment.previousVersion}
-			<span class="secondary">
-				{m.facts_previous_version({ version: deployment.previousVersion })}
-			</span>
-		{/if}
-	</dd>
 	<dt>{m.facts_image()}</dt>
 	<dd>
 		<span class="with-copy">
 			<code title={deployment.image}>{shortDigest(digest)}</code>
 			<CopyButton value={deployment.image} label={m.facts_copy_image()} />
 		</span>
+	</dd>
+	<dt>{m.facts_image_copy()}</dt>
+	<dd>
+		{#if deployment.backupImageClient}
+			{m.facts_image_copy_on({ client: deployment.backupImageClient })}
+		{:else}
+			<span class="secondary">{m.facts_image_copy_none()}</span>
+		{/if}
 	</dd>
 	<dt>{m.facts_job()}</dt>
 	<dd><code>{jobId}</code></dd>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Menu from '@lucide/svelte/icons/menu';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Search from '@lucide/svelte/icons/search';
 	import { resolve } from '$app/paths';
 	import { m } from '#lib/paraglide/messages.js';
@@ -14,6 +15,10 @@
 		operator: Operator;
 		/** The Nomad namespace Hub manages, once known. */
 		namespace?: string;
+		/** Site setup items that need attention; shown in place of the namespace while any do. */
+		siteIssues?: number;
+		/** Whether the operator can open Settings to fix them. */
+		canOpenSettings?: boolean;
 		shortcut: string;
 		canChangePassword: boolean;
 		onSearch: () => void;
@@ -26,6 +31,8 @@
 	let {
 		operator,
 		namespace,
+		siteIssues = 0,
+		canOpenSettings = false,
 		shortcut,
 		canChangePassword,
 		onSearch,
@@ -42,7 +49,20 @@
 			<Logo />
 			<span class="product">Driver Hub</span>
 		</a>
-		{#if namespace}
+		<!-- Site health travels with every page; device pages only show what affects a device. -->
+		{#if siteIssues > 0}
+			{#if canOpenSettings}
+				<a class="scope issues" href={resolve('/(app)/settings')}>
+					<TriangleAlert size={13} aria-hidden="true" />
+					{m.topbar_site_issues({ count: siteIssues })}
+				</a>
+			{:else}
+				<span class="scope issues" title={m.topbar_site_issues_viewer()}>
+					<TriangleAlert size={13} aria-hidden="true" />
+					{m.topbar_site_issues({ count: siteIssues })}
+				</span>
+			{/if}
+		{:else if namespace}
 			<span class="scope mono" title={m.topbar_namespace_title()}>
 				{m.topbar_namespace({ namespace })}
 			</span>
@@ -110,6 +130,26 @@
 		font-size: var(--text-xs);
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.issues {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		background: var(--warn-soft);
+		box-shadow: none;
+		color: var(--warn);
+		font-weight: var(--weight-semibold);
+		text-decoration: none;
+	}
+
+	a.issues:hover {
+		text-decoration: underline;
+	}
+
+	a.issues:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
 	}
 
 	.search {

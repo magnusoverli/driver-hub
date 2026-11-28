@@ -160,6 +160,10 @@ export function actionProblem(error: unknown, stage: 'preview' | 'apply'): Actio
 }
 
 const settingsCodes: Record<string, () => string> = {
+	plaintext_not_declared: m.compat_plaintext,
+	unsupported_url_scheme: m.compat_scheme,
+	invalid_url: m.compat_url,
+	not_in_enum: m.compat_enum,
 	required: m.configuration_error_required,
 	wrong_type: m.configuration_error_wrong_type,
 	too_short: m.configuration_error_too_short,

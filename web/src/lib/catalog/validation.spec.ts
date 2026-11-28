@@ -42,7 +42,8 @@ describe('catalog validation', () => {
 		expect(parseDeclaration('  ')).toEqual({ problem: null });
 		expect(parseDeclaration('{"schemaVersion":1,"inputs":[]}').declaration?.inputs).toEqual([]);
 		expect(parseDeclaration('not json').problem).toMatch(/JSON object/);
-		expect(parseDeclaration('{"schemaVersion":2,"inputs":[]}').problem).toMatch(/JSON object/);
+		expect(parseDeclaration('{"schemaVersion":2,"inputs":[]}').declaration?.inputs).toEqual([]);
+		expect(parseDeclaration('{"schemaVersion":3,"inputs":[]}').problem).toMatch(/JSON object/);
 	});
 
 	it('limits archives to what the manager accepts', () => {

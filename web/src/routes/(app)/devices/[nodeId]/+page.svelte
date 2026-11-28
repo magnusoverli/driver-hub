@@ -50,11 +50,15 @@
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { getNotices } from '#lib/shell/notices.js';
 	import { siteKeys } from '#lib/site/settings.js';
+	import { imageDistributionSummary } from '#lib/system/image-distribution.js';
+	import { imageDistributionQuery } from '#lib/system/queries.js';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import CopyButton from '#lib/ui/CopyButton.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
+	import Facts from '#lib/ui/Facts.svelte';
+	import HelpTip from '#lib/ui/HelpTip.svelte';
 	import IconButton from '#lib/ui/IconButton.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
@@ -108,6 +112,13 @@
 			history.data.every((entry) => entry.requested === 'stopped')
 	);
 	const secrets = $derived(deployment ? secretReferences(deployment.settings) : []);
+	// Tasks Hub cannot do or check for the operator, shown until the driver first runs.
+	const beforeStart = $derived(
+		deployment?.requested === 'stopped' &&
+			(neverStarted || deployment.requiresOriginalStopped) &&
+			(secrets.length > 0 || deployment.requiresOriginalStopped)
+	);
+	const images = createQuery(() => ({ ...imageDistributionQuery(api), enabled: loaded }));
 
 	let action = $state<LifecycleAction>('start');
 	let configure = $state(false);
@@ -131,7 +142,12 @@
 	const current = $derived<Condition>(
 		deployment ? condition(detailStatusInput(deployment)) : 'unavailable'
 	);
-	const running = $derived(current === 'running' || current === 'connected');
+	// A site problem shows here only when it can be why this driver does not run.
+	const imageProblem = $derived(
+		(current === 'starting' || current === 'allocation-failed') &&
+			images.data !== undefined &&
+			images.data.state !== 'ready'
+	);
 	/** What the operator can do next, by condition. */
 	const nextStep: Record<Condition, () => string> = {
 		unavailable: m.device_next_unavailable,
@@ -224,6 +240,16 @@
 			version: deployment.version
 		})}
 	>
+		{#snippet titleAction()}
+			{#if admin}
+				<IconButton
+					size="sm"
+					icon={Pencil}
+					label={deployment.label ? m.action_rename() : m.action_name()}
+					onclick={() => (renameOpen = true)}
+				/>
+			{/if}
+		{/snippet}
 		{#snippet actions()}
 			{#if newer}
 				<Button icon={CircleArrowUp} onclick={() => openAction('update')}>
@@ -271,10 +297,6 @@
 							</DropdownMenu.Item>
 						{/if}
 						{#if admin}
-							<DropdownMenu.Item class="menu-item" onSelect={() => (renameOpen = true)}>
-								<Pencil size={15} aria-hidden="true" />
-								{deployment.label ? m.action_rename() : m.action_name()}
-							</DropdownMenu.Item>
 							<DropdownMenu.Item class="menu-item" onSelect={() => (deleteOpen = true)}>
 								<Trash2 size={15} aria-hidden="true" />
 								{m.delete_action()}
@@ -313,33 +335,45 @@
 						}}
 					/>
 					<p>
-						{neverStarted
-							? m.deployment_staged_body()
-							: current === 'running' &&
-								  deployment.communicationEvidence.reason === 'no_control_check'
-								? m.device_next_no_control_check()
-								: nextStep[current]()}
+						{beforeStart
+							? m.device_next_before_start()
+							: neverStarted
+								? m.deployment_staged_body()
+								: current === 'running' &&
+									  deployment.communicationEvidence.reason === 'no_control_check'
+									? m.device_next_no_control_check()
+									: nextStep[current]()}
 					</p>
-					{#if deployment.requested === 'stopped' && secrets.length}
-						<p>
-							{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
-							<code>{secrets.join(', ')}</code>
-						</p>
-					{/if}
-					{#if deployment.requiresOriginalStopped}
-						<Callout tone="warn" title={m.deployment_migration_title()}>
-							{m.deployment_migration_body()}
+					{#if imageProblem && images.data}
+						<Callout tone="warn" title={m.device_image_problem_title()}>
+							<p>{imageDistributionSummary(images.data)}</p>
+							{#if admin}
+								<a href={resolve('/(app)/settings/nomad')}>{m.device_image_problem_link()}</a>
+							{/if}
 						</Callout>
-					{/if}
-					{#if running}
-						<p class="footnote">
-							{deployment.backupImageClient
-								? m.deployment_copy_verified({ client: deployment.backupImageClient })
-								: m.deployment_copy_pending()}
-						</p>
 					{/if}
 				</div>
 			</Card>
+
+			{#if beforeStart}
+				<Card title={m.device_before_start_title()}>
+					<ol class="tasks">
+						{#if secrets.length}
+							<li>
+								{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
+								<code>{secrets.join(', ')}</code>
+							</li>
+						{/if}
+						{#if deployment.requiresOriginalStopped}
+							<li>
+								<strong>{m.deployment_migration_title()}.</strong>
+								{m.deployment_migration_body()}
+							</li>
+						{/if}
+						<li>{m.device_before_start_run()}</li>
+					</ol>
+				</Card>
+			{/if}
 
 			<Card title={m.deployment_configuration_title()}>
 				{#snippet actions()}
@@ -350,23 +384,45 @@
 					{/if}
 				{/snippet}
 				<ConfigurationList settings={deployment.settings} />
-				<p class="footnote settings-note">
-					{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
-				</p>
+				{#if secrets.length}
+					<p class="footnote settings-note">
+						{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
+					</p>
+				{/if}
 			</Card>
 		</div>
 
 		<div class="column">
-			<Card title={m.device_videoipath_title()}>
-				<p>{m.device_videoipath_body()}</p>
-				<p class="node-id">
-					<code>{deployment.nodeId}</code>
-					<CopyButton value={deployment.nodeId} label={m.facts_copy_node_id()} />
-				</p>
-				<p class="footnote">{m.device_videoipath_note()}</p>
-			</Card>
 			<Card title={m.deployment_device_title()}>
-				<DeviceFacts {deployment} />
+				<Facts>
+					<dt>
+						<span class="with-help">
+							{m.device_videoipath_node_id()}
+							<HelpTip label={m.device_videoipath_node_id()} help={m.device_videoipath_help()} />
+						</span>
+					</dt>
+					<dd>
+						<span class="with-copy">
+							<code>{deployment.nodeId}</code>
+							<CopyButton value={deployment.nodeId} label={m.facts_copy_node_id()} />
+						</span>
+					</dd>
+					<dt>{m.facts_driver()}</dt>
+					<dd>
+						<a href={resolve('/(app)/catalog/[driverId]', { driverId: deployment.driverId })}>
+							{deployment.driverId}
+						</a>
+					</dd>
+					<dt>{m.facts_version()}</dt>
+					<dd>
+						<span class="mono">{deployment.version}</span>
+						{#if deployment.previousVersion}
+							<span class="secondary">
+								{m.facts_previous_version({ version: deployment.previousVersion })}
+							</span>
+						{/if}
+					</dd>
+				</Facts>
 			</Card>
 		</div>
 	</div>
@@ -374,19 +430,23 @@
 	<details class="diagnostics">
 		<summary>{m.deployment_diagnostics_summary()}</summary>
 		<div class="diagnostics-body">
-			<Card
-				title={m.deployment_status_title()}
-				description={m.deployment_status_description()}
-				flush
-			>
-				<StatusHops
-					nodeId={deployment.nodeId}
-					input={{
-						...detailStatusInput(deployment),
-						communicationEvidence: deployment.communicationEvidence
-					}}
-				/>
-			</Card>
+			<div class="layout">
+				<Card
+					title={m.deployment_status_title()}
+					description={m.deployment_status_description()}
+					flush
+				>
+					<StatusHops
+						input={{
+							...detailStatusInput(deployment),
+							communicationEvidence: deployment.communicationEvidence
+						}}
+					/>
+				</Card>
+				<Card title={m.device_technical_title()}>
+					<DeviceFacts {deployment} />
+				</Card>
+			</div>
 
 			<Card flush>
 				<Tabs
@@ -509,16 +569,47 @@
 		color: var(--warn);
 	}
 
-	.node-id {
+	.tasks {
 		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		margin: var(--space-3) 0;
+		flex-direction: column;
+		gap: var(--space-3);
+		margin: 0;
+		padding-left: var(--space-5);
+		color: var(--text-2);
 	}
 
-	.node-id code {
+	.tasks code {
 		overflow-wrap: anywhere;
-		font-size: var(--text-md);
+	}
+
+	.with-help {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+	}
+
+	/* The node ID wraps beside its copy button instead of pushing it to its own line. */
+	.with-copy {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+
+	.with-copy code {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	.with-copy :global(.icon-button) {
+		flex: none;
+		margin-top: -0.3rem;
+	}
+
+	.secondary {
+		display: block;
+		color: var(--text-3);
+		font-size: var(--text-sm);
 	}
 
 	.diagnostics > summary {
@@ -577,10 +668,6 @@
 	.footnote {
 		color: var(--text-3);
 		font-size: var(--text-sm);
-	}
-
-	.status .footnote {
-		color: var(--text-3);
 	}
 
 	.panel-note.footnote {

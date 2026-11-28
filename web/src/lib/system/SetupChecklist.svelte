@@ -35,7 +35,7 @@
 				<Button
 					size="sm"
 					variant={step.id === next ? 'primary' : 'secondary'}
-					href={step.action.href}
+					href={step.action.disabled ? undefined : step.action.href}
 					onclick={step.action.onclick}
 					disabled={step.action.disabled}
 				>

@@ -118,7 +118,18 @@ test('post-start site setup assigns separate durable registration tokens without
   assert.equal((await fetch(`${base}/site`, { headers: { Authorization: 'Bearer reader' } })).status, 403);
   assert.equal((await put('nomad', { revision: 0, address: 'nomad.example', token: 'sample-acl' })).status, 200);
   const values = [randomUUID(), randomUUID()];
-  const vip = { revision: 1, address: 'vip.example', tokens: values };
+  const plain = await put('videoipath', { revision: 1, address: 'ws://vip.example', tokens: [randomUUID()] });
+  assert.equal(plain.status, 200);
+  const refused = await fetch(`${base}/deployments`, { method: 'POST',
+    headers: { ...headers, 'Idempotency-Key': randomUUID() }, body: JSON.stringify({
+      driverId: 'meter', version: '1.0.0', settings: { credential: { secretRef: 'device_key' } }
+    }) });
+  assert.equal(refused.status, 422);
+  assert.ok((await refused.json()).details.fields.some(e => e.code === 'plaintext_not_declared'));
+  assert.equal(jobs.size, 0);
+  assert.equal(variables.size, 0);
+  assert.equal(site.describe().videoipath.availableTokens, 1);
+  const vip = { revision: (await plain.json()).revision, address: 'vip.example', tokens: values };
   const result = await put('videoipath', vip);
   assert.equal(result.status, 200);
   const view = await result.json();

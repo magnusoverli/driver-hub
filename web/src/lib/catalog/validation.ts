@@ -51,7 +51,10 @@ export function parseDeclaration(text: string): {
 	if (!text.trim()) return { problem: null };
 	try {
 		const value = JSON.parse(text) as Partial<Schema<'Declaration'>> | null;
-		if (value?.schemaVersion !== 1 || !Array.isArray(value.inputs)) {
+		if (
+			(value?.schemaVersion !== 1 && value?.schemaVersion !== 2) ||
+			!Array.isArray(value.inputs)
+		) {
 			return { problem: m.catalog_invalid_json() };
 		}
 		return { declaration: value as Schema<'Declaration'>, problem: null };

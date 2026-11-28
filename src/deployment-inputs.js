@@ -59,6 +59,10 @@ export function resolveDeploymentInputs(configuration, settings, nodeId, profile
   for (const field of fields) {
     const value = Object.hasOwn(supplied, field.name) ? supplied[field.name] : field.default;
     if (value === undefined) continue;
+    const registrationUrl = field.name === configuration.videoIPathInputs?.url || field.env === 'VIDEOIPATH_URL';
+    if (registrationUrl && typeof value === 'string' && /^ws:/i.test(value.trim()) && !field.url) {
+      errors.push({ field: field.name, code: 'plaintext_not_declared' });
+    }
     if (typeof value?.secretRef === 'string' && field.secret && value.secretRef.trim() && !secretKey.test(value.secretRef)) {
       errors.push({ field: field.name, code: 'invalid_secret_key' });
     }

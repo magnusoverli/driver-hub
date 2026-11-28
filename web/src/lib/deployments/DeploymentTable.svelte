@@ -18,7 +18,6 @@
 			<th scope="col">{m.deployments_column_device()}</th>
 			<th scope="col">{m.deployments_column_driver()}</th>
 			<th scope="col">{m.deployments_column_status()}</th>
-			<th scope="col">{m.deployments_column_host()}</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -54,13 +53,6 @@
 					</div>
 				</td>
 				<td><ConditionLabel input={row} /></td>
-				<td class="host">
-					{#if row.allocation?.host}
-						<span class="mono">{row.allocation.host}</span>
-					{:else}
-						<span class="none">{m.deployments_no_host()}</span>
-					{/if}
-				</td>
 			</tr>
 		{/each}
 	</tbody>
@@ -101,13 +93,5 @@
 		gap: var(--space-2);
 		color: var(--text-3);
 		font-size: var(--text-sm);
-	}
-
-	.host {
-		white-space: nowrap;
-	}
-
-	.none {
-		color: var(--text-3);
 	}
 </style>

@@ -60,10 +60,40 @@ async function serve(t, catalog, store) {
 test('API discovers published releases, with explicit prerelease opt-in', async t => {
   const base = await serve(t, fixture().catalog);
   const stable = await (await fetch(base)).json();
-  assert.deepEqual(stable.releases, [{ driverId: 'meter', version: '1.0.0', prerelease: false }]);
+  assert.deepEqual(stable.releases, [
+    { driverId: 'meter', version: '1.0.0', prerelease: false, displayName: 'Example meter' }
+  ]);
   const all = await (await fetch(`${base}?prerelease=true`)).json();
   assert.equal(all.releases[1].version, '1.1.0-rc.1');
   assert.equal((await fetch(`${base}/meter/2.0.0`)).status, 404);
+});
+
+test('listing names each driver from one manifest, kept, and lists it without one', async () => {
+  const { release, record } = fixture();
+  const requests = [];
+  let manifestFails = false;
+  const github = new GitHubReleases(async url => {
+    const path = url.slice(url.indexOf('/releases'));
+    requests.push(path);
+    if (path.startsWith('/releases?')) return Response.json([
+      release, { ...release, tag_name: 'drivers/meter/v0.9.0' }
+    ]);
+    if (path === '/releases/assets/1') {
+      return manifestFails ? new Response(null, { status: 503 }) : Response.json(record);
+    }
+    return new Response(null, { status: 404 });
+  });
+  const catalog = new Catalog(github);
+  manifestFails = true;
+  assert.deepEqual((await catalog.list(false, { named: true })).map(entry => entry.displayName),
+    [undefined, undefined]);
+  manifestFails = false;
+  const named = await catalog.list(false, { named: true });
+  assert.deepEqual(named.map(entry => entry.displayName), ['Example meter', 'Example meter']);
+  const reads = requests.filter(path => path === '/releases/assets/1').length;
+  await catalog.list(false, { named: true });
+  assert.equal(requests.filter(path => path === '/releases/assets/1').length, reads);
+  assert.equal((await catalog.list(false)).some(entry => 'displayName' in entry), false);
 });
 
 test('API validates the selected release without echoing supplied values', async t => {

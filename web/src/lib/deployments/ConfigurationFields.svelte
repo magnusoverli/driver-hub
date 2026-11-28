@@ -7,7 +7,8 @@
 		operatorFields,
 		type DeployForm,
 		type FormField,
-		type SettingValues
+		type SettingValues,
+		fieldLabel
 	} from './configuration-form';
 
 	type Props = {
@@ -39,7 +40,8 @@
 
 	function label(field: FormField): string {
 		const optional = !field.required || field.default !== undefined;
-		return optional ? m.configuration_label_optional({ name: field.name }) : field.name;
+		const name = fieldLabel(field.name);
+		return optional ? m.configuration_label_optional({ name }) : name;
 	}
 
 	function booleanOptions(field: FormField) {

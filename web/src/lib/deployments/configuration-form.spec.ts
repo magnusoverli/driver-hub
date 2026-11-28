@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	fieldHint,
+	fieldLabel,
 	fieldProblems,
 	initialValues,
 	localProblem,
@@ -83,14 +84,22 @@ describe('settings form', () => {
 		expect(problems.get('credential')).toMatch(/letters, digits and underscores/);
 	});
 
-	it('describes each input by default, limits and how the driver receives it', () => {
+	it('describes each input by default and limits, ending with its key', () => {
 		const [host, credential, poll, verbose] = form.fields;
-		expect(fieldHint(host, 'nomad/jobs/x')).toBe('Passed as HOST.');
+		expect(fieldHint(host, 'nomad/jobs/x')).toBe('Key: host.');
 		expect(fieldHint(credential, 'nomad/jobs/x')).toMatch(
 			/key in the Nomad Variable nomad\/jobs\/x/
 		);
-		expect(fieldHint(poll, '')).toBe('Default: 5. From 1 to 60. Passed as POLL.');
-		expect(fieldHint(verbose, '')).toBe('Mounted at /run/verbose.');
+		expect(fieldHint(poll, '')).toBe('Default: 5. From 1 to 60. Key: poll.');
+		expect(fieldHint(verbose, '')).toBe('Key: verbose.');
+	});
+
+	it('labels inputs readably and keeps acronyms', () => {
+		expect(fieldLabel('deviceHost')).toBe('Device host');
+		expect(fieldLabel('maxFrameBytes')).toBe('Max frame bytes');
+		expect(fieldLabel('log_level')).toBe('Log level');
+		expect(fieldLabel('deviceURL')).toBe('Device URL');
+		expect(fieldLabel('poll')).toBe('Poll');
 	});
 
 	it("leads with the driver's description and checks length bounds, never on a secret", () => {
@@ -102,10 +111,10 @@ describe('settings form', () => {
 			description: 'Host name of the device.'
 		});
 		expect(fieldHint(device, '')).toBe(
-			'Host name of the device. 3 to 12 characters. Passed as DEVICE_HOST.'
+			'Host name of the device. 3 to 12 characters. Key: deviceHost.'
 		);
 		expect(fieldHint(field({ maxLength: 8, env: 'LEVEL' }), '')).toBe(
-			'At most 8 characters. Passed as LEVEL.'
+			'At most 8 characters. Key: input.'
 		);
 		expect(localProblem(device, 'ab')).toBe('Too short.');
 		expect(localProblem(device, 'a'.repeat(13))).toBe('Too long.');

@@ -1,8 +1,8 @@
 import { compareVersions } from '#lib/deployments/view.js';
 import type { Identity, RetainedRelease } from './queries';
 
-/** A release as the catalog lists it upstream. */
-export type PublishedRelease = Identity & { prerelease: boolean };
+/** A release as the catalog lists it upstream, named when the manager has read its manifest. */
+export type PublishedRelease = Identity & { prerelease: boolean; displayName?: string };
 
 /** Where one version of a driver stands on this Hub. */
 export type VersionState = 'downloaded' | 'downloading' | 'available';
@@ -23,7 +23,7 @@ export interface DriverVersion {
 
 export interface Driver {
 	driverId: string;
-	/** The display name of a downloaded version, else the driver ID. */
+	/** The display name of a downloaded version, else of a published one, else the driver ID. */
 	name: string;
 	/** Newest first. */
 	versions: DriverVersion[];
@@ -60,6 +60,11 @@ export function catalogDrivers({
 	devices = []
 }: CatalogInput): Driver[] {
 	const byDriver = new Map<string, Map<string, DriverVersion>>();
+	const publishedNames = new Map(
+		published.flatMap((release) =>
+			release.displayName ? [[release.driverId, release.displayName] as const] : []
+		)
+	);
 	const versionsOf = (driverId: string) => {
 		let versions = byDriver.get(driverId);
 		if (!versions) byDriver.set(driverId, (versions = new Map<string, DriverVersion>()));
@@ -97,7 +102,7 @@ export function catalogDrivers({
 		const newestDownloaded = versions.find((version) => version.state === 'downloaded');
 		drivers.push({
 			driverId,
-			name: newestDownloaded?.retained?.displayName ?? driverId,
+			name: newestDownloaded?.retained?.displayName ?? publishedNames.get(driverId) ?? driverId,
 			versions,
 			latest: stable ?? versions[0],
 			newestDownloaded,
@@ -116,4 +121,10 @@ export function matchesDriver(driver: Driver, query: string): boolean {
 	return [driver.name, driver.driverId, ...driver.versions.map((v) => v.version)].some((value) =>
 		value.toLocaleLowerCase().includes(needle)
 	);
+}
+
+/** The page that sets up a device with a downloaded release. */
+export function setupPath(base: string, release: Identity): string {
+	const query = new URLSearchParams({ driver: release.driverId, version: release.version });
+	return `${base}?${query.toString()}`;
 }

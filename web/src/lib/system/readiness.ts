@@ -14,13 +14,12 @@ export type ReadinessState =
 	| 'checking';
 
 export interface ReadinessItem {
-	id: 'nomad' | 'videoipath' | 'images' | 'builds';
+	id: 'nomad' | 'videoipath' | 'images';
 	label: string;
 	state: ReadinessState;
 	detail: string;
 	/** Where an administrator changes it in Hub. */
-	settingsRoute?:
-		'/(app)/settings/nomad' | '/(app)/settings/videoipath' | '/(app)/settings/advanced';
+	settingsRoute?: '/(app)/settings/nomad' | '/(app)/settings/videoipath';
 }
 
 export interface ReadinessInput {
@@ -78,6 +77,8 @@ function nomadItem({ nomad, nomadError }: ReadinessInput): ReadinessItem {
 /**
  * What the site needs before drivers can be deployed, in the order an administrator sets it up.
  * Only reports what the manager states; a configured target is not claimed to be reachable.
+ * Without a site VideoIPath target, each device enters its own connection, so it is optional.
+ * Optional features such as source builds are not readiness; they are listed under Advanced.
  */
 export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 	const { capabilities } = input;
@@ -92,18 +93,8 @@ export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 				? checking
 				: capabilities.videoIPathConfigured
 					? { state: 'ready', detail: m.readiness_videoipath_configured() }
-					: { state: 'attention', detail: m.readiness_videoipath_missing() })
+					: { state: 'optional', detail: m.readiness_videoipath_missing() })
 		},
-		imagesItem(input),
-		{
-			id: 'builds',
-			label: m.readiness_builds(),
-			settingsRoute: '/(app)/settings/advanced',
-			...(!capabilities
-				? checking
-				: capabilities.buildsEnabled
-					? { state: 'ready', detail: m.readiness_builds_enabled() }
-					: { state: 'optional', detail: m.readiness_builds_disabled() })
-		}
+		imagesItem(input)
 	];
 }

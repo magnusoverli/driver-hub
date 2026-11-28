@@ -28,6 +28,28 @@ const declaration = () => ({
 const site = { id: 'site1', url: 'wss://vip.site.example/x-driver/v1', mode: 'per-device' };
 const nodeId = '087aa0f0-8ee9-49f0-aa74-127014499fc1';
 
+test('release-specific constraints apply to manual and inherited values without driver ID heuristics', () => {
+  const config = declaration();
+  config.schemaVersion = 2;
+  const field = config.inputs[0];
+  field.url = { schemes: ['wss'], path: '/x-driver/v1', allowCredentials: false, allowQuery: false, allowFragment: false };
+  config.inputs[4].enum = ['info', 'debug'];
+  const ws = { ...site, url: site.url.replace('wss:', 'ws:') };
+  const errors = (p, settings) => deployForm(checkDeclaration(config), { settings }, p).validation.errors;
+  assert.ok(errors(ws, {}).some(e => e.code === 'unsupported_url_scheme'));
+  for (const url of ['https://host/x-driver/v1', 'wss://u:p@host/x-driver/v1', 'wss://host/other',
+    'wss://host/x-driver/v1?', 'wss://host/x-driver/v1#']) {
+    assert.ok(errors(null, { videoipathUrl: url }).some(e => e.field === field.name));
+  }
+  field.url.schemes = ['ws'];
+  assert.ok(!errors(ws, {}).some(e => e.field === field.name));
+  assert.ok(errors(site, {}).some(e => e.code === 'unsupported_url_scheme'));
+  assert.ok(errors(ws, { logLevel: 'INFO' }).some(e => e.code === 'not_in_enum'));
+  config.inputs[4].default = 'typo';
+  assert.throws(() => checkDeclaration(config), /default/);
+  assert.throws(() => checkDeclaration({ ...config, schemaVersion: 1 }), /property/);
+});
+
 test('a declaration with descriptions and length bounds, also on secrets, is accepted as published', () => {
   const checked = checkDeclaration(declaration());
   assert.equal(checked.inputs[0].description, 'Complete wss:// endpoint ending in /x-driver/v1.');

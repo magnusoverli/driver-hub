@@ -837,8 +837,8 @@ export interface components {
             }[];
         };
         Declaration: {
-            /** @constant */
-            schemaVersion: 1;
+            /** @enum {integer} */
+            schemaVersion: 1 | 2;
             nodeIdInput?: string;
             videoIPathInputs?: {
                 url?: string;
@@ -861,6 +861,14 @@ export interface components {
                 maxLength?: number;
                 minimum?: number;
                 maximum?: number;
+                enum?: string[];
+                url?: {
+                    schemes: string[];
+                    path?: string;
+                    allowCredentials?: boolean;
+                    allowQuery?: boolean;
+                    allowFragment?: boolean;
+                };
                 /** @description What the input is for, shown to operators. */
                 description?: string;
             }[];
@@ -880,6 +888,14 @@ export interface components {
                 maxLength?: number;
                 minimum?: number;
                 maximum?: number;
+                enum?: string[];
+                url?: {
+                    schemes: string[];
+                    path?: string;
+                    allowCredentials?: boolean;
+                    allowQuery?: boolean;
+                    allowFragment?: boolean;
+                };
                 /** @description What the input is for, shown to operators. */
                 description?: string;
                 /** @enum {string} */
@@ -2001,6 +2017,7 @@ export interface operations {
                             driverId: string;
                             version: string;
                             prerelease: boolean;
+                            displayName?: string;
                         }[];
                     };
                 };

@@ -3,6 +3,7 @@
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import GitBranch from '@lucide/svelte/icons/git-branch';
 	import History from '@lucide/svelte/icons/history';
+	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import Upload from '@lucide/svelte/icons/upload';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { resolve } from '$app/paths';
@@ -10,7 +11,7 @@
 	import { errorMessage } from '#lib/api/messages.js';
 	import { Acquisitions } from '#lib/catalog/acquisitions.svelte.js';
 	import BuildDialog from '#lib/catalog/BuildDialog.svelte';
-	import { catalogDrivers, matchesDriver, type Driver } from '#lib/catalog/drivers.js';
+	import { catalogDrivers, matchesDriver, setupPath, type Driver } from '#lib/catalog/drivers.js';
 	import ImportDialog from '#lib/catalog/ImportDialog.svelte';
 	import {
 		catalogKeys,
@@ -20,7 +21,6 @@
 		type Identity,
 		type RetainedRelease
 	} from '#lib/catalog/queries.js';
-	import StageDialog from '#lib/catalog/StageDialog.svelte';
 	import { deploymentsQuery } from '#lib/deployments/queries.js';
 	import { operationsQuery } from '#lib/operations/operations.js';
 	import { m } from '#lib/paraglide/messages.js';
@@ -33,6 +33,7 @@
 	import Card from '#lib/ui/Card.svelte';
 	import Checkbox from '#lib/ui/Checkbox.svelte';
 	import FilterTabs from '#lib/ui/FilterTabs.svelte';
+	import IconButton from '#lib/ui/IconButton.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import SearchField from '#lib/ui/SearchField.svelte';
@@ -49,8 +50,6 @@
 	let prerelease = $state(false);
 	let search = $state('');
 	let filter = $state<Filter>('all');
-	let staging = $state<RetainedRelease | null>(null);
-	let stageOpen = $state(false);
 	let importOpen = $state(false);
 	let buildOpen = $state(false);
 
@@ -118,10 +117,7 @@
 
 	const driverPage = (driverId: string) => resolve('/(app)/catalog/[driverId]', { driverId });
 
-	function setUp(release: RetainedRelease) {
-		staging = release;
-		stageOpen = true;
-	}
+	const setUp = (release: RetainedRelease) => setupPath(resolve('/(app)/devices/new'), release);
 
 	function imported({ driverId, version }: Identity) {
 		search = '';
@@ -220,14 +216,12 @@
 		/>
 		<FilterTabs label={m.catalog_filter_label()} items={filterItems} bind:value={filter} />
 		<Checkbox bind:checked={prerelease}>{m.catalog_include_pre()}</Checkbox>
-		<Button
+		<IconButton
 			size="sm"
-			variant="ghost"
+			icon={RefreshCw}
+			label={m.catalog_refresh()}
 			onclick={() => Promise.all([published.refetch(), retained.refetch()])}
-			busy={published.isFetching || retained.isFetching}
-		>
-			{m.catalog_refresh()}
-		</Button>
+		/>
 	</div>
 	{#if retained.error}
 		<div class="panel"><Callout tone="fail" title={errorMessage(retained.error)} live /></div>
@@ -300,7 +294,7 @@
 									<Button
 										size="sm"
 										variant={latest.state === 'downloaded' ? 'primary' : 'secondary'}
-										onclick={() => setUp(release)}
+										href={setUp(release)}
 									>
 										{ready === latest
 											? m.catalog_stage()
@@ -333,9 +327,6 @@
 		busy={acquisitions.submitting || building}
 		submit={(input: BuildInput) => acquisitions.start(input)}
 	/>
-{/if}
-{#if stageOpen && staging}
-	<StageDialog bind:open={stageOpen} release={staging} />
 {/if}
 
 <style>

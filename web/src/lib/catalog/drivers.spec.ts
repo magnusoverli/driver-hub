@@ -15,7 +15,12 @@ describe('catalogDrivers', () => {
 			{ driverId: 'exampleco-meter', version: '1.5.0', prerelease: false },
 			{ driverId: 'exampleco-meter', version: '1.4.0', prerelease: false },
 			{ driverId: 'exampleco-meter', version: '1.6.0-rc.1', prerelease: true },
-			{ driverId: 'rust-example', version: '0.3.0', prerelease: false }
+			{
+				driverId: 'rust-example',
+				version: '0.3.0',
+				prerelease: false,
+				displayName: 'Rust teaching example'
+			}
 		],
 		retained: [
 			retained('exampleco-meter', '1.4.0', 'ExampleCo Meter'),
@@ -33,7 +38,7 @@ describe('catalogDrivers', () => {
 	it('lists each driver once, by name, with its versions newest first', () => {
 		expect(drivers.map((driver) => driver.name)).toEqual([
 			'ExampleCo Meter',
-			'rust-example',
+			'Rust teaching example',
 			'Site probe'
 		]);
 		expect(byId.get('exampleco-meter')?.versions.map((v) => v.version)).toEqual([
@@ -63,6 +68,7 @@ describe('catalogDrivers', () => {
 
 	it('matches drivers by name, ID or version', () => {
 		const meter = byId.get('exampleco-meter')!;
+		expect(matchesDriver(byId.get('rust-example')!, 'teaching')).toBe(true);
 		expect(matchesDriver(meter, 'example')).toBe(true);
 		expect(matchesDriver(meter, '1.5')).toBe(true);
 		expect(matchesDriver(meter, 'gateway')).toBe(false);

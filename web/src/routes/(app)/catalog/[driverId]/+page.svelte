@@ -10,7 +10,8 @@
 	import { getApi } from '#lib/api/context.js';
 	import { errorMessage } from '#lib/api/messages.js';
 	import { Acquisitions } from '#lib/catalog/acquisitions.svelte.js';
-	import { catalogDrivers, type DriverVersion } from '#lib/catalog/drivers.js';
+	import { catalogDrivers, setupPath, type DriverVersion } from '#lib/catalog/drivers.js';
+	import DriverOverview from '#lib/catalog/DriverOverview.svelte';
 	import {
 		catalogKeys,
 		publishedQuery,
@@ -18,7 +19,6 @@
 		type RetainedRelease
 	} from '#lib/catalog/queries.js';
 	import RemoveReleaseDialog from '#lib/catalog/RemoveReleaseDialog.svelte';
-	import StageDialog from '#lib/catalog/StageDialog.svelte';
 	import ConditionLabel from '#lib/deployments/ConditionLabel.svelte';
 	import { freshObservations } from '#lib/deployments/observations.svelte.js';
 	import { deploymentsQuery } from '#lib/deployments/queries.js';
@@ -47,8 +47,6 @@
 
 	const driverId = $derived(page.params.driverId ?? '');
 	let prerelease = $state(false);
-	let staging = $state<RetainedRelease | null>(null);
-	let stageOpen = $state(false);
 	let removing = $state<RetainedRelease | null>(null);
 	let removeOpen = $state(false);
 
@@ -101,10 +99,7 @@
 	const releasePage = (version: string) =>
 		resolve('/(app)/catalog/[driverId]/[version]', { driverId, version });
 
-	function setUp(release: RetainedRelease) {
-		staging = release;
-		stageOpen = true;
-	}
+	const setUp = (release: RetainedRelease) => setupPath(resolve('/(app)/devices/new'), release);
 
 	function download(version: DriverVersion) {
 		void acquisitions.start({ driverId, version: version.version });
@@ -158,7 +153,7 @@
 			{/if}
 			{#if ready?.retained && clusterReady}
 				{@const release = ready.retained}
-				<Button variant="primary" icon={Plus} onclick={() => setUp(release)}>
+				<Button variant="primary" icon={Plus} href={setUp(release)}>
 					{ready === latest
 						? m.catalog_stage()
 						: m.catalog_stage_version({ version: ready.version })}
@@ -186,6 +181,11 @@
 			{errorMessage(published.error)}
 		</Callout>
 	{/if}
+
+	<DriverOverview
+		release={{ driverId, version: (ready ?? latest).version }}
+		downloaded={ready !== undefined}
+	/>
 
 	<div class="layout">
 		<Card title={m.driver_versions_title()} flush>
@@ -229,7 +229,7 @@
 									{#if version.retained}
 										{@const release = version.retained}
 										{#if clusterReady}
-											<Button size="sm" onclick={() => setUp(release)}>{m.catalog_stage()}</Button>
+											<Button size="sm" href={setUp(release)}>{m.catalog_stage()}</Button>
 										{/if}
 										{#if session.isAdmin}
 											<IconButton
@@ -288,9 +288,6 @@
 	</div>
 {/if}
 
-{#if stageOpen && staging}
-	<StageDialog bind:open={stageOpen} release={staging} />
-{/if}
 {#if removing && session.isAdmin}
 	<RemoveReleaseDialog bind:open={removeOpen} release={removing} onRemoved={removed} />
 {/if}

@@ -32,6 +32,8 @@ const fieldProperties = {
   name: str, type: values('string', 'integer', 'boolean'), required: bool,
   default: { type: ['string', 'integer', 'boolean'] }, env: str, file: str, secret: bool,
   minLength: integer, maxLength: integer, minimum: integer, maximum: integer,
+  enum: array(str), url: object({ schemes: array(str), path: str, allowCredentials: bool,
+    allowQuery: bool, allowFragment: bool }, ['schemes']),
   description: { type: 'string', maxLength: 1000, description: 'What the input is for, shown to operators.' }
 };
 const preview = { name: 'dryRun', in: 'query', schema: bool, description: 'Plan without publishing or registering a job.' };
@@ -91,7 +93,7 @@ const schemas = {
   Error: object({ error: str, code: str, details: anyObject }, ['error', 'code']),
   Validation: object({ valid: bool, errors: fieldErrors }),
   Declaration: object({
-    schemaVersion: { const: 1 }, nodeIdInput: str, videoIPathInputs: object({ url: str, token: str }, []), controlHealth: object({ port: integer, path: str }),
+    schemaVersion: { type: 'integer', enum: [1, 2] }, nodeIdInput: str, videoIPathInputs: object({ url: str, token: str }, []), controlHealth: object({ port: integer, path: str }),
     inputs: array(object(fieldProperties, ['name', 'type', 'required']))
   }, ['schemaVersion', 'inputs']),
   DeployForm: object({ inheritsSite: bool, fields: array(object({
@@ -194,7 +196,8 @@ const paths = {
   })) },
   '/operations': { get: endpoint('listOperations', object({ operations: array(ref('Operation')) })) },
   '/operations/{id}': { get: endpoint('getOperation', ref('Operation'), { parameters: [path('id')] }) },
-  '/releases': { get: endpoint('listReleases', object({ releases: array(object({ ...identity, prerelease: bool })) }),
+  '/releases': { get: endpoint('listReleases', object({ releases: array(object({ ...identity, prerelease: bool, displayName: str },
+    ['driverId', 'version', 'prerelease'])) }),
     { parameters: [{ name: 'prerelease', in: 'query', schema: bool }] }) },
   '/retained': { get: endpoint('listRetained', object({ releases: array(object({ ...identity, displayName: str, digest: str, origin: str })) })) },
   '/updates': { get: endpoint('listUpdates', object({ updates: array(object({ ...identity, nodeId: uuid, availableVersion: str })) })) },

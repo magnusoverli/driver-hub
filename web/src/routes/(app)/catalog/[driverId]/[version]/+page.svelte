@@ -15,7 +15,7 @@
 	import { catalogKeys, releaseQuery } from '#lib/catalog/queries.js';
 	import ReleaseInputs from '#lib/catalog/ReleaseInputs.svelte';
 	import RemoveReleaseDialog from '#lib/catalog/RemoveReleaseDialog.svelte';
-	import StageDialog from '#lib/catalog/StageDialog.svelte';
+	import { setupPath } from '#lib/catalog/drivers.js';
 	import { deploymentsQuery } from '#lib/deployments/queries.js';
 	import { deviceName, shortDigest } from '#lib/deployments/view.js';
 	import { operationKeys } from '#lib/operations/operations.js';
@@ -73,7 +73,6 @@
 		(!notRetained && retained.error) || (notRetained && !notFound && published.error) || null
 	);
 
-	let stageOpen = $state(false);
 	let removeOpen = $state(false);
 	let downloading = $state(false);
 	let notice = $state<string | null>(null);
@@ -135,7 +134,11 @@
 		{#snippet actions()}
 			{#if retained.data}
 				{#if clusterReady}
-					<Button variant="primary" icon={Plus} onclick={() => (stageOpen = true)}>
+					<Button
+						variant="primary"
+						icon={Plus}
+						href={setupPath(resolve('/(app)/devices/new'), identity)}
+					>
 						{m.catalog_stage()}
 					</Button>
 				{/if}
@@ -254,9 +257,6 @@
 		</div>
 	</div>
 
-	{#if stageOpen}
-		<StageDialog bind:open={stageOpen} release={{ ...identity, displayName: record.displayName }} />
-	{/if}
 	{#if session.isAdmin && retained.data}
 		<RemoveReleaseDialog
 			bind:open={removeOpen}

@@ -19,13 +19,25 @@ function valueError(field, value) {
     return;
   }
   if (field.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== field.type) return 'wrong_type';
+  if (field.enum && !field.enum.includes(value)) return 'not_in_enum';
+  if (field.url) {
+    const rule = field.url;
+    let url;
+    try { url = new URL(value); } catch { return 'invalid_url'; }
+    if (!url.hostname || !/^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /[\s\\]/.test(value)) return 'invalid_url';
+    if (!rule.schemes.includes(url.protocol.slice(0, -1))) return 'unsupported_url_scheme';
+    if ((rule.path !== undefined && url.pathname !== rule.path) ||
+      (rule.allowCredentials === false && /:\/\/[^/?#]*@/.test(value)) ||
+      (rule.allowQuery === false && value.split('#')[0].includes('?')) ||
+      (rule.allowFragment === false && value.includes('#'))) return 'invalid_url';
+  }
   if (field.type === 'string' && [...value].length < (field.minLength ?? 0)) return 'too_short';
   if (field.type === 'string' && [...value].length > (field.maxLength ?? Infinity)) return 'too_long';
   if (value < field.minimum || value > field.maximum) return 'out_of_range';
 }
 
 export function checkDeclaration(declaration) {
-  requireRelease(declaration?.schemaVersion === 1 && Array.isArray(declaration.inputs),
+  requireRelease([1, 2].includes(declaration?.schemaVersion) && Array.isArray(declaration.inputs),
     'Unsupported configuration declaration');
   if (declaration.controlHealth !== undefined) {
     const h = declaration.controlHealth;
@@ -38,7 +50,22 @@ export function checkDeclaration(declaration) {
   for (const field of declaration.inputs) {
     requireRelease(isObject(field) && typeof field.name === 'string' && /^[A-Za-z][\w.-]*$/.test(field.name) &&
       !names.has(field.name), 'Invalid or duplicate input name');
-    requireRelease(Object.keys(field).every(key => fieldProperties.has(key)), 'Unsupported input property');
+    requireRelease(Object.keys(field).every(key => fieldProperties.has(key) ||
+      (declaration.schemaVersion === 2 && ['enum', 'url'].includes(key))), 'Unsupported input property');
+    if (field.enum !== undefined || field.url !== undefined) {
+      requireRelease(field.type === 'string' && !field.secret, 'Constraints require a non-secret string');
+      const distinct = list => Array.isArray(list) && list.length > 0 &&
+        list.every(x => typeof x === 'string' && x.length > 0) && new Set(list).size === list.length;
+      if (field.enum !== undefined) requireRelease(distinct(field.enum), 'Invalid string enum');
+      if (field.url !== undefined) {
+        const r = field.url;
+        requireRelease(isObject(r) && Object.keys(r).every(k => ['schemes', 'path', 'allowCredentials', 'allowQuery', 'allowFragment'].includes(k)) &&
+          distinct(r.schemes) && r.schemes.every(s => /^[a-z][a-z0-9+.-]*$/.test(s)) &&
+          (r.path === undefined || (typeof r.path === 'string' && /^\/[^\s\\?#]*$/.test(r.path))) &&
+          ['allowCredentials', 'allowQuery', 'allowFragment'].every(k => r[k] === undefined || typeof r[k] === 'boolean'),
+        'Invalid URL constraint');
+      }
+    }
     names.add(field.name);
     requireRelease(['string', 'integer', 'boolean'].includes(field.type) && typeof field.required === 'boolean',
       'Invalid input type or required flag');

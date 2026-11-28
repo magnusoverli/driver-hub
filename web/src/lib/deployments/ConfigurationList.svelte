@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
 	import Badge from '#lib/ui/Badge.svelte';
+	import { fieldLabel } from './configuration-form';
 	import type { Deployment } from './queries';
 
 	let { settings }: { settings: Deployment['settings'] } = $props();
@@ -15,7 +16,7 @@
 	<dl class="settings">
 		{#each entries as [name, value] (name)}
 			<div class="setting">
-				<dt class="mono">{name}</dt>
+				<dt>{fieldLabel(name)} <span class="key mono">{name}</span></dt>
 				<dd>
 					{#if typeof value === 'object'}
 						<Badge>{m.configuration_secret_reference()}</Badge>
@@ -44,6 +45,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+	}
+
+	.key {
+		margin-left: var(--space-1);
+		font-size: var(--text-xs);
 	}
 
 	dt {

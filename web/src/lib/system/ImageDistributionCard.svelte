@@ -8,12 +8,20 @@
 	import Facts from '#lib/ui/Facts.svelte';
 	import { imageDistributionSummary, imageStateLabel, imageStateTone } from './image-distribution';
 	import { imageDistributionQuery } from './queries';
+	import type { Snippet } from 'svelte';
+	import HelpTip from '#lib/ui/HelpTip.svelte';
+
+	/** Settings for distribution, shown with its status. */
+	let { children }: { children?: Snippet } = $props();
 
 	const api = getApi();
 	const images = createQuery(() => imageDistributionQuery(api));
 </script>
 
 <Card title={m.images_title()} description={m.images_description()}>
+	{#snippet actions()}
+		<HelpTip label={m.images_title()} help={m.images_note()} />
+	{/snippet}
 	{#if images.error}
 		<Callout tone="fail" live>
 			{m.readiness_images_unknown({ detail: images.error.message })}
@@ -57,12 +65,17 @@
 			</div>
 		{/if}
 	{/if}
-	<p class="footnote">{m.images_note()}</p>
+	{#if children}<div class="settings">{@render children()}</div>{/if}
 </Card>
 
 <style>
-	.detail,
-	.footnote {
+	.settings {
+		margin-top: var(--space-4);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--border);
+	}
+
+	.detail {
 		color: var(--text-2);
 		font-size: var(--text-sm);
 	}
@@ -84,11 +97,5 @@
 		margin: var(--space-1) 0 0;
 		padding-left: var(--space-5);
 		color: var(--text-2);
-	}
-
-	.footnote {
-		margin-top: var(--space-4);
-		padding-top: var(--space-3);
-		border-top: 1px solid var(--border);
 	}
 </style>

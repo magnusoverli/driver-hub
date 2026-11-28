@@ -43,19 +43,18 @@ describe('site readiness', () => {
 		expect(new Set(items.map((item) => item.state))).toEqual(new Set(['checking']));
 	});
 
-	it('is ready when everything required is configured, with builds optional', () => {
+	it('is ready when everything required is configured', () => {
 		const items = siteReadiness(input());
 		expect(states(items)).toEqual({
 			nomad: 'ready',
 			videoipath: 'ready',
-			images: 'ready',
-			builds: 'optional'
+			images: 'ready'
 		});
 		expect(items[0].detail).toContain('driverhub');
 		expect(items[2].detail).toBe('Running on 4 clients, each holding every image.');
 	});
 
-	it('flags missing configuration and a cluster without a leader', () => {
+	it('flags a cluster without a leader, and a missing VideoIPath target as optional', () => {
 		const items = siteReadiness(
 			input({
 				capabilities: { ...capabilities, videoIPathConfigured: false, buildsEnabled: true },
@@ -65,9 +64,8 @@ describe('site readiness', () => {
 		);
 		expect(states(items)).toEqual({
 			nomad: 'attention',
-			videoipath: 'attention',
-			images: 'attention',
-			builds: 'ready'
+			videoipath: 'optional',
+			images: 'attention'
 		});
 	});
 
@@ -106,8 +104,7 @@ describe('site readiness', () => {
 		expect(items.map((item) => item.settingsRoute)).toEqual([
 			'/(app)/settings/nomad',
 			'/(app)/settings/videoipath',
-			'/(app)/settings/nomad',
-			'/(app)/settings/advanced'
+			'/(app)/settings/nomad'
 		]);
 	});
 });

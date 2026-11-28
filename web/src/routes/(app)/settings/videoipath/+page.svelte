@@ -25,11 +25,11 @@
 	import { capabilitiesQuery, systemKeys } from '#lib/system/queries.js';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
+	import Checkbox from '#lib/ui/Checkbox.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import ConfirmDialog from '#lib/ui/ConfirmDialog.svelte';
 	import CopyButton from '#lib/ui/CopyButton.svelte';
 	import IconButton from '#lib/ui/IconButton.svelte';
-	import Facts from '#lib/ui/Facts.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import RadioGroup from '#lib/ui/RadioGroup.svelte';
@@ -60,6 +60,8 @@
 	let busy = $state(false);
 	let problem = $state<SiteProblem | null>(null);
 	let saved = $state<string | null>(null);
+	/** Shows the field for more tokens; a new target or an empty pool always shows it. */
+	let addingTokens = $state(false);
 	type Check = ResponseBody<'/site/videoipath/check', 'post'>;
 	let check = $state<
 		Check | { endpoint: string; state: 'checking' | 'unknown'; httpStatus: null } | null
@@ -158,6 +160,9 @@
 	);
 	const newTokens = $derived(parseTokens(tokens));
 	const keepsShared = $derived(samePool && mode === 'shared' && current?.tokenConfigured === true);
+	const showTokenField = $derived(
+		!samePool || addingTokens || (current?.pool.length ?? 0) === 0 || newTokens.length > 0
+	);
 	const changed = $derived(
 		!samePool || (mode === 'per-device' ? newTokens.length > 0 : sharedToken.trim() !== '')
 	);
@@ -231,12 +236,19 @@
 {:else if !site.data || !current}
 	<Card><Loading label={m.site_loading()} /></Card>
 {:else}
-	<div class="layout">
-		<div class="column">
-			{#if removedNotice}<Callout title={removedNotice} live>
-					{m.videoipath_token_revoke()}
-				</Callout>{/if}
-			<Card title={m.videoipath_current_title()}>
+	<!-- One form: where drivers connect, and the credentials they connect with. -->
+	<form class="stack" onsubmit={submit} novalidate>
+		{#if removedNotice}<Callout title={removedNotice} live>
+				{m.videoipath_token_revoke()}
+			</Callout>{/if}
+		{#if problem}
+			<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
+				{problem.message}
+			</Callout>
+		{/if}
+
+		<Card title={m.videoipath_connection_title()} description={m.videoipath_form_description()}>
+			<div class="form">
 				{#if current.url && check && check.endpoint === current.url}
 					<Callout
 						tone={check.state === 'checking' ? 'info' : endpointResponded ? 'ok' : 'warn'}
@@ -247,125 +259,19 @@
 								: m.videoipath_status_problem()}
 						live
 					>
-						{checkMessage[check.state]({ endpoint: check.endpoint, code: check.httpStatus ?? '—' })}
-					</Callout>
-				{/if}
-				<Facts>
-					<dt>{m.videoipath_endpoint()}</dt>
-					<dd>
-						{#if current.url}<code>{current.url}</code>{:else}{m.site_not_set()}{/if}
-					</dd>
-					<dt>{m.videoipath_mode()}</dt>
-					<dd>
-						{current.tokenMode === 'shared'
-							? m.videoipath_mode_shared()
-							: m.videoipath_mode_per_device()}
-					</dd>
-					<dt>{m.videoipath_pool()}</dt>
-					<dd>
-						{#if !current.url}
-							{m.site_not_set()}
-						{:else if current.tokenMode === 'shared'}
-							{current.tokenConfigured ? m.site_token_saved() : m.site_token_none()}
-						{:else}
-							{m.videoipath_pool_counts({
-								available: current.availableTokens ?? 0,
-								assigned: current.assignments.length
+						<p>
+							{checkMessage[check.state]({
+								endpoint: check.endpoint,
+								code: check.httpStatus ?? '—'
 							})}
-						{/if}
-					</dd>
-				</Facts>
-				{#if current.url && current.tokenMode === 'per-device' && current.availableTokens === 0}
-					<div class="spaced">
-						<Callout tone="warn" title={m.videoipath_pool_empty_title()}>
-							{m.videoipath_pool_empty_body()}
-						</Callout>
-					</div>
-				{/if}
-				{#if current.url}
-					<div class="footnote">
+						</p>
 						<Button
-							disabled={busy || check?.state === 'checking'}
+							size="sm"
+							disabled={busy || check.state === 'checking'}
 							onclick={() => current?.url && checkSavedTarget(current.url)}
 						>
 							{m.videoipath_check_again()}
 						</Button>
-					</div>
-				{/if}
-			</Card>
-
-			{#if current.tokenMode === 'per-device' && current.pool.length}
-				<Card
-					title={m.videoipath_pool_title()}
-					description={m.videoipath_assignments_description()}
-					flush
-				>
-					<Table label={m.videoipath_pool_title()}>
-						<thead>
-							<tr>
-								<th scope="col">{m.videoipath_assignment_fingerprint()}</th>
-								<th scope="col">{m.videoipath_token_status()}</th>
-								<th scope="col"><span class="visually-hidden">{m.users_column_actions()}</span></th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each current.pool as token (token.tokenFingerprint)}
-								{@const device = token.nodeId ? devices.get(token.nodeId) : undefined}
-								{@const gone = token.nodeId !== null && deployments.isSuccess && !device}
-								<tr>
-									<td>
-										<span class="fingerprint">
-											<code title={token.tokenFingerprint}>
-												{token.tokenFingerprint.slice(0, 16)}…
-											</code>
-											<CopyButton
-												value={token.tokenFingerprint}
-												label={m.videoipath_copy_fingerprint()}
-											/>
-										</span>
-									</td>
-									<td>
-										{#if token.nodeId === null}
-											{m.videoipath_token_unused()}
-										{:else if gone}
-											<span class="gone">
-												{m.videoipath_token_deleted({ nodeId: shortId(token.nodeId) })}
-											</span>
-										{:else}
-											{m.videoipath_token_reserved()}
-											<a href={resolve('/(app)/devices/[nodeId]', { nodeId: token.nodeId })}>
-												{device ? deviceName(device) : shortId(token.nodeId)}
-											</a>
-										{/if}
-									</td>
-									<td class="action">
-										{#if token.nodeId === null || gone}
-											<IconButton
-												size="sm"
-												icon={Trash2}
-												label={m.videoipath_token_remove_label({
-													fingerprint: token.tokenFingerprint.slice(0, 16)
-												})}
-												onclick={() => {
-													removing = token;
-													removeOpen = true;
-												}}
-											/>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</Table>
-				</Card>
-			{/if}
-		</div>
-
-		<Card title={m.videoipath_form_title()} description={m.videoipath_form_description()}>
-			<form class="form" onsubmit={submit} novalidate>
-				{#if problem}
-					<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
-						{problem.message}
 					</Callout>
 				{/if}
 				<TextField
@@ -379,28 +285,116 @@
 						: m.videoipath_address_hint()}
 					error={addressError}
 				/>
-				<label>
-					<input
-						type="checkbox"
-						checked={secure}
-						onchange={(e) => changeTls(e.currentTarget.checked)}
-					/>
+				<Checkbox
+					checked={secure}
+					onchange={(event: Event & { currentTarget: HTMLInputElement }) =>
+						changeTls(event.currentTarget.checked)}
+					hint={secure ? m.videoipath_tls_on() : m.videoipath_tls_off()}
+				>
 					{m.videoipath_tls()}
-				</label>
-				<p>{secure ? m.videoipath_tls_on() : m.videoipath_tls_off()}</p>
+				</Checkbox>
+			</div>
+		</Card>
+
+		<Card
+			title={m.videoipath_tokens_title()}
+			description={samePool && current.tokenMode === 'per-device'
+				? m.videoipath_pool_counts({
+						available: current.availableTokens ?? 0,
+						assigned: current.assignments.length
+					})
+				: undefined}
+		>
+			<div class="form">
 				<RadioGroup legend={m.videoipath_mode()} options={modeOptions} bind:value={mode} />
 				{#if mode === 'per-device'}
-					<TextArea
-						label={samePool ? m.videoipath_tokens_add() : m.videoipath_tokens_new()}
-						bind:value={tokens}
-						code
-						spellcheck={false}
-						autocomplete="off"
-						hint={newTokens.length
-							? m.videoipath_tokens_count({ count: newTokens.length })
-							: m.videoipath_tokens_hint()}
-						error={tokensError}
-					/>
+					{#if samePool && current.availableTokens === 0}
+						<Callout tone="warn" title={m.videoipath_pool_empty_title()}>
+							{m.videoipath_pool_empty_body()}
+						</Callout>
+					{/if}
+					{#if samePool && current.pool.length}
+						<div class="pool">
+							<Table label={m.videoipath_pool_title()}>
+								<thead>
+									<tr>
+										<th scope="col">{m.videoipath_assignment_fingerprint()}</th>
+										<th scope="col">{m.videoipath_token_status()}</th>
+										<th scope="col">
+											<span class="visually-hidden">{m.users_column_actions()}</span>
+										</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each current.pool as token (token.tokenFingerprint)}
+										{@const device = token.nodeId ? devices.get(token.nodeId) : undefined}
+										{@const gone = token.nodeId !== null && deployments.isSuccess && !device}
+										<tr>
+											<td>
+												<span class="fingerprint">
+													<code title={token.tokenFingerprint}>
+														{token.tokenFingerprint.slice(0, 16)}…
+													</code>
+													<CopyButton
+														value={token.tokenFingerprint}
+														label={m.videoipath_copy_fingerprint()}
+													/>
+												</span>
+											</td>
+											<td>
+												{#if token.nodeId === null}
+													{m.videoipath_token_unused()}
+												{:else if gone}
+													<span class="gone">
+														{m.videoipath_token_deleted({ nodeId: shortId(token.nodeId) })}
+													</span>
+												{:else}
+													{m.videoipath_token_reserved()}
+													<a href={resolve('/(app)/devices/[nodeId]', { nodeId: token.nodeId })}>
+														{device ? deviceName(device) : shortId(token.nodeId)}
+													</a>
+												{/if}
+											</td>
+											<td class="action">
+												{#if token.nodeId === null || gone}
+													<IconButton
+														size="sm"
+														icon={Trash2}
+														label={m.videoipath_token_remove_label({
+															fingerprint: token.tokenFingerprint.slice(0, 16)
+														})}
+														onclick={() => {
+															removing = token;
+															removeOpen = true;
+														}}
+													/>
+												{/if}
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</Table>
+						</div>
+					{/if}
+					{#if showTokenField}
+						<TextArea
+							label={samePool ? m.videoipath_tokens_add() : m.videoipath_tokens_new()}
+							bind:value={tokens}
+							code
+							spellcheck={false}
+							autocomplete="off"
+							hint={newTokens.length
+								? m.videoipath_tokens_count({ count: newTokens.length })
+								: m.videoipath_tokens_hint()}
+							error={tokensError}
+						/>
+					{:else}
+						<div>
+							<Button size="sm" onclick={() => (addingTokens = true)}>
+								{m.videoipath_tokens_add_action()}
+							</Button>
+						</div>
+					{/if}
 				{:else}
 					<TextField
 						label={m.videoipath_shared_token()}
@@ -416,18 +410,19 @@
 						{m.videoipath_new_pool_body()}
 					</Callout>
 				{/if}
-				<div class="submit">
-					<Button variant="primary" type="submit" {busy} disabled={!changed}>
-						{m.videoipath_submit()}
-					</Button>
-					<span class="note">{m.videoipath_submit_note()}</span>
-				</div>
-				{#if saved}
-					<Callout tone="ok" title={saved} live />
-				{/if}
-			</form>
+			</div>
 		</Card>
-	</div>
+
+		<div class="submit">
+			<Button variant="primary" type="submit" {busy} disabled={!changed}>
+				{m.videoipath_submit()}
+			</Button>
+			<span class="note">{m.videoipath_submit_note()}</span>
+		</div>
+		{#if saved}
+			<Callout tone="ok" title={saved} live />
+		{/if}
+	</form>
 {/if}
 
 {#if removing}
@@ -445,29 +440,24 @@
 {/if}
 
 <style>
-	.layout {
-		display: grid;
-		grid-template-columns: minmax(18rem, 1fr) minmax(0, 1.6fr);
-		align-items: start;
+	.stack {
+		display: flex;
+		flex-direction: column;
 		gap: var(--space-5);
+		max-width: 52rem;
 	}
 
-	@container settings (max-width: 56rem) {
-		.layout {
-			grid-template-columns: minmax(0, 1fr);
-		}
-	}
-
-	.column,
 	.form {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
 	}
 
-	.column {
-		gap: var(--space-5);
-		min-width: 0;
+	/* The pool table runs to the card's edges, like other tables in cards. */
+	.pool {
+		margin: 0 calc(-1 * var(--space-4));
+		border-top: 1px solid var(--border);
+		border-bottom: 1px solid var(--border);
 	}
 
 	.gone {
@@ -491,19 +481,8 @@
 		gap: var(--space-3);
 	}
 
-	.spaced {
-		margin-top: var(--space-4);
-	}
-
-	.note,
-	.footnote {
+	.note {
 		color: var(--text-2);
 		font-size: var(--text-sm);
-	}
-
-	.footnote {
-		margin-top: var(--space-4);
-		padding-top: var(--space-3);
-		border-top: 1px solid var(--border);
 	}
 </style>

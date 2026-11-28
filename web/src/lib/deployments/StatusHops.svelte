@@ -1,16 +1,12 @@
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
-	import CopyButton from '#lib/ui/CopyButton.svelte';
 	import type { CommunicationEvidence } from './queries';
 	import { HOPS, statusPath, type Hop, type HopState, type StatusInput } from './status-path';
 	import { hopExplanations } from './view';
 
-	type Props = {
-		nodeId: string;
-		input: StatusInput & { communicationEvidence: CommunicationEvidence };
-	};
+	type Props = { input: StatusInput & { communicationEvidence: CommunicationEvidence } };
 
-	let { input, nodeId }: Props = $props();
+	let { input }: Props = $props();
 
 	const path = $derived(statusPath(input));
 	const explanations = $derived(hopExplanations(input));
@@ -46,12 +42,6 @@
 					</span>
 				</p>
 				<p class="explanation">{explanations[hop]}</p>
-				{#if hop === 'approval'}
-					<p>
-						{m.facts_node_id()}: <code>{nodeId}</code>
-						<CopyButton value={nodeId} label={m.facts_copy_node_id()} />
-					</p>
-				{/if}
 			</div>
 		</li>
 	{/each}

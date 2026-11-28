@@ -3,6 +3,7 @@
 	import { m } from '#lib/paraglide/messages.js';
 	import Badge from '#lib/ui/Badge.svelte';
 	import Table from '#lib/ui/Table.svelte';
+	import { inputSource } from './declaration';
 
 	let { declaration }: { declaration: Schema<'Declaration'> } = $props();
 
@@ -25,19 +26,12 @@
 
 	/** Inputs Hub fills in for the operator: the node ID and, with a site target, the connection. */
 	function suppliedBy(input: Input): string | null {
-		if (input.name === declaration.nodeIdInput || input.env === 'VIDEOIPATH_NODE_ID') {
-			return m.release_input_identity();
-		}
-		const mapping = declaration.videoIPathInputs ?? {};
-		if (
-			input.name === mapping.url ||
-			input.name === mapping.token ||
-			input.env === 'VIDEOIPATH_URL' ||
-			input.env === 'VIDEOIPATH_TOKEN'
-		) {
-			return m.release_input_site();
-		}
-		return null;
+		const source = inputSource(declaration, input);
+		return source === 'identity'
+			? m.release_input_identity()
+			: source === 'site'
+				? m.release_input_site()
+				: null;
 	}
 </script>
 

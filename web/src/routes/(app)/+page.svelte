@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import Layers from '@lucide/svelte/icons/layers';
 	import Plus from '@lucide/svelte/icons/plus';
 	import SearchX from '@lucide/svelte/icons/search-x';
 	import { createQuery } from '@tanstack/svelte-query';
-	import { replaceState } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { getApi } from '#lib/api/context.js';
 	import { errorMessage } from '#lib/api/messages.js';
-	import { retainedQuery, type RetainedRelease } from '#lib/catalog/queries.js';
-	import StageDialog from '#lib/catalog/StageDialog.svelte';
-	import AddDeviceDialog from '#lib/deployments/AddDeviceDialog.svelte';
+	import { retainedQuery } from '#lib/catalog/queries.js';
 	import DeploymentTable from '#lib/deployments/DeploymentTable.svelte';
 	import { freshObservations } from '#lib/deployments/observations.svelte.js';
 	import { deploymentsQuery, updatesQuery } from '#lib/deployments/queries.js';
@@ -27,14 +26,9 @@
 	} from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
+	import { takeLanding } from '#lib/shell/landing.js';
 	import { getNotices } from '#lib/shell/notices.js';
-	import {
-		capabilitiesQuery,
-		imageDistributionQuery,
-		nomadConnectionQuery
-	} from '#lib/system/queries.js';
-	import { siteReadiness } from '#lib/system/readiness.js';
-	import SetupChecklist, { type SetupStep } from '#lib/system/SetupChecklist.svelte';
+	import { capabilitiesQuery } from '#lib/system/queries.js';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
@@ -48,24 +42,20 @@
 	// Outcomes of actions that led here, such as deleting a device.
 	const notices = getNotices().take('/(app)');
 	const capabilities = createQuery(() => capabilitiesQuery(api));
-	const nomad = createQuery(() => nomadConnectionQuery(api));
-	const images = createQuery(() => imageDistributionQuery(api));
 	// Without a cluster the manager has no devices to list and answers 503.
 	const cluster = $derived(capabilities.data?.nomadConfigured === true);
 	const deployments = createQuery(() => ({ ...deploymentsQuery(api), enabled: cluster }));
 	const updates = createQuery(() => ({ ...updatesQuery(api), enabled: cluster }));
-	const retained = createQuery(() => retainedQuery(api));
+	const retained = createQuery(() => ({ ...retainedQuery(api), enabled: cluster }));
 
-	const readiness = $derived(
-		siteReadiness({
-			capabilities: capabilities.data,
-			nomad: nomad.data,
-			nomadError: nomad.error,
-			images: images.data,
-			imagesError: images.error
-		})
-	);
-	const problems = $derived(readiness.filter((item) => item.state === 'attention'));
+	// Setting up the site happens in Settings. An administrator who opens Hub on a site
+	// without a cluster starts there, once; later visits to Devices stay here.
+	const landed = takeLanding('/(app)');
+	$effect(() => {
+		if (landed && session.isAdmin && capabilities.data && !cluster) {
+			void goto(resolve('/(app)/settings'), { replaceState: true });
+		}
+	});
 
 	// The filter lives in the address, so returning from a device restores the same view.
 	// Read from the browser's address: after going back, it carries the view that was last shown.
@@ -108,59 +98,8 @@
 			alert: value === 'attention'
 		}))
 	);
-
-	// A site without devices yet is walked through the steps from cluster to first device.
-	const firstRun = $derived(
-		capabilities.data !== undefined &&
-			(!cluster || (deployments.data !== undefined && !rows.length))
-	);
-	const downloaded = $derived((retained.data?.length ?? 0) > 0);
 	const canAdd = $derived(session.isAdmin && cluster);
-
-	let chooserOpen = $state(false);
-	let staging = $state<RetainedRelease | null>(null);
-	let stageOpen = $state(false);
-
-	function addDevice() {
-		chooserOpen = true;
-	}
-
-	const steps = $derived<SetupStep[]>([
-		{
-			id: 'nomad',
-			title: m.setup_nomad_title(),
-			detail: m.setup_nomad_detail(),
-			done: cluster && nomad.data?.state === 'connected',
-			action: session.isAdmin
-				? { label: m.setup_nomad_action(), href: resolve('/(app)/settings/nomad') }
-				: undefined
-		},
-		{
-			id: 'videoipath',
-			title: m.setup_videoipath_title(),
-			detail: m.setup_videoipath_detail(),
-			done: capabilities.data?.videoIPathConfigured === true,
-			action: session.isAdmin
-				? { label: m.setup_videoipath_action(), href: resolve('/(app)/settings/videoipath') }
-				: undefined
-		},
-		{
-			id: 'download',
-			title: m.setup_download_title(),
-			detail: m.setup_download_detail(),
-			done: downloaded,
-			action: { label: m.setup_download_action(), href: resolve('/(app)/catalog') }
-		},
-		{
-			id: 'device',
-			title: m.setup_device_title(),
-			detail: m.setup_device_detail(),
-			done: rows.length > 0,
-			action: session.isAdmin
-				? { label: m.devices_add(), onclick: addDevice, disabled: !cluster || !downloaded }
-				: undefined
-		}
-	]);
+	const addDevice = resolve('/(app)/devices/new');
 
 	function clearFilters() {
 		search = '';
@@ -171,7 +110,7 @@
 <PageHeader title={m.devices_title()} description={m.devices_description()}>
 	{#snippet actions()}
 		{#if canAdd}
-			<Button variant="primary" icon={Plus} onclick={addDevice}>{m.devices_add()}</Button>
+			<Button variant="primary" icon={Plus} href={addDevice}>{m.devices_add()}</Button>
 		{/if}
 	{/snippet}
 </PageHeader>
@@ -186,85 +125,75 @@
 	</Callout>
 {:else if !capabilities.data}
 	<Card><Loading label={m.devices_loading()} /></Card>
-{:else if firstRun}
-	<Card title={m.setup_title()} description={m.setup_description()} flush>
-		<SetupChecklist {steps} />
-		{#if !session.isAdmin}<p class="viewer-note">{m.setup_viewer_note()}</p>{/if}
+{:else if !cluster}
+	<!-- Nothing to list until the site has a cluster; setting it up is done in Settings. -->
+	<Card>
+		<EmptyState icon={Layers} title={m.devices_empty_title()}>
+			<p>{session.isAdmin ? m.devices_no_site_admin() : m.devices_no_site_viewer()}</p>
+			{#snippet actions()}
+				{#if session.isAdmin}
+					<Button variant="primary" href={resolve('/(app)/settings')}>
+						{m.devices_open_site_setup()}
+					</Button>
+				{/if}
+			{/snippet}
+		</EmptyState>
+	</Card>
+{:else if deployments.error && !deployments.data}
+	<Callout tone="fail" title={m.devices_error_title()} live>
+		<p>{errorMessage(deployments.error)}</p>
+	</Callout>
+	<div>
+		<Button onclick={() => deployments.refetch()} busy={deployments.isFetching}>
+			{m.common_retry()}
+		</Button>
+	</div>
+{:else if !deployments.data}
+	<Card><Loading label={m.devices_loading()} /></Card>
+{:else if !rows.length}
+	<Card>
+		<EmptyState icon={Layers} title={m.devices_empty_title()}>
+			<p>{session.isAdmin ? m.devices_empty_admin() : m.devices_empty_viewer()}</p>
+			{#snippet actions()}
+				{#if canAdd}
+					<Button variant="primary" icon={Plus} href={addDevice}>{m.devices_add()}</Button>
+				{/if}
+			{/snippet}
+		</EmptyState>
 	</Card>
 {:else}
-	{#if problems.length}
-		<Callout tone="warn" title={m.devices_site_attention({ count: problems.length })}>
-			<ul class="problems">
-				{#each problems as item (item.id)}
-					<li><strong>{item.label}:</strong> {item.detail}</li>
-				{/each}
-			</ul>
-			{#if session.isAdmin}
-				<a href={resolve('/(app)/settings')}>{m.devices_open_site_setup()}</a>
-			{:else}
-				<p>{m.devices_site_attention_viewer()}</p>
-			{/if}
+	{#if deployments.error}
+		<Callout tone="warn" title={m.deployments_stale_title()} live>
+			{m.deployments_stale_body({ detail: errorMessage(deployments.error) })}
 		</Callout>
 	{/if}
-
-	{#if deployments.error && !deployments.data}
-		<Callout tone="fail" title={m.devices_error_title()} live>
-			<p>{errorMessage(deployments.error)}</p>
-		</Callout>
-		<div>
-			<Button onclick={() => deployments.refetch()} busy={deployments.isFetching}>
-				{m.common_retry()}
-			</Button>
+	<StatusTiles label={m.devices_filter_label()} items={tiles} bind:value={filter} />
+	<Card flush>
+		<div class="toolbar">
+			<SearchField
+				class="search"
+				label={m.deployments_search_label()}
+				placeholder={m.deployments_search_placeholder()}
+				bind:value={search}
+			/>
 		</div>
-	{:else if !deployments.data}
-		<Card><Loading label={m.devices_loading()} /></Card>
-	{:else}
-		{#if deployments.error}
-			<Callout tone="warn" title={m.deployments_stale_title()} live>
-				{m.deployments_stale_body({ detail: errorMessage(deployments.error) })}
-			</Callout>
+		{#if visible.length}
+			<DeploymentTable rows={visible} updates={hints} />
+		{:else}
+			<EmptyState icon={SearchX} title={m.deployments_no_match_title()}>
+				<p>{m.deployments_no_match_body()}</p>
+				{#snippet actions()}
+					<Button onclick={clearFilters}>{m.deployments_clear_filters()}</Button>
+				{/snippet}
+			</EmptyState>
 		{/if}
-		<StatusTiles label={m.devices_filter_label()} items={tiles} bind:value={filter} />
-		<Card flush>
-			<div class="toolbar">
-				<SearchField
-					class="search"
-					label={m.deployments_search_label()}
-					placeholder={m.deployments_search_placeholder()}
-					bind:value={search}
-				/>
-			</div>
-			{#if visible.length}
-				<DeploymentTable rows={visible} updates={hints} />
-			{:else}
-				<EmptyState icon={SearchX} title={m.deployments_no_match_title()}>
-					<p>{m.deployments_no_match_body()}</p>
-					{#snippet actions()}
-						<Button onclick={clearFilters}>{m.deployments_clear_filters()}</Button>
-					{/snippet}
-				</EmptyState>
-			{/if}
-		</Card>
-		<div class="below">
-			<p class="results" role="status">
-				{m.deployments_showing({ shown: visible.length, total: rows.length })}
-			</p>
-			<StatusLegend />
-		</div>
-	{/if}
-{/if}
-
-{#if canAdd}
-	<AddDeviceDialog
-		bind:open={chooserOpen}
-		onChoose={(release: RetainedRelease) => {
-			staging = release;
-			stageOpen = true;
-		}}
-	/>
-{/if}
-{#if stageOpen && staging}
-	<StageDialog bind:open={stageOpen} release={staging} />
+	</Card>
+	<div class="below">
+		<p class="results" role="status">
+			{m.deployments_showing({ shown: visible.length, total: rows.length })}
+		</p>
+		<StatusLegend />
+	</div>
 {/if}
 
 <style>
@@ -291,17 +220,6 @@
 
 	.results {
 		color: var(--text-3);
-		font-size: var(--text-sm);
-	}
-
-	.problems {
-		margin: 0 0 var(--space-2);
-		padding-left: var(--space-5);
-	}
-
-	.viewer-note {
-		padding: 0 var(--space-4) var(--space-4);
-		color: var(--text-2);
 		font-size: var(--text-sm);
 	}
 </style>

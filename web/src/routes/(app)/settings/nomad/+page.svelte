@@ -25,8 +25,8 @@
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
-	import Facts from '#lib/ui/Facts.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
+	import HelpTip from '#lib/ui/HelpTip.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import ImageDistributionCard from '#lib/system/ImageDistributionCard.svelte';
 	import Checkbox from '#lib/ui/Checkbox.svelte';
@@ -36,7 +36,6 @@
 	const api = getApi();
 	const queryClient = useQueryClient();
 	const site = createQuery(() => siteQuery(api));
-	const webAddress = $derived(site.data?.deployment.nomadUiOrigin ?? site.data?.nomad.address);
 	const environment = createQuery(() => environmentQuery(api));
 	const downloadOverride = $derived(
 		environment.data?.find((entry) => entry.name === 'DRIVER_HUB_DISTRIBUTION_ADDRESS')?.value
@@ -169,161 +168,123 @@
 {:else if !site.data}
 	<Card><Loading label={m.site_loading()} /></Card>
 {:else}
-	<div class="layout">
-		<div class="column">
-			<Card title={m.nomad_current_title()}>
-				<Facts>
-					<dt>{m.nomad_state()}</dt>
-					<dd>
-						{#if connection.error}
-							<Badge tone="fail">{m.nomad_state_error()}</Badge>
-							<span class="detail">{connection.error.message}</span>
-						{:else if connection.data?.state === 'connected'}
-							<Badge tone="ok">{m.nomad_state_connected()}</Badge>
-						{:else if connection.data?.state === 'no_leader'}
-							<Badge tone="warn">{m.nomad_state_no_leader()}</Badge>
-						{:else if connection.data}
-							<Badge>{m.nomad_state_not_configured()}</Badge>
-						{:else}
-							<span class="detail">{m.readiness_checking()}</span>
-						{/if}
-					</dd>
-					<dt>{m.nomad_address()}</dt>
-					<dd>
-						{#if site.data.nomad.address}<code>{site.data.nomad.address}</code>
-						{:else}{m.site_not_set()}{/if}
-					</dd>
-					<dt>{m.nomad_namespace()}</dt>
-					<dd><code>{site.data.nomad.namespace}</code></dd>
-					<dt>{m.nomad_datacenters()}</dt>
-					<dd><code>{site.data.nomad.datacenters.join(', ')}</code></dd>
-					<dt>{m.nomad_token()}</dt>
-					<dd>
-						{site.data.nomad.tokenConfigured ? m.site_token_saved() : m.site_token_none()}
-						{#if site.data.nomad.plainHttp}
-							<Badge tone="warn">{m.nomad_plain_http_on()}</Badge>
-						{/if}
-					</dd>
-					<dt>{m.nomad_ui_origin()}</dt>
-					<dd>
-						{#if webAddress}<code>{webAddress}</code>
-						{:else}{m.site_not_set()}{/if}
-					</dd>
-					<dt>{m.nomad_shared_writers()}</dt>
-					<dd>
-						{site.data.deployment.sharedWriters
-							? m.nomad_shared_writers_on()
-							: m.nomad_shared_writers_off()}
-					</dd>
-				</Facts>
-				<p class="footnote">{m.nomad_current_note()}</p>
-			</Card>
-			<ImageDistributionCard />
-		</div>
-
-		<div class="column">
-			<Card title={m.nomad_form_title()} description={m.nomad_form_description()}>
-				<form class="form" onsubmit={submit} novalidate>
-					{#if saved}<Callout tone="ok" title={m.nomad_saved()} live />{/if}
-					{#if problem}
-						<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
-							{problem.message}
-						</Callout>
+	<!-- One form: the connection, and the address clients download images from. -->
+	<form class="stack" onsubmit={submit} novalidate>
+		<Card title={m.nomad_connection_title()} description={m.nomad_form_description()}>
+			{#snippet actions()}
+				<span class="state">
+					{#if connection.error}
+						<Badge tone="fail">{m.nomad_state_error()}</Badge>
+					{:else if connection.data?.state === 'connected'}
+						<Badge tone="ok">{m.nomad_state_connected()}</Badge>
+					{:else if connection.data?.state === 'no_leader'}
+						<Badge tone="warn">{m.nomad_state_no_leader()}</Badge>
+					{:else if connection.data}
+						<Badge>{m.nomad_state_not_configured()}</Badge>
 					{/if}
+					<HelpTip label={m.nomad_state()} help={m.nomad_current_note()} />
+				</span>
+			{/snippet}
+			<div class="form">
+				{#if connection.error}
+					<Callout tone="fail" live>{connection.error.message}</Callout>
+				{/if}
+				{#if saved}<Callout tone="ok" title={m.nomad_saved()} live />{/if}
+				{#if problem}
+					<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
+						{problem.message}
+					</Callout>
+				{/if}
+				<TextField
+					label={m.nomad_address()}
+					bind:value={address}
+					placeholder="nomad.site.example"
+					autocomplete="off"
+					spellcheck={false}
+					hint={origin ? m.nomad_address_resolved({ origin }) : m.nomad_address_hint()}
+					error={addressError}
+				/>
+				<div class="pair">
 					<TextField
-						label={m.nomad_address()}
-						bind:value={address}
-						placeholder="nomad.site.example"
+						label={m.nomad_namespace()}
+						bind:value={namespace}
 						autocomplete="off"
 						spellcheck={false}
-						hint={origin ? m.nomad_address_resolved({ origin }) : m.nomad_address_hint()}
-						error={addressError}
+						error={namespaceError}
 					/>
-					{#if downloadOverride}
-						<TextField
-							label={m.nomad_download_address()}
-							value={downloadOverride}
-							readonly
-							hint={m.nomad_download_override()}
-						/>
-					{:else}
-						<TextField
-							label={m.nomad_download_address()}
-							bind:value={distributionAddress}
-							placeholder={m.nomad_download_auto()}
-							autocomplete="off"
-							spellcheck={false}
-							hint={m.nomad_download_hint()}
-						/>
-					{/if}
-					<div class="pair">
-						<TextField
-							label={m.nomad_namespace()}
-							bind:value={namespace}
-							autocomplete="off"
-							spellcheck={false}
-							error={namespaceError}
-						/>
-						<TextField
-							label={m.nomad_datacenters()}
-							bind:value={datacenters}
-							autocomplete="off"
-							spellcheck={false}
-							hint={m.nomad_datacenters_hint()}
-							error={datacentersError}
-						/>
-					</div>
-					<RadioGroup legend={m.nomad_token()} options={tokenOptions} bind:value={tokenChoice} />
-					{#if tokenChoice === 'replace'}
-						<TextField
-							label={m.nomad_token_field()}
-							type="password"
-							autocomplete="off"
-							bind:value={token}
-							hint={m.nomad_token_field_hint()}
-							error={tokenError}
-						/>
-					{/if}
-					{#if remotePlain && sendsToken}
-						<Checkbox bind:checked={plainHttp} hint={m.nomad_plain_http_hint()}>
-							{m.nomad_plain_http()}
-						</Checkbox>
-						{#if plainHttpError}<Callout tone="fail" live>{plainHttpError}</Callout>{/if}
-					{/if}
-					{#if targetChanges && site.data.videoipath.url}
-						<Callout tone="warn" title={m.nomad_target_change_title()}>
-							{m.nomad_target_change_body()}
-						</Callout>
-					{/if}
-					<div class="submit">
-						<Button variant="primary" type="submit" {busy}>{m.nomad_submit()}</Button>
-						<span class="note">{m.nomad_submit_note()}</span>
-					</div>
-				</form>
-			</Card>
+					<TextField
+						label={m.nomad_datacenters()}
+						bind:value={datacenters}
+						autocomplete="off"
+						spellcheck={false}
+						hint={m.nomad_datacenters_hint()}
+						error={datacentersError}
+					/>
+				</div>
+				<RadioGroup legend={m.nomad_token()} options={tokenOptions} bind:value={tokenChoice} />
+				{#if tokenChoice === 'replace'}
+					<TextField
+						label={m.nomad_token_field()}
+						type="password"
+						autocomplete="off"
+						bind:value={token}
+						hint={m.nomad_token_field_hint()}
+						error={tokenError}
+					/>
+				{/if}
+				{#if remotePlain && sendsToken}
+					<Checkbox bind:checked={plainHttp} hint={m.nomad_plain_http_hint()}>
+						{m.nomad_plain_http()}
+					</Checkbox>
+					{#if plainHttpError}<Callout tone="fail" live>{plainHttpError}</Callout>{/if}
+				{/if}
+				{#if targetChanges && site.data.videoipath.url}
+					<Callout tone="warn" title={m.nomad_target_change_title()}>
+						{m.nomad_target_change_body()}
+					</Callout>
+				{/if}
+			</div>
+		</Card>
+
+		<ImageDistributionCard>
+			{#if downloadOverride}
+				<TextField
+					label={m.nomad_download_address()}
+					value={downloadOverride}
+					readonly
+					hint={m.nomad_download_override()}
+				/>
+			{:else}
+				<TextField
+					label={m.nomad_download_address()}
+					bind:value={distributionAddress}
+					placeholder={m.nomad_download_auto()}
+					autocomplete="off"
+					spellcheck={false}
+					hint={m.nomad_download_hint()}
+				/>
+			{/if}
+		</ImageDistributionCard>
+
+		<div class="submit">
+			<Button variant="primary" type="submit" {busy}>{m.nomad_submit()}</Button>
+			<span class="note">{m.nomad_submit_note()}</span>
 		</div>
-	</div>
+	</form>
 {/if}
 
 <style>
-	.layout {
-		display: grid;
-		grid-template-columns: minmax(18rem, 1fr) minmax(0, 1.6fr);
-		align-items: start;
-		gap: var(--space-5);
-	}
-
-	@container settings (max-width: 56rem) {
-		.layout {
-			grid-template-columns: minmax(0, 1fr);
-		}
-	}
-
-	.column {
+	.stack {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
-		min-width: 0;
+		max-width: 52rem;
+	}
+
+	.state {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
 	}
 
 	.form {
@@ -345,16 +306,8 @@
 		gap: var(--space-3);
 	}
 
-	.note,
-	.footnote,
-	.detail {
+	.note {
 		color: var(--text-2);
 		font-size: var(--text-sm);
-	}
-
-	.footnote {
-		margin-top: var(--space-4);
-		padding-top: var(--space-3);
-		border-top: 1px solid var(--border);
 	}
 </style>
