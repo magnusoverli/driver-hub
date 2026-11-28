@@ -1,10 +1,12 @@
 import { get as httpsGet } from 'node:https';
 import { get as httpGet } from 'node:http';
+import { randomUUID } from 'node:crypto';
 
-// Ask the saved driver route, not just the TLS listener. No credentials, node_id, upgrade,
-// or redirects: this cannot register a device or displace an existing driver.
+// VideoIPath matches the route only with node_id present. Use a disposable ID,
+// never a deployed device's identity, and send no credentials or WebSocket upgrade.
 export function checkVideoIPathEndpoint(endpoint, timeoutMs = 4000) {
   const url = new URL(endpoint);
+  url.searchParams.set('node_id', randomUUID());
   const secure = url.protocol === 'wss:';
   url.protocol = secure ? 'https:' : 'http:';
   const get = secure ? httpsGet : httpGet;
