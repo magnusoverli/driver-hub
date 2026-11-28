@@ -62,10 +62,11 @@
 				{:else}
 					{m.stage_no_required()}
 				{/if}
-				{#if optional}
-					<span class="muted block">{m.driver_overview_optional({ count: optional })}</span>
-				{/if}
 			</dd>
+			{#if optional}
+				<dt>{m.stage_options()}</dt>
+				<dd>{m.driver_overview_optional({ count: optional })}</dd>
+			{/if}
 			<dt>{m.stage_connection()}</dt>
 			<dd>{connects ? m.driver_overview_site() : m.driver_overview_no_site()}</dd>
 			<dt>{m.release_monitoring_title()}</dt>
@@ -112,11 +113,6 @@
 	.muted {
 		color: var(--text-2);
 		font-size: var(--text-sm);
-	}
-
-	.block {
-		display: block;
-		margin-top: var(--space-2);
 	}
 
 	.more {

@@ -394,19 +394,18 @@
 
 		<div class="column">
 			<Card title={m.deployment_device_title()}>
+				<!-- The node ID gets the full width: it is what an operator looks for in VideoIPath. -->
+				<div class="node-id">
+					<span class="with-help">
+						{m.device_videoipath_node_id()}
+						<HelpTip label={m.device_videoipath_node_id()} help={m.device_videoipath_help()} />
+					</span>
+					<span class="with-copy">
+						<code>{deployment.nodeId}</code>
+						<CopyButton value={deployment.nodeId} label={m.facts_copy_node_id()} />
+					</span>
+				</div>
 				<Facts>
-					<dt>
-						<span class="with-help">
-							{m.device_videoipath_node_id()}
-							<HelpTip label={m.device_videoipath_node_id()} help={m.device_videoipath_help()} />
-						</span>
-					</dt>
-					<dd>
-						<span class="with-copy">
-							<code>{deployment.nodeId}</code>
-							<CopyButton value={deployment.nodeId} label={m.facts_copy_node_id()} />
-						</span>
-					</dd>
 					<dt>{m.facts_driver()}</dt>
 					<dd>
 						<a href={resolve('/(app)/catalog/[driverId]', { driverId: deployment.driverId })}>
@@ -580,6 +579,19 @@
 
 	.tasks code {
 		overflow-wrap: anywhere;
+	}
+
+	.node-id {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		margin-bottom: var(--space-4);
+		padding-bottom: var(--space-4);
+		border-bottom: 1px solid var(--border);
+	}
+
+	.node-id .with-help {
+		color: var(--text-3);
 	}
 
 	.with-help {

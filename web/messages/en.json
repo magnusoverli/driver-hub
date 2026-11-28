@@ -1037,7 +1037,7 @@
 	"driver_overview_title": "About this driver",
 	"driver_overview_description": "From version {version}",
 	"driver_overview_needs": "You enter",
-	"driver_overview_optional": "{count} optional settings with defaults",
+	"driver_overview_optional": "With defaults: {count}",
 	"driver_overview_site": "Uses the site's VideoIPath target, or a connection you enter",
 	"driver_overview_no_site": "Not declared by this driver",
 	"driver_overview_monitored": "Reports whether it controls the device",

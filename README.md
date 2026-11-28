@@ -49,11 +49,11 @@ docker compose pull
 docker compose up -d
 ```
 
-4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup.
+4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup. Hub opens **Settings → Site setup**, which lists the steps from connecting Nomad to the first device.
 
 Under **Settings → Nomad cluster**, enter the Nomad API address (your cluster VIP) and ACL token, then **Check and save**. Allocation log links use this same address. If your browser reaches Nomad through a different URL, set the web interface override under **Settings → Advanced → Nomad jobs**.
 
-Leave **Hub download address** blank for automatic setup. Hub registers `driverhub-images`, a Nomad system job that caches and serves driver images on each eligible client. Check **Image distribution** for the selected Hub address and healthy clients. Clients need TCP `5481` to the manager and TCP `5480` to each other.
+On the same page, leave **Hub download address** under **Image distribution** blank for automatic setup. Hub registers `driverhub-images`, a Nomad system job that caches and serves driver images on each eligible client. Check **Image distribution** for the selected Hub address and healthy clients. Clients need TCP `5481` to the manager and TCP `5480` to each other.
 
 By default Hub is reachable at `http://<host>:8080` and accepts sign-in over plain HTTP on a trusted network. For anything else, put an HTTPS reverse proxy in front (see [remote access](OPERATIONS.md#installation)). Using remote HTTP for Nomad credentials is a separate [trusted-network opt-in](OPERATIONS.md#site-setup-after-container-startup).
 
@@ -61,39 +61,47 @@ To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), repeat the pull an
 
 ## Product tour
 
-**From catalog to running driver:** In the **Catalog**, find the driver and select **Download**. When it shows **Downloaded**, select **Set up driver**, or choose **Add device** on the **Devices** page. Name the device, choose whether it is a new device or replaces an existing driver, choose its VideoIPath connection and fill in the driver's required inputs. Inputs with defaults are under **Optional settings**. Preview the setup and select **Deploy driver**. The device page reports the observed result, with diagnostics available on demand. If the driver needs secret keys provisioned in Nomad, or replaces an external driver, create the deployment first and choose **Start** after the prerequisites are met.
+Driver Hub follows one path: **find a driver, download it, set up a device, and see whether it works.** The side navigation has three entries: **Devices**, **Catalog** and **Settings**.
 
-![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
+![Devices page with counts that filter the list, two devices that need attention, available updates and a legend for the status path](docs/screenshots/devices.png)
 
-*The overview brings device health, available updates and site readiness into one view. Screenshots use six demo devices and illustrative release, activity and image-status data.*
+*Screenshots use the six demo devices from `npm run demo`, with illustrative upstream releases, downloads and image-distribution status.*
 
-| In Hub | What you can do |
+| Page | What it is for |
 | --- | --- |
-| **Catalog** | One entry per driver. Download an upstream release, import an OCI archive or build a pinned source revision. Inspect the release's inputs, platforms, image digest and control check before staging. Custom imports and source builds are under **Add custom driver**. |
-| **Devices** | The home page: every device with its status at a glance, counts that filter the list, and updates waiting. Each device page shows its status, the node ID to look for in VideoIPath, and its configuration, which you can edit. When replacing an external driver, keep its node ID and stop the original before starting the replacement. |
-| **Catalog → Download history** | Follow downloads and builds. See whether work completed, failed or was interrupted by a manager restart. |
-| **Settings** | Connect Nomad and VideoIPath, reserve driver tokens, manage accounts and script access, or enable source builds on a build-capable manager. Device-specific inputs stay on the device's **Configuration** panel. |
+| **Devices** | The home page. Every device with its status at a glance. **Needs attention**, **Running**, **Stopped** and **Update available** count the devices and filter the list. **Add device** sets up another one. |
+| **Device page** | One device: its status from Hub's request to VideoIPath, what to do next, the node ID to look for in VideoIPath, and its configuration, which **Edit** changes without changing the version. **Start**, **Stop** and **Update to** a newer downloaded version are in the header. A device that has not run yet lists what to do **Before you start**, such as creating secrets or stopping the external driver it replaces. Allocations, version history and scheduler evaluations are under **Diagnostics**. |
+| **Catalog** | One entry per driver, with its latest version, whether it is on this Hub and how many devices use it. **Download**, then **Set up driver**. A driver's page says what it needs, how it connects and whether Hub can monitor it, and lists every version. Imports and source builds are under **Add custom driver**; **Download history** follows downloads and builds. |
+| **Settings** | **Site setup** walks a new site from connecting Nomad to its first device and reports what still needs attention. **Connections** holds the Nomad cluster with image distribution, and the VideoIPath target with its driver tokens. **Access** holds users and API tokens. **Advanced** holds source builds, request timings, Nomad job options and the manager's startup settings. |
 
-**Review before applying.** Hub asks Nomad to plan a start, stop, update or rollback. The preview shows the image, version, requested state and placement. Hub applies the revision you reviewed; if another operator has changed it, you get a conflict instead of overwriting their work. Viewers can inspect these plans; administrators apply them.
+**From catalog to running driver:** In the **Catalog**, select **Download** for the driver. When it shows **Downloaded**, select **Set up driver**, or choose **Add device** on **Devices**. Setting up takes four steps: the driver and version, the device's name and whether it replaces an existing driver, its VideoIPath connection and settings, then a review that Nomad plans before anything changes. **Deploy driver** creates the device and starts it. When the device needs secrets in Nomad or replaces an external driver, or you turned off **Start the driver right away**, **Set up device** saves it stopped, and its page lists what to do before you choose **Start**. The device page shows what Nomad and the driver report. Approve the device in VideoIPath under Inspect → Devices.
+
+![Setting up a device: the third of four steps, with the site's VideoIPath connection, the driver's required settings and the option to start right away](docs/screenshots/setup.png)
+
+**Review before applying.** Hub asks Nomad to plan a start, stop, update, configuration change or rollback. The preview shows the version, requested state, pinned image and placement. Hub applies the revision you reviewed; if another operator has changed it, you get a conflict instead of overwriting their work. Viewers can inspect these plans; administrators apply them.
 
 ![Update preview for Studio 3 meter showing the change from version 1.3.0 to 1.4.0, the pinned image and Nomad's placement result](docs/screenshots/update-preview.png)
 
 <details>
-<summary><strong>See more of the interface</strong> — catalog, staging, monitoring and settings</summary>
+<summary><strong>See more of the interface</strong> — device status, catalog, diagnostics and settings</summary>
 
-| Find a release | Inspect its inputs |
+| A device | Investigate placement |
 | --- | --- |
-| ![Catalog of published and retained driver releases](docs/screenshots/catalog.png) | ![Release page with configuration inputs, image digest and platforms](docs/screenshots/release.png) |
+| ![Device page with the status path, the next step, its configuration and its VideoIPath node ID](docs/screenshots/device.png) | ![Diagnostics with each status step explained, technical details and scheduler evaluations](docs/screenshots/diagnostics.png) |
 
-| Stage a device | Monitor the fleet |
+| Find a driver | Know what it needs |
 | --- | --- |
-| ![Staging a stopped device with its declared inputs](docs/screenshots/stage.png) | ![Deployments list with device conditions, filters and update hints](docs/screenshots/deployments.png) |
+| ![Catalog with one entry per driver, its latest version, availability and devices](docs/screenshots/catalog.png) | ![Driver page with what it needs, its connection, monitoring, versions and devices](docs/screenshots/driver.png) |
 
-| Investigate placement | Review background work |
+| Inspect a release | Follow downloads and builds |
 | --- | --- |
-| ![Device page with status steps and scheduler evaluations](docs/screenshots/deployment.png) | ![Activity showing downloads and a failed build](docs/screenshots/activity.png) |
+| ![Release page with every input, how it is passed, monitoring and technical details](docs/screenshots/release.png) | ![Download history with a running download, a failed build and a completed download](docs/screenshots/activity.png) |
 
-Also pictured: [VideoIPath target and token pool](docs/screenshots/videoipath.png) · [Device status in dark mode](docs/screenshots/deployment-dark.png) · [Deployments on a narrow screen](docs/screenshots/mobile.png). Use <kbd>Ctrl</kbd> + <kbd>K</kbd> to jump to a page, release or device.
+| Check the site | Connect VideoIPath |
+| --- | --- |
+| ![Site setup reporting the Nomad cluster, VideoIPath target and image distribution as ready](docs/screenshots/site-setup.png) | ![VideoIPath settings with the endpoint check, connection and driver token pool](docs/screenshots/videoipath.png) |
+
+Also pictured: [a failing device in dark mode](docs/screenshots/device-dark.png) · [Devices on a narrow screen](docs/screenshots/mobile.png). Use <kbd>Ctrl</kbd> + <kbd>K</kbd> to jump to a page, release or device.
 
 </details>
 
@@ -103,12 +111,12 @@ Also pictured: [VideoIPath target and token pool](docs/screenshots/videoipath.pn
 
 | Step | What Hub can verify |
 | --- | --- |
-| **Requested** | Hub asked Nomad to run one instance. |
-| **Allocation** | Nomad reports the driver running on a client. Scheduler evaluations explain when it cannot place one. |
-| **Control** | A recent successful check on the current allocation reports communication with VideoIPath and the device. Without a declared check, this is not observable. |
-| **Approval** | Approval happens in VideoIPath. Hub never marks it as verified. |
+| **Start requested** | Hub asked Nomad to run one instance. |
+| **Running** | Nomad reports the driver running on a client. Scheduler evaluations under **Diagnostics** explain when it cannot place one. |
+| **Connected** | A recent successful control check on the current allocation reports communication with VideoIPath and the device. Without a declared check, this is not observable. |
+| **Approved in VideoIPath** | Approval happens in VideoIPath. Hub never marks it as verified; the device page shows the node ID to look for. |
 
-**Image availability** is a separate site-level check. Staging publishes the verified OCI image. Each eligible client runs an image service, and its drivers pull from `127.0.0.1:5480`. With the manager offline, an existing service can serve its own copy or fetch from a peer that has the image. See [image distribution and readiness](OPERATIONS.md#image-distribution) for package upgrades, port requirements and troubleshooting.
+**Image availability** is a separate site-level check. Setting up a device publishes the verified OCI image. Each eligible client runs an image service, and its drivers pull from `127.0.0.1:5480`. With the manager offline, an existing service can serve its own copy or fetch from a peer that has the image. See [image distribution and readiness](OPERATIONS.md#image-distribution) for package upgrades, port requirements and troubleshooting.
 
 ## Installation and operations
 

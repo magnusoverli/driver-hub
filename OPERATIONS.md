@@ -69,7 +69,7 @@ Saved in the site settings instead:
 
 | Setting | In the web interface | Purpose |
 | --- | --- | --- |
-| Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Change the connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint and a dedicated namespace in production. The ACL must cover driver service jobs, the image system job, allocation checks and the Variables below. |
+| Nomad address, namespace, datacenters, ACL token | Settings > Nomad cluster, Connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint and a dedicated namespace in production. The ACL must cover driver service jobs, the image system job, allocation checks and the Variables below. |
 | Nomad web interface | Settings > Advanced, Nomad jobs | Allocation log links use the cluster address and the operator’s own Nomad login. Override the address only if browsers reach Nomad at a different HTTP or HTTPS origin. |
 | Shared writers | Settings > Advanced, Nomad jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so devices cannot be deleted. |
 | Source builds | Settings > Advanced | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
@@ -147,7 +147,7 @@ Administrators create bearer tokens for scripts under Settings > API tokens, eac
 
 ## Site setup after container startup
 
-The supplied Compose file mounts the named data volume at `/data`. After first login, enter the Nomad cluster and VideoIPath target under **Settings**.
+The supplied Compose file mounts the named data volume at `/data`. After first login, Hub opens **Settings → Site setup**, which links to the Nomad cluster and VideoIPath target pages and reports what still needs attention.
 
 The site endpoints below are admin-only; integration status is also readable by viewers. Paths are relative to `/api/v1`. Supply the latest site `revision` on each PUT; it covers all site settings. Tokens are write-only.
 
