@@ -12,8 +12,12 @@ const NUMBER = /^-?\d+$/;
 /** Sentences for a single input, unlike the lists of names and codes in lifecycle messages. */
 const fieldCodes: Record<string, () => string> = {
 	plaintext_not_declared: m.compat_plaintext,
-	unsupported_url_scheme: m.compat_scheme,
-	invalid_url: m.compat_url,
+	url_scheme: m.compat_scheme,
+	url_invalid: m.compat_url,
+	url_credentials: m.compat_url_credentials,
+	url_path: m.compat_url_path,
+	url_query: m.compat_url_query,
+	url_fragment: m.compat_url_fragment,
 	not_in_enum: m.compat_enum,
 	required: m.configuration_field_required,
 	wrong_type: m.configuration_field_wrong_type,

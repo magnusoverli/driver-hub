@@ -36,14 +36,14 @@ test('release-specific constraints apply to manual and inherited values without 
   config.inputs[4].enum = ['info', 'debug'];
   const ws = { ...site, url: site.url.replace('wss:', 'ws:') };
   const errors = (p, settings) => deployForm(checkDeclaration(config), { settings }, p).validation.errors;
-  assert.ok(errors(ws, {}).some(e => e.code === 'unsupported_url_scheme'));
+  assert.ok(errors(ws, {}).some(e => e.code === 'url_scheme'));
   for (const url of ['https://host/x-driver/v1', 'wss://u:p@host/x-driver/v1', 'wss://host/other',
     'wss://host/x-driver/v1?', 'wss://host/x-driver/v1#']) {
     assert.ok(errors(null, { videoipathUrl: url }).some(e => e.field === field.name));
   }
   field.url.schemes = ['ws'];
   assert.ok(!errors(ws, {}).some(e => e.field === field.name));
-  assert.ok(errors(site, {}).some(e => e.code === 'unsupported_url_scheme'));
+  assert.ok(errors(site, {}).some(e => e.code === 'url_scheme'));
   assert.ok(errors(ws, { logLevel: 'INFO' }).some(e => e.code === 'not_in_enum'));
   config.inputs[4].default = 'typo';
   assert.throws(() => checkDeclaration(config), /default/);

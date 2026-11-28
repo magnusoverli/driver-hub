@@ -1,3 +1,4 @@
+import { isIPv6 } from 'node:net';
 import { requireRelease } from './release.js';
 
 // The input properties of driver-config.json v1, as the VideoIPath External Drivers repository's
@@ -12,33 +13,71 @@ export function isObject(value) {
 }
 
 // A secret's length bounds describe its value, which Hub never sees: only its key name.
-function valueError(field, value) {
+// URL values in canonical form, as the external drivers repository defines them
+// (Drivers/RELEASING.md#url-values and tools/driverhub_contract.py): printable ASCII
+// without "\\", and scheme "://" authority path ["?" query] ["#" fragment]. Anything a
+// WHATWG parser would repair or normalize is refused, so Hub never approves a value the
+// driver reads differently. Shared cases: test/fixtures/driver-config.
+const urlForm = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/s;
+const hostPort = /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._~-]+)(?::([0-9]{1,5}))?$/;
+const octet = '(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])';
+const dottedQuad = new RegExp(`^${octet}(?:\\.${octet}){3}$`);
+const numericLabel = /^(?:[0-9]+|0[xX][0-9A-Fa-f]*)$/;
+
+function hostOk(host) {
+  if (host.startsWith('[')) return isIPv6(host.slice(1, -1));
+  // WHATWG parsers read a host whose last label is numeric as IPv4; accept only a dotted quad.
+  const last = host.replace(/\.+$/, '').split('.').at(-1);
+  return numericLabel.test(last) ? dottedQuad.test(host) : true;
+}
+
+/** Reasons a string violates a url constraint, sorted: url_invalid alone, or the others. */
+export function urlErrors(rule, value) {
+  if (typeof value !== 'string' || [...value].some(c => c < '!' || c > '~' || c === '\\')) return ['url_invalid'];
+  const match = urlForm.exec(value);
+  if (!match) return ['url_invalid'];
+  const [, scheme, authority, path, query, fragment] = match;
+  const at = authority.lastIndexOf('@');
+  const host = hostPort.exec(authority.slice(at + 1));
+  if (!host || !hostOk(host[1]) || (host[2] && Number(host[2]) > 65535)) return ['url_invalid'];
+  const reasons = [];
+  if (!rule.schemes.includes(scheme.toLowerCase())) reasons.push('url_scheme');
+  if (at !== -1 && !rule.allowCredentials) reasons.push('url_credentials');
+  if (rule.path !== undefined && path !== rule.path) reasons.push('url_path');
+  if (query !== undefined && !rule.allowQuery) reasons.push('url_query');
+  if (fragment !== undefined && !rule.allowFragment) reasons.push('url_fragment');
+  return reasons.sort();
+}
+
+/** Every reason a value violates its input. Integers keep the released out_of_range code. */
+function valueErrors(field, value) {
   if (field.secret) {
     if (!isObject(value) || Object.keys(value).length !== 1 ||
-        typeof value.secretRef !== 'string' || !value.secretRef.trim()) return 'secret_reference_required';
-    return;
+        typeof value.secretRef !== 'string' || !value.secretRef.trim()) return ['secret_reference_required'];
+    return [];
   }
-  if (field.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== field.type) return 'wrong_type';
-  if (field.enum && !field.enum.includes(value)) return 'not_in_enum';
-  if (field.url) {
-    const rule = field.url;
-    let url;
-    try { url = new URL(value); } catch { return 'invalid_url'; }
-    if (!url.hostname || !/^[a-z][a-z0-9+.-]*:\/\//i.test(value) || /[\s\\]/.test(value)) return 'invalid_url';
-    if (!rule.schemes.includes(url.protocol.slice(0, -1))) return 'unsupported_url_scheme';
-    if ((rule.path !== undefined && url.pathname !== rule.path) ||
-      (rule.allowCredentials === false && /:\/\/[^/?#]*@/.test(value)) ||
-      (rule.allowQuery === false && value.split('#')[0].includes('?')) ||
-      (rule.allowFragment === false && value.includes('#'))) return 'invalid_url';
-  }
-  if (field.type === 'string' && [...value].length < (field.minLength ?? 0)) return 'too_short';
-  if (field.type === 'string' && [...value].length > (field.maxLength ?? Infinity)) return 'too_long';
-  if (value < field.minimum || value > field.maximum) return 'out_of_range';
+  if (field.type === 'integer' ? !Number.isSafeInteger(value) : typeof value !== field.type) return ['wrong_type'];
+  if (field.type === 'integer') return value < field.minimum || value > field.maximum ? ['out_of_range'] : [];
+  if (field.type !== 'string') return [];
+  const reasons = [];
+  if ([...value].length < (field.minLength ?? 0)) reasons.push('too_short');
+  if ([...value].length > (field.maxLength ?? Infinity)) reasons.push('too_long');
+  if (field.enum && !field.enum.includes(value)) reasons.push('not_in_enum');
+  if (field.url) reasons.push(...urlErrors(field.url, value));
+  return reasons;
 }
+
+const v2Keys = new Set(['schemaVersion', 'inputs', 'controlHealth', 'nodeIdInput', 'videoIPathInputs']);
+const urlKeys = ['schemes', 'path', 'allowCredentials', 'allowQuery', 'allowFragment'];
+const schemePattern = /^[a-z][a-z0-9+.-]*$/;
+// An absolute path without dot segments (also not as %2E), percent-escapes in uppercase hex.
+const pathPattern = /^(?!.*\/(?:\.|%2[Ee]){1,2}(?:\/|$))\/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-F]{2})*$/;
 
 export function checkDeclaration(declaration) {
   requireRelease([1, 2].includes(declaration?.schemaVersion) && Array.isArray(declaration.inputs),
     'Unsupported configuration declaration');
+  const v2 = declaration.schemaVersion === 2;
+  requireRelease(!v2 || Object.keys(declaration).every(key => v2Keys.has(key)), 'Unsupported declaration property');
   if (declaration.controlHealth !== undefined) {
     const h = declaration.controlHealth;
     requireRelease(isObject(h) && Number.isInteger(h.port) && h.port > 0 && h.port <= 65535 &&
@@ -54,15 +93,21 @@ export function checkDeclaration(declaration) {
       (declaration.schemaVersion === 2 && ['enum', 'url'].includes(key))), 'Unsupported input property');
     if (field.enum !== undefined || field.url !== undefined) {
       requireRelease(field.type === 'string' && !field.secret, 'Constraints require a non-secret string');
+      requireRelease(field.enum === undefined || field.url === undefined, 'An input is either an enum or a URL');
       const distinct = list => Array.isArray(list) && list.length > 0 &&
         list.every(x => typeof x === 'string' && x.length > 0) && new Set(list).size === list.length;
-      if (field.enum !== undefined) requireRelease(distinct(field.enum), 'Invalid string enum');
+      if (field.enum !== undefined) {
+        requireRelease(distinct(field.enum), 'Invalid string enum');
+        requireRelease(field.enum.every(choice => [...choice].length >= (field.minLength ?? 0) &&
+          [...choice].length <= (field.maxLength ?? Infinity)), 'Enum choice outside the length bounds');
+      }
       if (field.url !== undefined) {
         const r = field.url;
-        requireRelease(isObject(r) && Object.keys(r).every(k => ['schemes', 'path', 'allowCredentials', 'allowQuery', 'allowFragment'].includes(k)) &&
-          distinct(r.schemes) && r.schemes.every(s => /^[a-z][a-z0-9+.-]*$/.test(s)) &&
-          (r.path === undefined || (typeof r.path === 'string' && /^\/[^\s\\?#]*$/.test(r.path))) &&
-          ['allowCredentials', 'allowQuery', 'allowFragment'].every(k => r[k] === undefined || typeof r[k] === 'boolean'),
+        // Every key but path is required, so neither side relies on an implied default.
+        requireRelease(isObject(r) && Object.keys(r).every(k => urlKeys.includes(k)) &&
+          distinct(r.schemes) && r.schemes.every(s => schemePattern.test(s)) &&
+          (r.path === undefined || (typeof r.path === 'string' && pathPattern.test(r.path))) &&
+          ['allowCredentials', 'allowQuery', 'allowFragment'].every(k => typeof r[k] === 'boolean'),
         'Invalid URL constraint');
       }
     }
@@ -91,7 +136,7 @@ export function checkDeclaration(declaration) {
         'Invalid integer bound');
     }
     requireRelease(!(field.minimum > field.maximum), 'Inverted integer bounds');
-    requireRelease(!Object.hasOwn(field, 'default') || !valueError(field, field.default), 'Invalid input default');
+    requireRelease(!Object.hasOwn(field, 'default') || !valueErrors(field, field.default).length, 'Invalid input default');
   }
   if (declaration.nodeIdInput !== undefined) {
     const field = declaration.inputs.find(f => f.name === declaration.nodeIdInput);
@@ -121,10 +166,11 @@ export function validateSettings(declaration, settings) {
     if (!fields.has(key)) errors.push({ field: key, code: 'unknown_input' });
   }
   for (const field of fields.values()) {
-    let code;
-    if (Object.hasOwn(settings, field.name)) code = valueError(field, settings[field.name]);
-    else if (field.required && !Object.hasOwn(field, 'default')) code = 'required';
-    if (code) errors.push({ field: field.name, code });
+    if (Object.hasOwn(settings, field.name)) {
+      for (const code of valueErrors(field, settings[field.name])) errors.push({ field: field.name, code });
+    } else if (field.required && !Object.hasOwn(field, 'default')) {
+      errors.push({ field: field.name, code: 'required' });
+    }
   }
   return { valid: errors.length === 0, errors };
 }
