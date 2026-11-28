@@ -20,7 +20,7 @@ export interface ReadinessItem {
 	detail: string;
 	/** Where an administrator changes it in Hub. */
 	settingsRoute?:
-		'/(app)/settings/nomad' | '/(app)/settings/videoipath' | '/(app)/settings/manager';
+		'/(app)/settings/nomad' | '/(app)/settings/videoipath' | '/(app)/settings/advanced';
 }
 
 export interface ReadinessInput {
@@ -98,7 +98,7 @@ export function siteReadiness(input: ReadinessInput): ReadinessItem[] {
 		{
 			id: 'builds',
 			label: m.readiness_builds(),
-			settingsRoute: '/(app)/settings/manager',
+			settingsRoute: '/(app)/settings/advanced',
 			...(!capabilities
 				? checking
 				: capabilities.buildsEnabled

@@ -51,7 +51,7 @@ After the push, CI pulls each platform from that digest and attaches its Docker 
 
 ### Manager settings
 
-The environment holds only what the manager needs before its web interface runs, or what describes the machine it runs on. Everything else is saved in the site settings and changed under **Settings** in the web interface (or with the endpoints in [site setup](#site-setup-after-container-startup)). Settings > Manager lists the values below as the running manager sees them; changing one takes a restart.
+The environment holds only what the manager needs before its web interface runs, or what describes the machine it runs on. Everything else is saved in the site settings and changed under **Settings** in the web interface (or with the endpoints in [site setup](#site-setup-after-container-startup)). Settings > Advanced lists the values below as the running manager sees them; changing one takes a restart.
 
 | Setting | Where | Purpose |
 | --- | --- | --- |
@@ -70,10 +70,10 @@ Saved in the site settings instead:
 | Setting | In the web interface | Purpose |
 | --- | --- | --- |
 | Nomad address, namespace, datacenters, ACL token | Settings > Nomad, Change the connection | Nomad HTTP(S) API, namespace (`default`) and datacenters (`dc1`). Use a stable HTTPS endpoint and a dedicated namespace in production. The ACL must cover driver service jobs, the image system job, allocation checks and the Variables below. |
-| Nomad web interface | Settings > Nomad, Jobs | Allocation log links use the cluster address and the operator’s own Nomad login. Override the address only if browsers reach Nomad at a different HTTP or HTTPS origin. |
-| Shared writers | Settings > Nomad, Jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so deployments cannot be deleted. |
-| Source builds | Settings > Manager | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
-| Request timings | Settings > Manager | Returns `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
+| Nomad web interface | Settings > Advanced, Nomad jobs | Allocation log links use the cluster address and the operator’s own Nomad login. Override the address only if browsers reach Nomad at a different HTTP or HTTPS origin. |
+| Shared writers | Settings > Advanced, Nomad jobs | On if another process can edit Hub jobs directly. Disables job purge, which has no server-side revision check, so devices cannot be deleted. |
+| Source builds | Settings > Advanced | Lets administrators build reviewed source from the public repository using Docker Buildx. Off by default; it can only be turned on when the manager can build (see [customer builds](#customer-builds)). |
+| Request timings | Settings > Advanced | Returns `Server-Timing` with API duration and upstream call, decoded response byte and error counts. Shared reads are counted on the request doing the work. |
 | VideoIPath | Settings > VideoIPath | See [site setup](#site-setup-after-container-startup). |
 | API tokens | Settings > API tokens | See [API tokens](#api-tokens). |
 
@@ -287,7 +287,7 @@ Qualify orderly drain, hard host loss, loss of all server connectivity while the
 
 `PUT /api/v1/imports/{driverId}/{version}` verifies a prebuilt image and adds it to **retained releases**. Use a normal driver ID and SemVer, e.g. `meter/1.2.0`. Uploading does not run the driver, publish it upstream, or contact GitHub, Docker or Nomad. It requires an administrator; browser requests use the usual session cookie and `X-Driver-Hub-Request: 1`.
 
-In **Catalog → Import local image**, supply the archive, driver ID and version. Under **Optional details**, add configuration if the driver expects Hub to supply inputs or monitor a control health check. The verified release appears under **Retained releases**.
+In **Catalog → Add custom driver → Import local image**, supply the archive, driver ID and version. Under **Optional details**, add configuration if the driver expects Hub to supply inputs or monitor a control health check. The verified release appears in the catalog as **Downloaded**, ready to set up.
 
 Send a multipart form with:
 
@@ -322,7 +322,7 @@ Allow temporary disk space in the manager data volume for both the compressed ar
 
 ## Customer builds
 
-**Source builds are available in the standard installation but disabled on a new site.** An administrator enables them under **Settings → Manager**. Both the UI and `POST /api/v1/builds` honor that saved choice. Existing sites keep their saved setting across upgrades.
+**Source builds are available in the standard installation but disabled on a new site.** An administrator enables them under **Settings → Advanced**. Both the UI and `POST /api/v1/builds` honor that saved choice. Existing sites keep their saved setting across upgrades.
 
 The manager's Docker CLI/Buildx uses the `hub-compose` builder. Its rootless BuildKit worker communicates over a shared Unix socket, has its own cache volume, and exposes no TCP port or host Docker socket. The worker needs outbound access to the public source repository and any base-image registries. Its container permits nested namespaces, mounts and process sandboxing; use it for reviewed driver source. Builds export OCI archives to Hub, not to a registry.
 

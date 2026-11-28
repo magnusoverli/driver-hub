@@ -29,7 +29,7 @@
 					<div class="device">
 						<a
 							class={['row-link', 'name', { unnamed: row.label === null }]}
-							href={resolve('/(app)/deployments/[nodeId]', { nodeId: row.nodeId })}
+							href={resolve('/(app)/devices/[nodeId]', { nodeId: row.nodeId })}
 						>
 							{deviceName(row)}
 						</a>

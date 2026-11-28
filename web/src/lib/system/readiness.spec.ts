@@ -107,7 +107,7 @@ describe('site readiness', () => {
 			'/(app)/settings/nomad',
 			'/(app)/settings/videoipath',
 			'/(app)/settings/nomad',
-			'/(app)/settings/manager'
+			'/(app)/settings/advanced'
 		]);
 	});
 });

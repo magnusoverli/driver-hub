@@ -38,7 +38,7 @@ Run `npx playwright install chromium` once before browser tests. On Windows, run
 | `src/lib/query/`                  | TanStack Query defaults: retry only transient failures, poll every 10 s, pause while hidden.                                                                                                      |
 | `src/lib/<feature>/`              | Query factories and pure view logic per area, for example `system/readiness.ts` and `deployments/status-path.ts`.                                                                                 |
 | `src/lib/deployments/`            | The deployment list and detail: conditions and filters (`view.ts`), preview-then-apply lifecycle (`lifecycle.ts`), the configuration form (`configuration-form.ts`) and staging (`stage.ts`).     |
-| `src/lib/catalog/`                | Published and retained releases, the release page's inputs, downloads, local imports, source builds, removal, staging and form validation (`validation.ts`).                                      |
+| `src/lib/catalog/`                | Drivers grouped from published and retained releases (`drivers.ts`), downloads and builds (`acquisitions.svelte.ts`), the release page's inputs, imports, removal, setup and form validation.     |
 | `src/lib/operations/`             | Background downloads and builds for Activity and the catalog, polled quickly only while one runs.                                                                                                 |
 | `src/lib/site/`, `src/lib/users/` | Nomad and VideoIPath settings (mirroring the manager's address rules) and local accounts.                                                                                                         |
 | `src/lib/shell/`                  | Top bar, navigation (route IDs, role filtering, a sheet on narrow screens), command palette (`Ctrl K`, also devices and releases), theme and account menus, and notices carried to the next page. |
@@ -49,7 +49,7 @@ Run `npx playwright install chromium` once before browser tests. On Windows, run
 
 State lives in rune-based classes and TanStack queries; components read fields and call methods, so only the parts of the page that depend on a changed value update.
 
-The overview and **Settings → Nomad** read `GET /api/v1/integrations/images`. `src/lib/system/image-distribution.ts` maps the manager's state to UI text; `ImageDistributionCard.svelte` shows the counts, source and current client problems. Use the returned `state`: two healthy running clients can still mean **Starting** while a third is downloading. The connection form saves the trusted-network `plainHttp` opt-in through `PUT /api/v1/site/nomad`; the browser never connects directly to Nomad.
+The Devices page, **Settings → Site setup** and **Settings → Nomad** read `GET /api/v1/integrations/images`. `src/lib/system/image-distribution.ts` maps the manager's state to UI text; `ImageDistributionCard.svelte` shows the counts, source and current client problems. Use the returned `state`: two healthy running clients can still mean **Starting** while a third is downloading. The connection form saves the trusted-network `plainHttp` opt-in through `PUT /api/v1/site/nomad`; the browser never connects directly to Nomad.
 
 ## Design
 

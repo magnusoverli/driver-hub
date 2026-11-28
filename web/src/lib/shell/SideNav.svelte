@@ -12,22 +12,17 @@
 
 	let { items, routeId, counts = {} }: Props = $props();
 
+	// The site's own administration sits apart from the everyday sections.
 	const sections = $derived(
-		(['main', 'settings'] as NavSection[])
+		(['main', 'site'] as NavSection[])
 			.map((section) => ({ section, items: items.filter((item) => item.section === section) }))
 			.filter((group) => group.items.length > 0)
 	);
-	const headings: Record<NavSection, (() => string) | null> = {
-		main: null,
-		settings: m.nav_section_settings
-	};
 </script>
 
 <nav class="side-nav" aria-label={m.nav_label()}>
 	{#each sections as group (group.section)}
-		{@const heading = headings[group.section]}
-		<div class="group">
-			{#if heading}<span class="heading">{heading()}</span>{/if}
+		<div class={['group', { site: group.section === 'site' }]}>
 			<ul>
 				{#each group.items as item (item.id)}
 					{@const Icon = item.icon}
@@ -68,11 +63,9 @@
 		gap: var(--space-1);
 	}
 
-	.heading {
-		padding: 0 var(--space-3) var(--space-1);
-		font-size: var(--text-sm);
-		font-weight: var(--weight-semibold);
-		color: var(--text-3);
+	.site {
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--border);
 	}
 
 	ul {

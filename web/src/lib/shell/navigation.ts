@@ -1,18 +1,27 @@
 import type { LucideIcon } from '@lucide/svelte';
 import Activity from '@lucide/svelte/icons/activity';
+import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
 import KeyRound from '@lucide/svelte/icons/key-round';
 import Layers from '@lucide/svelte/icons/layers';
-import LayoutGrid from '@lucide/svelte/icons/layout-grid';
 import Link2 from '@lucide/svelte/icons/link-2';
 import Package from '@lucide/svelte/icons/package';
 import Server from '@lucide/svelte/icons/server';
+import Settings from '@lucide/svelte/icons/settings';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Users from '@lucide/svelte/icons/users';
 import type { RouteId } from '$app/types';
 import { m } from '#lib/paraglide/messages.js';
 import type { Role } from '#lib/session/auth-service.js';
 
-export type NavSection = 'main' | 'settings';
+/**
+ * Where an item is listed. The side navigation shows "main" items at the top and "site" items
+ * below them; "settings" pages are listed inside Settings; "other" pages only in the command
+ * palette and in links from related pages.
+ */
+export type NavSection = 'main' | 'site' | 'settings' | 'other';
+
+/** How the settings pages are grouped inside Settings. */
+export type SettingsGroup = 'setup' | 'connections' | 'access' | 'advanced';
 
 /** Routes that can be linked without parameters, such as every top-level section. */
 export type StaticRouteId = Exclude<RouteId, `${string}[${string}`>;
@@ -24,8 +33,12 @@ export interface NavItem {
 	label: () => string;
 	icon: LucideIcon;
 	section: NavSection;
+	/** Settings pages only: the group it is listed under. */
+	group?: SettingsGroup;
 	/** Routes whose API requires the admin role are hidden from viewers. */
 	adminOnly?: boolean;
+	/** Matches only its own route, not the routes below it. */
+	exact?: boolean;
 	/** Extra words the command palette matches on. */
 	keywords?: string[];
 }
@@ -34,20 +47,12 @@ const HOME: StaticRouteId = '/(app)';
 
 export const NAVIGATION: readonly NavItem[] = [
 	{
-		id: 'overview',
+		id: 'devices',
 		route: HOME,
-		label: m.nav_overview,
-		icon: LayoutGrid,
-		section: 'main',
-		keywords: ['home', 'readiness']
-	},
-	{
-		id: 'deployments',
-		route: '/(app)/deployments',
-		label: m.nav_deployments,
+		label: m.nav_devices,
 		icon: Layers,
 		section: 'main',
-		keywords: ['devices', 'drivers']
+		keywords: ['home', 'overview', 'deployments', 'status', 'updates']
 	},
 	{
 		id: 'catalog',
@@ -55,15 +60,35 @@ export const NAVIGATION: readonly NavItem[] = [
 		label: m.nav_catalog,
 		icon: Package,
 		section: 'main',
-		keywords: ['releases', 'builds', 'updates']
+		keywords: ['drivers', 'releases', 'download', 'builds', 'import']
 	},
 	{
 		id: 'activity',
 		route: '/(app)/activity',
 		label: m.nav_activity,
 		icon: Activity,
-		section: 'main',
-		keywords: ['operations', 'downloads']
+		section: 'other',
+		keywords: ['operations', 'downloads', 'builds', 'history']
+	},
+	{
+		id: 'settings',
+		route: '/(app)/settings',
+		label: m.nav_settings,
+		icon: Settings,
+		section: 'site',
+		adminOnly: true,
+		keywords: ['readiness', 'setup', 'site']
+	},
+	{
+		id: 'setup',
+		route: '/(app)/settings',
+		label: m.nav_site_setup,
+		icon: ClipboardCheck,
+		section: 'settings',
+		group: 'setup',
+		adminOnly: true,
+		exact: true,
+		keywords: ['readiness', 'settings']
 	},
 	{
 		id: 'nomad',
@@ -71,8 +96,9 @@ export const NAVIGATION: readonly NavItem[] = [
 		label: m.nav_nomad,
 		icon: Server,
 		section: 'settings',
+		group: 'connections',
 		adminOnly: true,
-		keywords: ['cluster', 'scheduler', 'image host', 'settings']
+		keywords: ['cluster', 'scheduler', 'image distribution', 'settings']
 	},
 	{
 		id: 'videoipath',
@@ -80,6 +106,7 @@ export const NAVIGATION: readonly NavItem[] = [
 		label: m.nav_videoipath,
 		icon: Link2,
 		section: 'settings',
+		group: 'connections',
 		adminOnly: true,
 		keywords: ['tokens', 'target', 'settings']
 	},
@@ -89,6 +116,7 @@ export const NAVIGATION: readonly NavItem[] = [
 		label: m.nav_users,
 		icon: Users,
 		section: 'settings',
+		group: 'access',
 		adminOnly: true,
 		keywords: ['accounts', 'operators', 'settings']
 	},
@@ -98,19 +126,46 @@ export const NAVIGATION: readonly NavItem[] = [
 		label: m.nav_api_tokens,
 		icon: KeyRound,
 		section: 'settings',
+		group: 'access',
 		adminOnly: true,
 		keywords: ['scripts', 'automation', 'bearer', 'settings']
 	},
 	{
-		id: 'manager',
-		route: '/(app)/settings/manager',
-		label: m.nav_manager,
+		id: 'advanced',
+		route: '/(app)/settings/advanced',
+		label: m.nav_advanced,
 		icon: SlidersHorizontal,
 		section: 'settings',
+		group: 'advanced',
 		adminOnly: true,
-		keywords: ['builds', 'environment', 'compose', 'startup', 'settings']
+		keywords: ['manager', 'source builds', 'timings', 'environment', 'jobs', 'settings']
 	}
 ];
+
+export const SETTINGS_GROUPS: readonly { id: SettingsGroup; label: () => string }[] = [
+	{ id: 'setup', label: m.settings_group_setup },
+	{ id: 'connections', label: m.settings_group_connections },
+	{ id: 'access', label: m.settings_group_access },
+	{ id: 'advanced', label: m.settings_group_advanced }
+];
+
+/** Items for the side navigation: the main sections, then site administration. */
+export function sidebarNavigation(items: readonly NavItem[]): NavItem[] {
+	return items.filter((item) => item.section === 'main' || item.section === 'site');
+}
+
+/** Settings pages by group, in the order they are listed inside Settings. */
+export function settingsNavigation(items: readonly NavItem[]) {
+	return SETTINGS_GROUPS.map((group) => ({
+		...group,
+		items: items.filter((item) => item.section === 'settings' && item.group === group.id)
+	})).filter((group) => group.items.length > 0);
+}
+
+/** Every page the command palette offers, without the Settings entry its first page repeats. */
+export function paletteNavigation(items: readonly NavItem[]): NavItem[] {
+	return items.filter((item) => item.section !== 'site');
+}
 
 export function visibleNavigation(
 	role: Role | undefined,
@@ -119,10 +174,10 @@ export function visibleNavigation(
 	return items.filter((item) => !item.adminOnly || role === 'admin');
 }
 
-/** The overview matches only itself; every other item also matches its sub-routes. */
-export function isActive(item: Pick<NavItem, 'route'>, routeId: string | null): boolean {
+/** The home page and exact items match only themselves; others also match their sub-routes. */
+export function isActive(item: Pick<NavItem, 'route' | 'exact'>, routeId: string | null): boolean {
 	if (!routeId) return false;
-	if (item.route === HOME) return routeId === HOME;
+	if (item.route === HOME || item.exact) return routeId === item.route;
 	return routeId === item.route || routeId.startsWith(`${item.route}/`);
 }
 

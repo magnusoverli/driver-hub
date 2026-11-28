@@ -15,7 +15,7 @@
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { capabilitiesQuery, nomadConnectionQuery } from '#lib/system/queries.js';
 	import CommandPalette from './CommandPalette.svelte';
-	import { visibleNavigation } from './navigation';
+	import { paletteNavigation, sidebarNavigation, visibleNavigation } from './navigation';
 	import SideNav from './SideNav.svelte';
 	import TopBar from './TopBar.svelte';
 
@@ -29,13 +29,14 @@
 	const nomad = createQuery(() => nomadConnectionQuery(api));
 	const capabilities = createQuery(() => capabilitiesQuery(api));
 	const navigation = $derived(visibleNavigation(operator.role));
+	const sidebar = $derived(sidebarNavigation(navigation));
 	const shortcut = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? '') ? '⌘ K' : 'Ctrl K';
 
 	let paletteOpen = $state(false);
 	let passwordOpen = $state(false);
 	let menuOpen = $state(false);
 
-	// Running downloads and builds, shown beside Activity wherever the operator is.
+	// Running downloads and builds, shown beside the catalog wherever the operator is.
 	const operations = createQuery(() => ({
 		...operationsQuery(api, ACTIVITY_POLL_MS),
 		enabled: capabilities.data?.asyncAcquisition === true
@@ -96,7 +97,7 @@
 	/>
 	<div class="body">
 		<div class="side">
-			<SideNav items={navigation} routeId={page.route.id} counts={{ activity: running }} />
+			<SideNav items={sidebar} routeId={page.route.id} counts={{ catalog: running }} />
 		</div>
 		<main id="main" tabindex="-1">
 			{@render children()}
@@ -110,14 +111,14 @@
 		<Dialog.Overlay class="dialog-overlay" />
 		<Dialog.Content class="nav-sheet">
 			<Dialog.Title class="visually-hidden">{m.shell_menu_title()}</Dialog.Title>
-			<SideNav items={navigation} routeId={page.route.id} counts={{ activity: running }} />
+			<SideNav items={sidebar} routeId={page.route.id} counts={{ catalog: running }} />
 		</Dialog.Content>
 	</Dialog.Portal>
 </Dialog.Root>
 
 <CommandPalette
 	bind:open={paletteOpen}
-	{navigation}
+	navigation={paletteNavigation(navigation)}
 	{devices}
 	{releases}
 	canChangePassword={session.managesOwnPassword}

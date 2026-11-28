@@ -92,6 +92,14 @@ describe('list filters', () => {
 		expect(matchesFilter(unavailable, 'running')).toBe(false);
 		expect(matchesFilter(unavailable, 'attention')).toBe(true);
 		expect(matchesFilter(unavailable, 'all')).toBe(true);
+		expect(matchesFilter(running, 'updates')).toBe(false);
+		expect(
+			matchesFilter(
+				running,
+				'updates',
+				new Map([[running.nodeId, { version: '2.0.0', retained: true }]])
+			)
+		).toBe(true);
 	});
 
 	it('round-trips the view through the address query', () => {

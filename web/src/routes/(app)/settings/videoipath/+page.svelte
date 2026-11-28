@@ -333,7 +333,7 @@
 											</span>
 										{:else}
 											{m.videoipath_token_reserved()}
-											<a href={resolve('/(app)/deployments/[nodeId]', { nodeId: token.nodeId })}>
+											<a href={resolve('/(app)/devices/[nodeId]', { nodeId: token.nodeId })}>
 												{device ? deviceName(device) : shortId(token.nodeId)}
 											</a>
 										{/if}
@@ -452,7 +452,7 @@
 		gap: var(--space-5);
 	}
 
-	@media (max-width: 68rem) {
+	@container settings (max-width: 56rem) {
 		.layout {
 			grid-template-columns: minmax(0, 1fr);
 		}

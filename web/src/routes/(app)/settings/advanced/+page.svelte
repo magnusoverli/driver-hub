@@ -9,6 +9,7 @@
 		environmentSource,
 		environmentValue
 	} from '#lib/site/environment-labels.js';
+	import JobsForm from '#lib/site/JobsForm.svelte';
 	import { siteProblem, type SiteProblem } from '#lib/site/problems.js';
 	import {
 		configureManager,
@@ -87,7 +88,7 @@
 	}
 </script>
 
-<PageHeader title={m.nav_manager()} description={m.manager_description()} />
+<PageHeader title={m.nav_advanced()} description={m.advanced_description()} />
 
 {#if site.error}
 	<Callout tone="fail" title={m.site_error_title()} live>{site.error.message}</Callout>
@@ -95,31 +96,34 @@
 	<Card><Loading label={m.site_loading()} /></Card>
 {:else}
 	<div class="layout">
-		<Card title={m.manager_features_title()} description={m.manager_features_description()}>
-			<form class="form" onsubmit={submit} novalidate>
-				{#if saved}<Callout tone="ok" title={m.manager_saved()} live />{/if}
-				{#if problem}
-					<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
-						{problem.message}
-					</Callout>
-				{/if}
-				<Checkbox
-					bind:checked={buildsEnabled}
-					disabled={buildsLocked}
-					hint={site.data.manager.buildsAvailable
-						? m.manager_builds_hint()
-						: m.manager_builds_unavailable()}
-				>
-					{m.manager_builds()}
-				</Checkbox>
-				<Checkbox bind:checked={timings} hint={m.manager_timings_hint()}>
-					{m.manager_timings()}
-				</Checkbox>
-				<div class="submit">
-					<Button variant="primary" type="submit" {busy}>{m.manager_submit()}</Button>
-				</div>
-			</form>
-		</Card>
+		<div class="column">
+			<Card title={m.manager_features_title()} description={m.manager_features_description()}>
+				<form class="form" onsubmit={submit} novalidate>
+					{#if saved}<Callout tone="ok" title={m.manager_saved()} live />{/if}
+					{#if problem}
+						<Callout tone={problem.kind === 'conflict' ? 'warn' : 'fail'} live>
+							{problem.message}
+						</Callout>
+					{/if}
+					<Checkbox
+						bind:checked={buildsEnabled}
+						disabled={buildsLocked}
+						hint={site.data.manager.buildsAvailable
+							? m.manager_builds_hint()
+							: m.manager_builds_unavailable()}
+					>
+						{m.manager_builds()}
+					</Checkbox>
+					<Checkbox bind:checked={timings} hint={m.manager_timings_hint()}>
+						{m.manager_timings()}
+					</Checkbox>
+					<div class="submit">
+						<Button variant="primary" type="submit" {busy}>{m.manager_submit()}</Button>
+					</div>
+				</form>
+			</Card>
+			<JobsForm site={site.data} reload={async () => (await site.refetch()).data} />
+		</div>
 
 		<Card
 			title={m.manager_environment_title()}
@@ -181,10 +185,17 @@
 		gap: var(--space-5);
 	}
 
-	@media (max-width: 68rem) {
+	@container settings (max-width: 56rem) {
 		.layout {
 			grid-template-columns: minmax(0, 1fr);
 		}
+	}
+
+	.column {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+		min-width: 0;
 	}
 
 	.form {

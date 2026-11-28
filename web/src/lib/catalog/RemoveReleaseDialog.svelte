@@ -75,7 +75,7 @@
 				{#each uses as use (`${use.nodeId}-${use.use}`)}
 					{@const device = devices.get(use.nodeId)}
 					<li>
-						<a href={resolve('/(app)/deployments/[nodeId]', { nodeId: use.nodeId })}>
+						<a href={resolve('/(app)/devices/[nodeId]', { nodeId: use.nodeId })}>
 							{device ? deviceName(device) : shortId(use.nodeId)}
 						</a>
 						{use.use === 'unconfirmed'

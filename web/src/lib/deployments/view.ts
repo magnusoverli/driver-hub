@@ -83,11 +83,18 @@ export function sortByName<T extends Named>(rows: readonly T[]): T[] {
 	});
 }
 
-export const DEPLOYMENT_FILTERS = ['all', 'attention', 'running', 'stopped'] as const;
+export const DEPLOYMENT_FILTERS = ['all', 'attention', 'running', 'stopped', 'updates'] as const;
 export type DeploymentFilter = (typeof DEPLOYMENT_FILTERS)[number];
 
-export function matchesFilter(row: DeploymentSummary, filter: DeploymentFilter): boolean {
+/** Whether a device belongs in a filtered view; "updates" uses the device's update hints. */
+export function matchesFilter(
+	row: DeploymentSummary,
+	filter: DeploymentFilter,
+	updates: ReadonlyMap<string, UpdateHint> = new Map()
+): boolean {
 	switch (filter) {
+		case 'updates':
+			return updates.has(row.nodeId);
 		case 'attention':
 			return needsAttention(condition(row));
 		case 'running':

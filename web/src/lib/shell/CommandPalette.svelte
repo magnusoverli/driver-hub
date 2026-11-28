@@ -97,7 +97,7 @@
 											keywords={[device.name, device.nodeId, device.detail]}
 											onSelect={() =>
 												run(() =>
-													goto(resolve('/(app)/deployments/[nodeId]', { nodeId: device.nodeId }))
+													goto(resolve('/(app)/devices/[nodeId]', { nodeId: device.nodeId }))
 												)}
 										>
 											<Layers size={15} aria-hidden="true" />

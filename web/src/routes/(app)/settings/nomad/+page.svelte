@@ -28,7 +28,6 @@
 	import Facts from '#lib/ui/Facts.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
-	import JobsForm from '#lib/site/JobsForm.svelte';
 	import ImageDistributionCard from '#lib/system/ImageDistributionCard.svelte';
 	import Checkbox from '#lib/ui/Checkbox.svelte';
 	import RadioGroup from '#lib/ui/RadioGroup.svelte';
@@ -302,7 +301,6 @@
 					</div>
 				</form>
 			</Card>
-			<JobsForm site={site.data} reload={async () => (await site.refetch()).data} />
 		</div>
 	</div>
 {/if}
@@ -315,7 +313,7 @@
 		gap: var(--space-5);
 	}
 
-	@media (max-width: 68rem) {
+	@container settings (max-width: 56rem) {
 		.layout {
 			grid-template-columns: minmax(0, 1fr);
 		}

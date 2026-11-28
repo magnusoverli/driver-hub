@@ -98,20 +98,20 @@
 	}
 
 	async function removed() {
-		notices.leave('/(app)/catalog', {
+		notices.leave('/(app)/catalog/[driverId]', {
 			tone: 'info',
 			title: m.release_removed({ driver: identity.driverId, version: identity.version })
 		});
 		queryClient.removeQueries({ queryKey: catalogKeys.all });
-		await goto(resolve('/(app)/catalog'));
+		await goto(resolve('/(app)/catalog/[driverId]', { driverId: identity.driverId }));
 	}
 
 	const github = 'https://github.com/VideoIPath/VideoIPath_External_Drivers/tree';
 </script>
 
-<a class="back" href={resolve('/(app)/catalog')}>
+<a class="back" href={resolve('/(app)/catalog/[driverId]', { driverId: identity.driverId })}>
 	<ArrowLeft size={15} aria-hidden="true" />
-	{m.nav_catalog()}
+	{m.release_back_to_driver()}
 </a>
 
 {#if notFound}
@@ -238,7 +238,7 @@
 						<ul class="devices">
 							{#each running as device (device.nodeId)}
 								<li>
-									<a href={resolve('/(app)/deployments/[nodeId]', { nodeId: device.nodeId })}>
+									<a href={resolve('/(app)/devices/[nodeId]', { nodeId: device.nodeId })}>
 										{deviceName(device)}
 									</a>
 								</li>

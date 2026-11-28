@@ -45,6 +45,8 @@
 		published?: string;
 		/** Viewers can preview changes, but only administrators apply them. */
 		canApply: boolean;
+		/** Update only: change the configuration and keep the current version. */
+		configure?: boolean;
 		/** Reloads the deployment, resolving once the new state is shown. */
 		onReload: () => Promise<unknown>;
 		onApplied: (change: AppliedChange) => void;
@@ -57,6 +59,7 @@
 		targets,
 		published,
 		canApply,
+		configure = false,
 		onReload,
 		onApplied
 	}: Props = $props();
@@ -117,7 +120,11 @@
 		preview = problem = null;
 		originalStopped = applying = changeSettings = settingsAttempted = false;
 		revision = deployment.revision;
-		if (action === 'update') {
+		if (action === 'update' && configure) {
+			step = 'choose';
+			version = deployment.version;
+			changeSettings = true;
+		} else if (action === 'update') {
 			step = 'choose';
 			version = (targets.find((target) => target.newer) ?? targets[0])?.version;
 		} else {
@@ -127,6 +134,7 @@
 	}
 
 	const name = $derived(deviceName(deployment));
+	const configuring = $derived(action === 'update' && configure);
 	const needsConfirmation = $derived(action === 'start' && deployment.requiresOriginalStopped);
 	const targetVersion = $derived(
 		action === 'update'
@@ -242,10 +250,17 @@
 	{/if}
 {/snippet}
 
-<Dialog bind:open title={titles[action]({ name })} description={m.preview_description()} width="md">
+<Dialog
+	bind:open
+	title={configuring ? m.configure_title({ name }) : titles[action]({ name })}
+	description={configuring ? m.configure_description() : m.preview_description()}
+	width="md"
+>
 	{#if step === 'choose'}
 		<form id={formId} class="stack" onsubmit={review}>
-			{#if targets.length}
+			{#if configuring}
+				<!-- Only the configuration changes; the version stays as it is. -->
+			{:else if targets.length}
 				<fieldset class="versions">
 					<legend>{m.update_choose_legend({ driver: deployment.driverId })}</legend>
 					{#each targets as target (target.version)}
@@ -266,12 +281,12 @@
 					{m.update_none_body({ driver: deployment.driverId })}
 				</Callout>
 			{/if}
-			{#if published}
+			{#if published && !configuring}
 				<Callout title={m.update_published_title({ version: published })}>
 					{m.update_published_body()}
 				</Callout>
 			{/if}
-			{#if targets.length}
+			{#if targets.length && !configuring}
 				<Checkbox bind:checked={changeSettings} hint={m.update_change_configuration_hint()}>
 					{m.update_change_configuration()}
 				</Checkbox>
@@ -285,7 +300,11 @@
 					<Loading label={m.stage_form_loading()} />
 				{:else}
 					<fieldset class="settings">
-						<legend>{m.update_configuration_legend({ version })}</legend>
+						<legend>
+							{configuring
+								? m.configure_legend({ version })
+								: m.update_configuration_legend({ version })}
+						</legend>
 						{#if problem?.kind === 'settings'}
 							<Callout tone="fail" title={problem.message} live />
 						{/if}
@@ -365,6 +384,12 @@
 						<p>{m.consequence_stop_body()}</p>
 						<p>{m.consequence_stop_migration()}</p>
 					</Callout>
+				{:else if configuring}
+					<Callout>
+						{deployment.requested === 'running'
+							? m.consequence_configure_running()
+							: m.consequence_configure_stopped()}
+					</Callout>
 				{:else if action === 'update'}
 					<Callout>{m.consequence_update({ version: targetVersion })}</Callout>
 				{:else}
@@ -401,7 +426,7 @@
 		{#if step === 'choose'}
 			<Button variant="ghost" onclick={() => (open = false)}>{m.common_cancel()}</Button>
 			<Button variant="primary" type="submit" form={formId} disabled={!version}>
-				{m.update_preview()}
+				{configuring ? m.configure_preview() : m.update_preview()}
 			</Button>
 		{:else}
 			{#if action === 'update'}
@@ -431,9 +456,11 @@
 						? m.action_apply_start()
 						: action === 'stop'
 							? m.action_apply_stop()
-							: action === 'update'
-								? m.action_apply_update({ version: targetVersion })
-								: m.action_apply_rollback({ version: targetVersion })}
+							: configuring
+								? m.configure_apply()
+								: action === 'update'
+									? m.action_apply_update({ version: targetVersion })
+									: m.action_apply_rollback({ version: targetVersion })}
 				</Button>
 			{/if}
 		{/if}

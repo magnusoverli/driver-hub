@@ -18,7 +18,7 @@ On a fresh installation, open [http://localhost:8080](http://localhost:8080) on 
 
 ## Deploy with Docker Compose
 
-The standard installation is **Docker Compose**. The release image includes the manager, web app, Nomad image-service package, Docker CLI and Buildx. Compose starts a dedicated rootless BuildKit worker alongside the manager. **Driver source builds are off by default**; an administrator can turn them on under **Settings → Manager**, without rebuilding Hub or exposing the host Docker socket.
+The standard installation is **Docker Compose**. The release image includes the manager, web app, Nomad image-service package, Docker CLI and Buildx. Compose starts a dedicated rootless BuildKit worker alongside the manager. **Driver source builds are off by default**; an administrator can turn them on under **Settings → Advanced**, without rebuilding Hub or exposing the host Docker socket.
 
 1. Download **`compose.yaml`** into an installation directory. Either copy works without a `.env`:
    - **Always the latest release:** the [`compose.yaml` on `main`](https://raw.githubusercontent.com/magnusoverli/driver-hub/main/compose.yaml) starts `ghcr.io/magnusoverli/driver-hub:latest`. `docker compose pull` then upgrades to each new release.
@@ -51,7 +51,7 @@ docker compose up -d
 
 4. Once Hub is running, sign in with the [default admin login](#default-admin-login) to finish setup.
 
-Under **Settings → Nomad cluster**, enter the Nomad API address (your cluster VIP) and ACL token, then **Check and save**. Allocation log links use this same address. If your browser reaches Nomad through a different URL, set the web interface override under **Jobs**.
+Under **Settings → Nomad cluster**, enter the Nomad API address (your cluster VIP) and ACL token, then **Check and save**. Allocation log links use this same address. If your browser reaches Nomad through a different URL, set the web interface override under **Settings → Advanced → Nomad jobs**.
 
 Leave **Hub download address** blank for automatic setup. Hub registers `driverhub-images`, a Nomad system job that caches and serves driver images on each eligible client. Check **Image distribution** for the selected Hub address and healthy clients. Clients need TCP `5481` to the manager and TCP `5480` to each other.
 
@@ -61,7 +61,7 @@ To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), repeat the pull an
 
 ## Product tour
 
-**From catalog to running driver:** Download the release. When its row shows **Downloaded**, select **Set up driver** at the end of the row. Name the device, choose whether it is a new device or replaces an existing driver, choose its VideoIPath connection and fill in the driver's required inputs. Inputs with defaults are under **Optional settings**. Preview the setup and select **Deploy driver**. The device page reports the observed result, with diagnostics available on demand. If the driver needs secret keys provisioned in Nomad, or replaces an external driver, create the deployment first and choose **Start** after the prerequisites are met.
+**From catalog to running driver:** In the **Catalog**, find the driver and select **Download**. When it shows **Downloaded**, select **Set up driver**, or choose **Add device** on the **Devices** page. Name the device, choose whether it is a new device or replaces an existing driver, choose its VideoIPath connection and fill in the driver's required inputs. Inputs with defaults are under **Optional settings**. Preview the setup and select **Deploy driver**. The device page reports the observed result, with diagnostics available on demand. If the driver needs secret keys provisioned in Nomad, or replaces an external driver, create the deployment first and choose **Start** after the prerequisites are met.
 
 ![Driver Hub overview showing two devices that need attention, available updates and the health of image distribution](docs/screenshots/overview.png)
 
@@ -69,9 +69,9 @@ To [upgrade](OPERATIONS.md#upgrading-a-compose-installation), repeat the pull an
 
 | In Hub | What you can do |
 | --- | --- |
-| **Catalog** | Download an upstream release, import an OCI archive or build a pinned source revision. Inspect the release's inputs, platforms, image digest and control check before staging. |
-| **Deployments** | Stage a stopped driver for a device. Preview placement, start it, then monitor or update it independently. When replacing an external driver, keep its node ID and stop the original before starting the replacement. |
-| **Activity** | Follow downloads and builds. See whether work completed, failed or was interrupted by a manager restart. |
+| **Catalog** | One entry per driver. Download an upstream release, import an OCI archive or build a pinned source revision. Inspect the release's inputs, platforms, image digest and control check before staging. Custom imports and source builds are under **Add custom driver**. |
+| **Devices** | The home page: every device with its status at a glance, counts that filter the list, and updates waiting. Each device page shows its status, the node ID to look for in VideoIPath, and its configuration, which you can edit. When replacing an external driver, keep its node ID and stop the original before starting the replacement. |
+| **Catalog → Download history** | Follow downloads and builds. See whether work completed, failed or was interrupted by a manager restart. |
 | **Settings** | Connect Nomad and VideoIPath, reserve driver tokens, manage accounts and script access, or enable source builds on a build-capable manager. Device-specific inputs stay on the device's **Configuration** panel. |
 
 **Review before applying.** Hub asks Nomad to plan a start, stop, update or rollback. The preview shows the image, version, requested state and placement. Hub applies the revision you reviewed; if another operator has changed it, you get a conflict instead of overwriting their work. Viewers can inspect these plans; administrators apply them.
@@ -144,7 +144,7 @@ npm --prefix web ci
 npm --prefix web run demo
 ```
 
-Open **[localhost:4182](http://localhost:4182)** and sign in with the details printed in the terminal. Under **Deployments → Studio 3 meter**, choose **Update…** to preview a version change against the stand-in Nomad cluster.
+Open **[localhost:4182](http://localhost:4182)** and sign in with the details printed in the terminal. Under **Devices → Studio 3 meter**, choose **Update to 1.4.0** to preview a version change against the stand-in Nomad cluster.
 
 The Node.js manager serves the SvelteKit web app and `/api/v1` on the same origin. The running manager exposes its OpenAPI 3.1 contract at `/api/v1/openapi.json`. The [frontend guide](web/README.md) covers the dev server, generated types and browser tests.
 

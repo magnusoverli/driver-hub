@@ -35,6 +35,7 @@
 	import { capabilitiesQuery, systemKeys } from '#lib/system/queries.js';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
+	import Checkbox from '#lib/ui/Checkbox.svelte';
 	import Dialog from '#lib/ui/Dialog.svelte';
 	import Facts from '#lib/ui/Facts.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
@@ -177,7 +178,7 @@
 					applying = true;
 					await applyAction(api, 'start', target);
 				} catch (error) {
-					notices.leave(`/deployments/${submission.nodeId}`, {
+					notices.leave(`/devices/${submission.nodeId}`, {
 						tone: 'warn',
 						title: m.stage_start_attention(),
 						body:
@@ -190,7 +191,7 @@
 			open = false;
 			void client.invalidateQueries({ queryKey: deploymentKeys.all });
 			void client.invalidateQueries({ queryKey: systemKeys.all });
-			await goto(resolve('/(app)/deployments/[nodeId]', { nodeId: submission.nodeId }));
+			await goto(resolve('/(app)/devices/[nodeId]', { nodeId: submission.nodeId }));
 		} catch (error) {
 			problem = stageProblem(error, true);
 			if (problem.kind === 'uncertain') possiblyStaged = review.nodeId;
@@ -313,7 +314,7 @@
 			{#if possiblyStaged}
 				<Callout tone="warn" title={m.stage_possibly_staged_title()}>
 					{m.stage_possibly_staged_body({ nodeId: possiblyStaged })}
-					<a href={resolve('/(app)/deployments/[nodeId]', { nodeId: possiblyStaged })}>
+					<a href={resolve('/(app)/devices/[nodeId]', { nodeId: possiblyStaged })}>
 						{m.stage_possibly_staged_link()}
 					</a>
 				</Callout>
@@ -381,11 +382,13 @@
 							group="optional"
 						/>
 					</fieldset>
-					{#if identity === 'new'}
-						<label><input type="checkbox" bind:checked={startNow} /> {m.stage_start_now()}</label>
-					{/if}
 				</div>
 			</details>
+			{#if identity === 'new'}
+				<Checkbox bind:checked={startNow} hint={m.stage_start_now_hint()}>
+					{m.stage_start_now()}
+				</Checkbox>
+			{/if}
 		</form>
 	{/if}
 

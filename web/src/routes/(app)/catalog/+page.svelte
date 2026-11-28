@@ -1,16 +1,17 @@
 <script lang="ts">
-	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import { DropdownMenu } from 'bits-ui';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import GitBranch from '@lucide/svelte/icons/git-branch';
+	import History from '@lucide/svelte/icons/history';
 	import Upload from '@lucide/svelte/icons/upload';
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
-	import { replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { getApi } from '#lib/api/context.js';
 	import { errorMessage } from '#lib/api/messages.js';
-	import { acquire } from '#lib/catalog/acquire.js';
-	import BuildForm from '#lib/catalog/BuildForm.svelte';
+	import { Acquisitions } from '#lib/catalog/acquisitions.svelte.js';
+	import BuildDialog from '#lib/catalog/BuildDialog.svelte';
+	import { catalogDrivers, matchesDriver, type Driver } from '#lib/catalog/drivers.js';
 	import ImportDialog from '#lib/catalog/ImportDialog.svelte';
-	import RemoveReleaseDialog from '#lib/catalog/RemoveReleaseDialog.svelte';
-	import StageDialog from '#lib/catalog/StageDialog.svelte';
 	import {
 		catalogKeys,
 		publishedQuery,
@@ -19,79 +20,57 @@
 		type Identity,
 		type RetainedRelease
 	} from '#lib/catalog/queries.js';
-	import { deploymentsQuery, updatesQuery } from '#lib/deployments/queries.js';
-	import { compareVersions, deviceName, shortId } from '#lib/deployments/view.js';
-	import {
-		operationKeys,
-		operationOutcome,
-		operationsQuery,
-		type Operation
-	} from '#lib/operations/operations.js';
+	import StageDialog from '#lib/catalog/StageDialog.svelte';
+	import { deploymentsQuery } from '#lib/deployments/queries.js';
+	import { operationsQuery } from '#lib/operations/operations.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { getNotices } from '#lib/shell/notices.js';
 	import { capabilitiesQuery } from '#lib/system/queries.js';
+	import Badge from '#lib/ui/Badge.svelte';
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import Checkbox from '#lib/ui/Checkbox.svelte';
-	import IconButton from '#lib/ui/IconButton.svelte';
+	import FilterTabs from '#lib/ui/FilterTabs.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
 	import PageHeader from '#lib/ui/PageHeader.svelte';
 	import SearchField from '#lib/ui/SearchField.svelte';
 	import Table from '#lib/ui/Table.svelte';
-	import Tabs from '#lib/ui/Tabs.svelte';
 
-	const TABS = ['published', 'retained', 'updates', 'build'] as const;
-	type Tab = (typeof TABS)[number];
+	const FILTERS = ['all', 'downloaded', 'available'] as const;
+	type Filter = (typeof FILTERS)[number];
 
 	const api = getApi();
 	const session = getSession();
 	const client = useQueryClient();
 	const notices = getNotices().take('/(app)/catalog');
 
-	// The tab lives in the address, so other pages can link to updates or retained releases.
-	// Read from the browser's address: after going back, it carries the tab that was last shown.
-	const requested = new URL(location.href).searchParams.get('tab');
-	let tab = $state<Tab>(TABS.find((value) => value === requested) ?? 'published');
-	$effect(() => {
-		const query = tab === 'published' ? '' : `?tab=${tab}`;
-		if (query !== location.search) {
-			// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolve()d path plus query
-			void replaceState(`${resolve('/(app)/catalog')}${query}`, {});
-		}
-	});
-
 	let prerelease = $state(false);
 	let search = $state('');
+	let filter = $state<Filter>('all');
 	let staging = $state<RetainedRelease | null>(null);
 	let stageOpen = $state(false);
-	let removing = $state<RetainedRelease | null>(null);
-	let removeOpen = $state(false);
 	let importOpen = $state(false);
+	let buildOpen = $state(false);
 
 	const caps = createQuery(() => capabilitiesQuery(api));
 	const clusterReady = $derived(caps.data?.nomadConfigured === true);
-	const published = createQuery(() => ({
-		...publishedQuery(api, prerelease),
-		enabled: tab === 'published'
-	}));
+	const published = createQuery(() => publishedQuery(api, prerelease));
 	const retained = createQuery(() => retainedQuery(api));
-	const updates = createQuery(() => ({
-		...updatesQuery(api),
-		enabled: tab === 'updates' && caps.data?.nomadConfigured === true
-	}));
-	// Device names for the update suggestions, which identify devices by node ID.
-	const deployments = createQuery(() => ({
-		...deploymentsQuery(api),
-		enabled: tab === 'updates' && caps.data?.nomadConfigured === true
-	}));
-	const devices = $derived(new Map((deployments.data ?? []).map((d) => [d.nodeId, d])));
+	const deployments = createQuery(() => ({ ...deploymentsQuery(api), enabled: clusterReady }));
 	const operations = createQuery(() => ({
 		...operationsQuery(api),
 		enabled: caps.data?.asyncAcquisition === true
 	}));
-	// A finished download or build adds a retained release.
+	const acquisitions = new Acquisitions({
+		api,
+		client,
+		operations: () => operations.data,
+		background: () => caps.data?.asyncAcquisition === true
+	});
+
+	// A finished download or build adds a downloaded release.
 	const completed = $derived(
 		(operations.data ?? [])
 			.filter((op) => op.state === 'succeeded')
@@ -101,94 +80,101 @@
 	$effect(() => {
 		if (completed) void client.invalidateQueries({ queryKey: catalogKeys.retained() });
 	});
+	const running = $derived((operations.data ?? []).filter((op) => op.state === 'running'));
+	const building = $derived(running.some((op) => op.kind === 'build'));
 
-	const same = (a: Identity, b: Identity) => a.driverId === b.driverId && a.version === b.version;
-	const inLibrary = (release: Identity) => retained.data?.some((r) => same(r, release));
-	const downloading = (release: Identity) =>
-		operations.data?.some(
-			(op) =>
-				op.kind === 'retain' &&
-				op.state === 'running' &&
-				op.target?.driverId === release.driverId &&
-				op.target?.version === release.version
-		);
-	const building = $derived(
-		operations.data?.some((op) => op.kind === 'build' && op.state === 'running') === true
+	const drivers = $derived(
+		catalogDrivers({
+			published: published.data ?? [],
+			retained: retained.data ?? [],
+			downloading: running.flatMap((op) =>
+				op.kind === 'retain' && op.target?.driverId && op.target.version
+					? [{ driverId: op.target.driverId, version: op.target.version }]
+					: []
+			),
+			devices: deployments.data ?? []
+		})
+	);
+	const matchesFilter = (driver: Driver, value: Filter) =>
+		value === 'all' || (value === 'downloaded') === (driver.newestDownloaded !== undefined);
+	const rows = $derived(
+		drivers.filter((driver) => matchesFilter(driver, filter) && matchesDriver(driver, search))
+	);
+	const filterLabels: Record<Filter, () => string> = {
+		all: m.catalog_filter_all,
+		downloaded: m.catalog_filter_downloaded,
+		available: m.catalog_filter_available
+	};
+	const filterItems = $derived(
+		FILTERS.map((value) => ({
+			value,
+			label: filterLabels[value](),
+			count: drivers.filter((driver) => matchesFilter(driver, value)).length
+		}))
+	);
+	const loaded = $derived(
+		retained.data !== undefined && (published.data !== undefined || published.error !== null)
 	);
 
-	let submitting = $state(false);
-	let problem = $state<string | null>(null);
-	let notice = $state<string | null>(null);
-	/** The download or build started here, followed until it ends. Activity keeps the history. */
-	let started = $state<Operation | null>(null);
-	const outcome = $derived.by(() => {
-		if (!started) return null;
-		const id = started.id;
-		return operationOutcome(operations.data?.find((op) => op.id === id) ?? started);
-	});
+	const driverPage = (driverId: string) => resolve('/(app)/catalog/[driverId]', { driverId });
 
-	async function start(input: Identity | BuildInput) {
-		if (submitting || !session.isAdmin || !caps.data) return;
-		submitting = true;
-		problem = notice = started = null;
-		try {
-			const result = await acquire(api, input, caps.data.asyncAcquisition);
-			if (result.kind === 'operation') {
-				started = result.operation;
-				await client.invalidateQueries({ queryKey: operationKeys.all });
-			} else {
-				const { driverId: driver, version } = result.release.record;
-				notice =
-					'commit' in input
-						? m.catalog_build_done({ driver, version })
-						: m.catalog_download_done({ driver, version });
-				await client.invalidateQueries({ queryKey: catalogKeys.retained() });
-			}
-		} catch (error) {
-			problem = errorMessage(error);
-		} finally {
-			submitting = false;
-		}
+	function setUp(release: RetainedRelease) {
+		staging = release;
+		stageOpen = true;
 	}
 
-	function removed() {
-		if (removing) {
-			started = null;
-			notice = m.release_removed({ driver: removing.driverId, version: removing.version });
-		}
-		void client.invalidateQueries({ queryKey: catalogKeys.all });
+	function imported({ driverId, version }: Identity) {
+		search = '';
+		filter = 'all';
+		acquisitions.tell(m.catalog_import_done({ driver: driverId, version }));
+		void client.invalidateQueries({ queryKey: catalogKeys.retained() });
 	}
-
-	const needle = $derived(search.trim().toLowerCase());
-	const matches = (release: Identity & { displayName?: string }) =>
-		`${release.driverId} ${release.displayName ?? ''} ${release.version}`
-			.toLowerCase()
-			.includes(needle);
-	/** By driver, newest version first, so the versions of one driver read as a group. */
-	const byDriver = (a: Identity, b: Identity) =>
-		a.driverId.localeCompare(b.driverId) || compareVersions(b.version, a.version);
-	const publishedRows = $derived([...(published.data ?? [])].sort(byDriver));
-	const retainedRows = $derived([...(retained.data ?? [])].sort(byDriver));
-	const releasePage = (release: Identity) =>
-		resolve('/(app)/catalog/[driverId]/[version]', {
-			driverId: release.driverId,
-			version: release.version
-		});
 </script>
 
 <PageHeader title={m.nav_catalog()} description={m.catalog_description()}>
 	{#snippet actions()}
+		<Button variant="ghost" icon={History} href={resolve('/(app)/activity')}>
+			{m.catalog_history()}
+			{#if running.length}<Badge tone="accent">{running.length}</Badge>{/if}
+		</Button>
 		{#if session.isAdmin}
-			<Button
-				variant="primary"
-				icon={Upload}
-				onclick={() => {
-					problem = notice = null;
-					importOpen = true;
-				}}
-			>
-				{m.catalog_import()}
-			</Button>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<Button {...props}>
+							{m.catalog_add_custom()}
+							<ChevronDown size={15} aria-hidden="true" />
+						</Button>
+					{/snippet}
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Portal>
+					<DropdownMenu.Content class="menu-content" align="end" sideOffset={6}>
+						<DropdownMenu.Item
+							class="menu-item"
+							onSelect={() => {
+								acquisitions.clear();
+								importOpen = true;
+							}}
+						>
+							<Upload size={15} aria-hidden="true" />
+							{m.catalog_import()}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item
+							class="menu-item"
+							disabled={!caps.data?.buildsEnabled}
+							onSelect={() => (buildOpen = true)}
+						>
+							<GitBranch size={15} aria-hidden="true" />
+							<span class="menu-text">
+								{m.catalog_build_menu()}
+								{#if !caps.data?.buildsEnabled}
+									<small>{m.catalog_build_off_short()}</small>
+								{/if}
+							</span>
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu.Portal>
+			</DropdownMenu.Root>
 		{/if}
 	{/snippet}
 </PageHeader>
@@ -206,18 +192,25 @@
 		<Button size="sm" onclick={() => operations.refetch()}>{m.common_retry()}</Button>
 	</Callout>
 {/if}
-{#if problem}
-	<Callout tone="fail" title={problem} live />
-{:else if outcome}
+{#if acquisitions.problem}
+	<Callout tone="fail" title={acquisitions.problem} live />
+{:else if acquisitions.outcome}
+	{@const outcome = acquisitions.outcome}
 	<Callout tone={outcome.tone} title={outcome.title} live>
 		{#if outcome.body}<p>{outcome.body}</p>{/if}
 		<a href={resolve('/(app)/activity')}>{m.catalog_all_activity()}</a>
 	</Callout>
-{:else if notice}
-	<Callout title={notice} live />
+{:else if acquisitions.notice}
+	<Callout title={acquisitions.notice} live />
+{/if}
+{#if published.error}
+	<Callout tone="warn" title={m.catalog_published_error()} live>
+		<p>{errorMessage(published.error)}</p>
+		<Button size="sm" onclick={() => published.refetch()}>{m.common_retry()}</Button>
+	</Callout>
 {/if}
 
-{#snippet toolbar(remote: boolean, fetching: boolean, refetch: () => unknown)}
+<Card flush>
 	<div class="toolbar">
 		<SearchField
 			class="search"
@@ -225,125 +218,94 @@
 			placeholder={m.catalog_search()}
 			bind:value={search}
 		/>
-		{#if remote}<Checkbox bind:checked={prerelease}>{m.catalog_include_pre()}</Checkbox>{/if}
-		<Button size="sm" onclick={refetch} busy={fetching}>{m.catalog_refresh()}</Button>
+		<FilterTabs label={m.catalog_filter_label()} items={filterItems} bind:value={filter} />
+		<Checkbox bind:checked={prerelease}>{m.catalog_include_pre()}</Checkbox>
+		<Button
+			size="sm"
+			variant="ghost"
+			onclick={() => Promise.all([published.refetch(), retained.refetch()])}
+			busy={published.isFetching || retained.isFetching}
+		>
+			{m.catalog_refresh()}
+		</Button>
 	</div>
-{/snippet}
-
-{#snippet publishedPanel()}
-	{@render toolbar(true, published.isFetching, () => published.refetch())}
-	{@const rows = publishedRows.filter(matches)}
-	{#if published.error}
-		<div class="panel"><Callout tone="fail" title={errorMessage(published.error)} live /></div>
-	{:else if !published.data}
+	{#if retained.error}
+		<div class="panel"><Callout tone="fail" title={errorMessage(retained.error)} live /></div>
+	{:else if !loaded}
 		<Loading label={m.catalog_loading()} />
 	{:else if rows.length}
-		<Table label={m.catalog_published()}>
+		<Table label={m.catalog_drivers()}>
 			<thead>
 				<tr>
 					<th scope="col">{m.catalog_column_driver()}</th>
-					<th scope="col">{m.catalog_version()}</th>
-					<th scope="col">{m.catalog_channel()}</th>
+					<th scope="col">{m.catalog_latest()}</th>
 					<th scope="col">{m.catalog_availability()}</th>
+					<th scope="col">{m.catalog_devices()}</th>
 					<th scope="col"><span class="visually-hidden">{m.users_column_actions()}</span></th>
 				</tr>
 			</thead>
 			<tbody>
-				{#each rows as row (`${row.driverId}/${row.version}`)}
-					{@const local = inLibrary(row)}
-					{@const pending = !local && downloading(row)}
+				{#each rows as driver (driver.driverId)}
+					{@const latest = driver.latest}
+					{@const ready = driver.newestDownloaded}
 					<tr>
-						<td><a class="release-link mono" href={releasePage(row)}>{row.driverId}</a></td>
-						<td><span class="mono">{row.version}</span></td>
-						<td>{row.prerelease ? m.catalog_prerelease() : m.catalog_stable()}</td>
 						<td>
-							{local
-								? m.catalog_downloaded()
-								: pending
-									? m.catalog_downloading()
-									: m.catalog_published_only()}
+							<a class="driver-link" href={driverPage(driver.driverId)}>{driver.name}</a>
+							{#if driver.name !== driver.driverId}
+								<small class="mono">{driver.driverId}</small>
+							{/if}
+						</td>
+						<td>
+							<span class="mono">{latest.version}</span>
+							{#if driver.versions.length > 1}
+								<small>{m.catalog_version_count({ count: driver.versions.length })}</small>
+							{/if}
+						</td>
+						<td>
+							<span class="availability">
+								{#if latest.state === 'downloaded'}
+									<Badge tone="ok">{m.catalog_downloaded()}</Badge>
+								{:else if latest.state === 'downloading'}
+									<Badge tone="accent">{m.catalog_downloading()}</Badge>
+								{:else}
+									<Badge>{m.catalog_published_only()}</Badge>
+								{/if}
+								{#if driver.custom}<Badge>{m.catalog_custom()}</Badge>{/if}
+							</span>
+							{#if ready && ready !== latest}
+								<small>{m.catalog_other_downloaded({ version: ready.version })}</small>
+							{/if}
+						</td>
+						<td>
+							{#if driver.devices}
+								<span class="mono">{driver.devices}</span>
+							{:else}
+								<span class="none">—</span>
+							{/if}
 						</td>
 						<td>
 							<span class="row-actions">
-								{#if local}
-									{#if clusterReady}
-										<Button
-											size="sm"
-											onclick={() => {
-												staging = retainedRows.find((r) => same(r, row)) ?? null;
-												stageOpen = true;
-											}}
-										>
-											{m.catalog_stage()}
-										</Button>
-									{/if}
-								{:else if !pending && session.isAdmin && caps.data}
-									<Button size="sm" disabled={submitting} onclick={() => start(row)}>
+								{#if latest.state === 'available' && latest.published && session.isAdmin && caps.data}
+									<Button
+										size="sm"
+										disabled={acquisitions.submitting}
+										onclick={() =>
+											acquisitions.start({ driverId: driver.driverId, version: latest.version })}
+									>
 										{m.catalog_download()}
 									</Button>
 								{/if}
-							</span>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</Table>
-	{:else}
-		<p class="empty">
-			{publishedRows.length ? m.catalog_no_match() : m.catalog_empty_published()}
-		</p>
-	{/if}
-{/snippet}
-
-{#snippet retainedPanel()}
-	{@render toolbar(false, retained.isFetching, () => retained.refetch())}
-	{@const rows = retainedRows.filter(matches)}
-	{#if retained.error}
-		<div class="panel"><Callout tone="fail" title={errorMessage(retained.error)} live /></div>
-	{:else if !retained.data}
-		<Loading label={m.catalog_loading()} />
-	{:else if rows.length}
-		<Table label={m.catalog_retained()}>
-			<thead>
-				<tr>
-					<th scope="col">{m.catalog_column_driver()}</th>
-					<th scope="col">{m.catalog_version()}</th>
-					<th scope="col">{m.catalog_origin()}</th>
-					<th scope="col"><span class="visually-hidden">{m.users_column_actions()}</span></th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each rows as row (`${row.driverId}/${row.version}`)}
-					<tr>
-						<td>
-							<a class="release-link" href={releasePage(row)}>{row.displayName}</a>
-							{#if row.displayName !== row.driverId}<small class="mono">{row.driverId}</small>{/if}
-						</td>
-						<td><span class="mono">{row.version}</span></td>
-						<td>{row.origin === 'customer' ? m.catalog_customer() : m.catalog_maintainer()}</td>
-						<td>
-							<span class="row-actions">
-								{#if clusterReady}
+								{#if ready?.retained && clusterReady}
+									{@const release = ready.retained}
 									<Button
 										size="sm"
-										onclick={() => {
-											staging = row;
-											stageOpen = true;
-										}}
+										variant={latest.state === 'downloaded' ? 'primary' : 'secondary'}
+										onclick={() => setUp(release)}
 									>
-										{m.catalog_stage()}
+										{ready === latest
+											? m.catalog_stage()
+											: m.catalog_stage_version({ version: ready.version })}
 									</Button>
-								{/if}
-								{#if session.isAdmin}
-									<IconButton
-										size="sm"
-										icon={Trash2}
-										label={m.release_remove_label({ name: row.displayName, version: row.version })}
-										onclick={() => {
-											removing = row;
-											removeOpen = true;
-										}}
-									/>
 								{/if}
 							</span>
 						</td>
@@ -353,101 +315,27 @@
 		</Table>
 	{:else}
 		<p class="empty">
-			{retainedRows.length ? m.catalog_no_match() : m.catalog_empty_retained()}
+			{drivers.length
+				? m.catalog_no_match()
+				: published.error
+					? m.catalog_empty_retained()
+					: m.catalog_empty_published()}
 		</p>
 	{/if}
-{/snippet}
-
-{#snippet buildPanel()}
-	<div class="panel">
-		{#if caps.data?.buildsEnabled && session.isAdmin}
-			<p class="intro">{m.catalog_build_hint()}</p>
-			<BuildForm busy={submitting || building} submit={start} />
-		{:else}
-			<p class="intro">{m.catalog_build_off()}</p>
-		{/if}
-	</div>
-{/snippet}
-
-{#snippet updatesPanel()}
-	{#if !caps.data?.nomadConfigured}
-		<p class="empty">{m.catalog_updates_no_cluster()}</p>
-	{:else if updates.error}
-		<div class="panel">
-			<Callout tone="fail" title={errorMessage(updates.error)} live>
-				<Button size="sm" onclick={() => updates.refetch()}>{m.common_retry()}</Button>
-			</Callout>
-		</div>
-	{:else if !updates.data}
-		<Loading label={m.catalog_loading()} />
-	{:else if !updates.data.length}
-		<p class="empty">{m.catalog_no_updates()}</p>
-	{:else}
-		<Table label={m.catalog_updates()}>
-			<thead>
-				<tr>
-					<th scope="col">{m.catalog_device()}</th>
-					<th scope="col">{m.catalog_column_driver()}</th>
-					<th scope="col">{m.catalog_installed()}</th>
-					<th scope="col">{m.catalog_available()}</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each updates.data as update (update.nodeId)}
-					{@const device = devices.get(update.nodeId)}
-					<tr>
-						<td>
-							<a href={resolve('/(app)/deployments/[nodeId]', { nodeId: update.nodeId })}>
-								{device ? deviceName(device) : shortId(update.nodeId)}
-							</a>
-						</td>
-						<td><code>{update.driverId}</code></td>
-						<td><span class="mono">{update.version}</span></td>
-						<td>
-							<a
-								class="mono"
-								href={releasePage({ driverId: update.driverId, version: update.availableVersion })}
-							>
-								{update.availableVersion}
-							</a>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</Table>
-	{/if}
-{/snippet}
-
-<Card flush>
-	<Tabs
-		label={m.nav_catalog()}
-		bind:value={() => tab, (value: string) => (tab = value as Tab)}
-		tabs={[
-			{ value: 'published', label: m.catalog_published(), panel: publishedPanel },
-			{ value: 'retained', label: m.catalog_retained(), panel: retainedPanel },
-			{ value: 'updates', label: m.catalog_updates(), panel: updatesPanel },
-			...(session.isAdmin ? [{ value: 'build', label: m.catalog_builds(), panel: buildPanel }] : [])
-		]}
-	/>
 </Card>
 
 {#if importOpen && session.isAdmin}
-	<ImportDialog
-		bind:open={importOpen}
-		onImported={({ driverId, version }: Identity) => {
-			search = '';
-			tab = 'retained';
-			started = null;
-			notice = m.catalog_import_done({ driver: driverId, version });
-			void client.invalidateQueries({ queryKey: catalogKeys.retained() });
-		}}
+	<ImportDialog bind:open={importOpen} onImported={imported} />
+{/if}
+{#if buildOpen && session.isAdmin}
+	<BuildDialog
+		bind:open={buildOpen}
+		busy={acquisitions.submitting || building}
+		submit={(input: BuildInput) => acquisitions.start(input)}
 	/>
 {/if}
 {#if stageOpen && staging}
 	<StageDialog bind:open={stageOpen} release={staging} />
-{/if}
-{#if removing && session.isAdmin}
-	<RemoveReleaseDialog bind:open={removeOpen} release={removing} onRemoved={removed} />
 {/if}
 
 <style>
@@ -471,34 +359,30 @@
 		color: var(--text-2);
 	}
 
-	.panel {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-	}
-
-	.intro {
-		max-width: 46rem;
-	}
-
 	small {
 		display: block;
 		color: var(--text-3);
 		font-size: var(--text-sm);
 	}
 
-	.release-link {
+	.availability {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: var(--space-1);
+	}
+
+	.driver-link {
 		color: var(--text);
 		font-weight: var(--weight-semibold);
 		text-decoration: none;
 	}
 
-	.release-link.mono {
-		font-weight: var(--weight-medium);
+	.driver-link:hover {
+		text-decoration: underline;
 	}
 
-	.release-link:hover {
-		text-decoration: underline;
+	.none {
+		color: var(--text-3);
 	}
 
 	.row-actions {
@@ -506,5 +390,14 @@
 		justify-content: flex-end;
 		align-items: center;
 		gap: var(--space-2);
+	}
+
+	.menu-text {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.menu-text small {
+		font-size: var(--text-xs);
 	}
 </style>

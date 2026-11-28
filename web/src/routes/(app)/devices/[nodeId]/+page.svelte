@@ -6,6 +6,7 @@
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Play from '@lucide/svelte/icons/play';
 	import SearchX from '@lucide/svelte/icons/search-x';
+	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import Square from '@lucide/svelte/icons/square';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import Undo2 from '@lucide/svelte/icons/undo-2';
@@ -34,10 +35,17 @@
 	import RenameDialog from '#lib/deployments/RenameDialog.svelte';
 	import ConfigurationList from '#lib/deployments/ConfigurationList.svelte';
 	import StatusHops from '#lib/deployments/StatusHops.svelte';
+	import StatusSteps from '#lib/deployments/StatusSteps.svelte';
 	import { secretReferences } from '#lib/deployments/configuration-form.js';
 	import { detailStatusInput } from '#lib/deployments/status-path.js';
 	import { freshObservations } from '#lib/deployments/observations.svelte.js';
-	import { condition, conditionLabel, deviceName, updateTargets } from '#lib/deployments/view.js';
+	import {
+		condition,
+		conditionLabel,
+		deviceName,
+		updateTargets,
+		type Condition
+	} from '#lib/deployments/view.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import { getSession } from '#lib/session/session.svelte.js';
 	import { getNotices } from '#lib/shell/notices.js';
@@ -45,6 +53,7 @@
 	import Button from '#lib/ui/Button.svelte';
 	import Callout from '#lib/ui/Callout.svelte';
 	import Card from '#lib/ui/Card.svelte';
+	import CopyButton from '#lib/ui/CopyButton.svelte';
 	import EmptyState from '#lib/ui/EmptyState.svelte';
 	import IconButton from '#lib/ui/IconButton.svelte';
 	import Loading from '#lib/ui/Loading.svelte';
@@ -101,19 +110,38 @@
 	const secrets = $derived(deployment ? secretReferences(deployment.settings) : []);
 
 	let action = $state<LifecycleAction>('start');
+	let configure = $state(false);
 	let actionOpen = $state(false);
 	let renameOpen = $state(false);
 	let deleteOpen = $state(false);
 	const notices = getNotices();
-	const setupNotice = $derived(notices.take(`/deployments/${nodeId}`)[0]);
+	const setupNotice = $derived(notices.take(`/devices/${nodeId}`)[0]);
 	type Notice = { nodeId: string; title: string; body: string };
 	let notice = $state<Notice | null>(null);
 	const visibleNotice = $derived(notice?.nodeId === nodeId ? notice : null);
 
-	function openAction(next: LifecycleAction) {
+	function openAction(next: LifecycleAction, options: { configure?: boolean } = {}) {
 		action = next;
+		configure = options.configure ?? false;
 		actionOpen = true;
 	}
+
+	/** The newest downloaded version the device can move to, offered as the main update action. */
+	const newer = $derived(targets.find((target) => target.newer));
+	const current = $derived<Condition>(
+		deployment ? condition(detailStatusInput(deployment)) : 'unavailable'
+	);
+	const running = $derived(current === 'running' || current === 'connected');
+	/** What the operator can do next, by condition. */
+	const nextStep: Record<Condition, () => string> = {
+		unavailable: m.device_next_unavailable,
+		stopped: m.device_next_stopped,
+		'allocation-failed': m.device_next_allocation_failed,
+		starting: m.device_next_starting,
+		'check-failed': m.device_next_check_failed,
+		connected: m.device_next_connected,
+		running: m.device_next_running
+	};
 
 	function refresh() {
 		void queryClient.invalidateQueries({ queryKey: deploymentKeys.list() });
@@ -130,7 +158,11 @@
 		};
 		notice = submission.unchanged
 			? { nodeId, title: m.notice_unchanged_title(), body: m.notice_unchanged_body() }
-			: { nodeId, title: titles[action](), body: m.notice_accepted_body() };
+			: {
+					nodeId,
+					title: configure ? m.notice_configured({ revision }) : titles[action](),
+					body: m.notice_accepted_body()
+				};
 		void refresh();
 	}
 
@@ -140,7 +172,7 @@
 
 	async function deleted({ registrationVariable }: Deletion) {
 		const name = deployment ? deviceName(deployment) : nodeId;
-		notices.leave('/(app)/deployments', {
+		notices.leave('/(app)', {
 			tone: registrationVariable === 'failed' ? 'warn' : 'info',
 			title: m.delete_done({ name }),
 			body:
@@ -153,15 +185,15 @@
 		queryClient.removeQueries({ queryKey: deploymentKeys.device(nodeId) });
 		void queryClient.invalidateQueries({ queryKey: deploymentKeys.list() });
 		void queryClient.invalidateQueries({ queryKey: siteKeys.all });
-		await goto(resolve('/(app)/deployments'));
+		await goto(resolve('/(app)'));
 	}
 
 	const admin = $derived(session.isAdmin);
 </script>
 
-<a class="back" href={resolve('/(app)/deployments')}>
+<a class="back" href={resolve('/(app)')}>
 	<ArrowLeft size={15} aria-hidden="true" />
-	{m.nav_deployments()}
+	{m.nav_devices()}
 </a>
 
 {#if notFound}
@@ -170,7 +202,7 @@
 		<EmptyState icon={SearchX} title={m.deployment_not_found_title()}>
 			<p>{m.deployment_not_found_body({ nodeId })}</p>
 			{#snippet actions()}
-				<Button href={resolve('/(app)/deployments')}>{m.deployment_back_to_list()}</Button>
+				<Button href={resolve('/(app)')}>{m.deployment_back_to_list()}</Button>
 			{/snippet}
 		</EmptyState>
 	</Card>
@@ -193,85 +225,13 @@
 		})}
 	>
 		{#snippet actions()}
-			<Button icon={CircleArrowUp} onclick={() => openAction('update')}>
-				{admin ? m.action_update() : m.action_preview_update()}
-			</Button>
-			{#if admin || deployment.previousVersion}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<IconButton {...props} icon={Ellipsis} label={m.deployment_more_actions()} />
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Portal>
-						<DropdownMenu.Content class="menu-content" align="end" sideOffset={6}>
-							{#if admin}
-								<DropdownMenu.Item class="menu-item" onSelect={() => (renameOpen = true)}>
-									<Pencil size={15} aria-hidden="true" />
-									{deployment.label ? m.action_rename() : m.action_name()}
-								</DropdownMenu.Item>
-							{/if}
-							{#if admin}
-								<DropdownMenu.Item class="menu-item" onSelect={() => (deleteOpen = true)}>
-									<Trash2 size={15} aria-hidden="true" />
-									{m.delete_action()}
-								</DropdownMenu.Item>
-							{/if}
-							{#if deployment.previousVersion}
-								<DropdownMenu.Item class="menu-item" onSelect={() => openAction('rollback')}>
-									<Undo2 size={15} aria-hidden="true" />
-									{admin
-										? m.action_rollback({ version: deployment.previousVersion })
-										: m.action_preview_rollback({ version: deployment.previousVersion })}
-								</DropdownMenu.Item>
-							{/if}
-						</DropdownMenu.Content>
-					</DropdownMenu.Portal>
-				</DropdownMenu.Root>
+			{#if newer}
+				<Button icon={CircleArrowUp} onclick={() => openAction('update')}>
+					{admin
+						? m.device_update_to({ version: newer.version })
+						: m.device_preview_update_to({ version: newer.version })}
+				</Button>
 			{/if}
-		{/snippet}
-	</PageHeader>
-	{#if setupNotice}<Callout tone={setupNotice.tone} title={setupNotice.title} live>
-			{setupNotice.body}
-		</Callout>{/if}
-	<Card title={m.deployment_result()}>
-		{@const state = condition(detailStatusInput(deployment))}
-		{@const running = state === 'running' || state === 'connected'}
-		<div class="result">
-			<div>
-				<strong>
-					{neverStarted
-						? m.deployment_staged_title()
-						: running && deployment.backupImageClient
-							? m.deployment_success()
-							: conditionLabel(state)}
-				</strong>
-				{#if deployment.requested === 'stopped'}
-					<p>{m.deployment_staged_body()}</p>
-					{#if secrets.length}
-						<p>
-							{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
-							<code>{secrets.join(', ')}</code>
-						</p>
-					{/if}
-				{:else if running}
-					<p>
-						{deployment.backupImageClient
-							? m.deployment_copy_verified({ client: deployment.backupImageClient })
-							: m.deployment_copy_pending()}
-					</p>
-					<p>
-						{state === 'connected'
-							? m.condition_connected()
-							: deployment.communicationEvidence.reason === 'no_control_check'
-								? m.control_not_provided()
-								: m.condition_running()}
-					</p>
-				{:else}
-					<p>{m.deployment_result_help()}</p>
-				{/if}
-				<p>{m.status_hop_approval()}: {m.device_status_manual()}</p>
-			</div>
 			{#if deployment.requested === 'stopped'}
 				<Button variant="primary" icon={Play} onclick={() => openAction('start')}>
 					{admin ? m.action_start() : m.action_preview_start()}
@@ -281,17 +241,57 @@
 					{admin ? m.action_stop() : m.action_preview_stop()}
 				</Button>
 			{/if}
-		</div>
-	</Card>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<IconButton {...props} icon={Ellipsis} label={m.deployment_more_actions()} />
+					{/snippet}
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Portal>
+					<DropdownMenu.Content class="menu-content" align="end" sideOffset={6}>
+						{#if admin}
+							<DropdownMenu.Item
+								class="menu-item"
+								onSelect={() => openAction('update', { configure: true })}
+							>
+								<SlidersHorizontal size={15} aria-hidden="true" />
+								{m.configure_action()}
+							</DropdownMenu.Item>
+						{/if}
+						<DropdownMenu.Item class="menu-item" onSelect={() => openAction('update')}>
+							<CircleArrowUp size={15} aria-hidden="true" />
+							{admin ? m.device_change_version() : m.device_preview_change_version()}
+						</DropdownMenu.Item>
+						{#if deployment.previousVersion}
+							<DropdownMenu.Item class="menu-item" onSelect={() => openAction('rollback')}>
+								<Undo2 size={15} aria-hidden="true" />
+								{admin
+									? m.action_rollback({ version: deployment.previousVersion })
+									: m.action_preview_rollback({ version: deployment.previousVersion })}
+							</DropdownMenu.Item>
+						{/if}
+						{#if admin}
+							<DropdownMenu.Item class="menu-item" onSelect={() => (renameOpen = true)}>
+								<Pencil size={15} aria-hidden="true" />
+								{deployment.label ? m.action_rename() : m.action_name()}
+							</DropdownMenu.Item>
+							<DropdownMenu.Item class="menu-item" onSelect={() => (deleteOpen = true)}>
+								<Trash2 size={15} aria-hidden="true" />
+								{m.delete_action()}
+							</DropdownMenu.Item>
+						{/if}
+					</DropdownMenu.Content>
+				</DropdownMenu.Portal>
+			</DropdownMenu.Root>
+		{/snippet}
+	</PageHeader>
 
+	{#if setupNotice}
+		<Callout tone={setupNotice.tone} title={setupNotice.title} live>{setupNotice.body}</Callout>
+	{/if}
 	{#if visibleNotice}
 		<!-- Neutral, not "verified": Nomad accepting a change says nothing about the driver yet. -->
 		<Callout title={visibleNotice.title} live>{visibleNotice.body}</Callout>
-	{/if}
-	{#if deployment.requiresOriginalStopped}
-		<Callout tone="warn" title={m.deployment_migration_title()}>
-			{m.deployment_migration_body()}
-		</Callout>
 	{/if}
 	{#if detail.error}
 		<Callout tone="warn" title={m.deployment_stale_title()} live>
@@ -299,68 +299,127 @@
 		</Callout>
 	{/if}
 
-	<details class="diagnostics">
-		<summary>{m.deployment_diagnostics_summary()}</summary>
-		<div class="layout">
-			<div class="column">
-				<Card
-					title={m.deployment_status_title()}
-					description={m.deployment_status_description()}
-					flush
-				>
-					<StatusHops
-						nodeId={deployment.nodeId}
+	<div class="layout">
+		<div class="column">
+			<Card title={m.device_status_title()}>
+				<div class="status" data-condition={neverStarted ? 'staged' : current}>
+					<p class="headline">
+						{neverStarted ? m.deployment_staged_title() : conditionLabel(current)}
+					</p>
+					<StatusSteps
 						input={{
 							...detailStatusInput(deployment),
 							communicationEvidence: deployment.communicationEvidence
 						}}
 					/>
-				</Card>
-
-				<Card flush>
-					<Tabs
-						bind:value={tab}
-						label={m.deployment_diagnostics_label()}
-						tabs={[
-							{
-								value: 'allocations',
-								label: m.deployment_tab_allocations(),
-								count: deployment.allocations.length,
-								panel: allocationsPanel
-							},
-							{
-								value: 'history',
-								label: m.deployment_tab_history(),
-								count: history.data?.length,
-								panel: historyPanel
-							},
-							{
-								value: 'evaluations',
-								label: m.deployment_tab_evaluations(),
-								count: evaluations.data?.length,
-								panel: evaluationsPanel
-							}
-						]}
-					/>
-				</Card>
-			</div>
-
-			<div class="column">
-				<Card title={m.deployment_device_title()}>
-					<DeviceFacts {deployment} />
-				</Card>
-				<Card title={m.deployment_configuration_title()}>
-					<ConfigurationList settings={deployment.settings} />
-					<p class="footnote settings-note">
-						{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
+					<p>
+						{neverStarted
+							? m.deployment_staged_body()
+							: current === 'running' &&
+								  deployment.communicationEvidence.reason === 'no_control_check'
+								? m.device_next_no_control_check()
+								: nextStep[current]()}
 					</p>
-				</Card>
-			</div>
+					{#if deployment.requested === 'stopped' && secrets.length}
+						<p>
+							{m.stage_next_secrets({ variable: `nomad/jobs/driverhub-${deployment.nodeId}` })}
+							<code>{secrets.join(', ')}</code>
+						</p>
+					{/if}
+					{#if deployment.requiresOriginalStopped}
+						<Callout tone="warn" title={m.deployment_migration_title()}>
+							{m.deployment_migration_body()}
+						</Callout>
+					{/if}
+					{#if running}
+						<p class="footnote">
+							{deployment.backupImageClient
+								? m.deployment_copy_verified({ client: deployment.backupImageClient })
+								: m.deployment_copy_pending()}
+						</p>
+					{/if}
+				</div>
+			</Card>
+
+			<Card title={m.deployment_configuration_title()}>
+				{#snippet actions()}
+					{#if admin}
+						<Button size="sm" onclick={() => openAction('update', { configure: true })}>
+							{m.configure_edit()}
+						</Button>
+					{/if}
+				{/snippet}
+				<ConfigurationList settings={deployment.settings} />
+				<p class="footnote settings-note">
+					{m.deployment_configuration_note({ nodeId: deployment.nodeId })}
+				</p>
+			</Card>
+		</div>
+
+		<div class="column">
+			<Card title={m.device_videoipath_title()}>
+				<p>{m.device_videoipath_body()}</p>
+				<p class="node-id">
+					<code>{deployment.nodeId}</code>
+					<CopyButton value={deployment.nodeId} label={m.facts_copy_node_id()} />
+				</p>
+				<p class="footnote">{m.device_videoipath_note()}</p>
+			</Card>
+			<Card title={m.deployment_device_title()}>
+				<DeviceFacts {deployment} />
+			</Card>
+		</div>
+	</div>
+
+	<details class="diagnostics">
+		<summary>{m.deployment_diagnostics_summary()}</summary>
+		<div class="diagnostics-body">
+			<Card
+				title={m.deployment_status_title()}
+				description={m.deployment_status_description()}
+				flush
+			>
+				<StatusHops
+					nodeId={deployment.nodeId}
+					input={{
+						...detailStatusInput(deployment),
+						communicationEvidence: deployment.communicationEvidence
+					}}
+				/>
+			</Card>
+
+			<Card flush>
+				<Tabs
+					bind:value={tab}
+					label={m.deployment_diagnostics_label()}
+					tabs={[
+						{
+							value: 'allocations',
+							label: m.deployment_tab_allocations(),
+							count: deployment.allocations.length,
+							panel: allocationsPanel
+						},
+						{
+							value: 'history',
+							label: m.deployment_tab_history(),
+							count: history.data?.length,
+							panel: historyPanel
+						},
+						{
+							value: 'evaluations',
+							label: m.deployment_tab_evaluations(),
+							count: evaluations.data?.length,
+							panel: evaluationsPanel
+						}
+					]}
+				/>
+			</Card>
 		</div>
 	</details>
 	<LifecycleDialog
 		bind:open={actionOpen}
 		{action}
+		{configure}
 		{deployment}
 		{targets}
 		{published}
@@ -421,22 +480,59 @@
 {/if}
 
 <style>
-	.result {
+	.status {
 		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
+		flex-direction: column;
 		gap: var(--space-4);
 	}
-	.result p {
-		margin-top: var(--space-2);
+
+	.status p {
 		color: var(--text-2);
 	}
+
+	.status .headline {
+		color: var(--text);
+		font-size: var(--text-xl);
+		font-weight: var(--weight-bold);
+	}
+
+	[data-condition='connected'] .headline {
+		color: var(--ok);
+	}
+
+	[data-condition='check-failed'] .headline,
+	[data-condition='allocation-failed'] .headline {
+		color: var(--fail);
+	}
+
+	[data-condition='unavailable'] .headline {
+		color: var(--warn);
+	}
+
+	.node-id {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		margin: var(--space-3) 0;
+	}
+
+	.node-id code {
+		overflow-wrap: anywhere;
+		font-size: var(--text-md);
+	}
+
 	.diagnostics > summary {
 		cursor: pointer;
 		padding: var(--space-3) 0;
 		font-weight: var(--weight-semibold);
 	}
+
+	.diagnostics-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+	}
+
 	.back {
 		display: inline-flex;
 		align-items: center;
@@ -481,6 +577,10 @@
 	.footnote {
 		color: var(--text-3);
 		font-size: var(--text-sm);
+	}
+
+	.status .footnote {
+		color: var(--text-3);
 	}
 
 	.panel-note.footnote {
